@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Engineering process
+    url: https://github.com/ndabney562/world-simulator/blob/main/docs/process/README.md
+    about: Workflow, Definition of Done, testing policy, and review severities.

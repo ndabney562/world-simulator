@@ -84,7 +84,7 @@ world-simulator/
 
 ## 18.3 Branching and review workflow
 
-- `main` is always green once it exists. (The repository currently has only the architecture branch; creating `main` from the accepted proposal is the first step of the Technical Prototype.)
+- `main` is always green. It was created at the Architecture V1 freeze (PR #1); the full workflow is in [docs/process/](../process/README.md).
 - Work happens on short-lived branches with pull requests; each references the ADR or roadmap item it implements.
 - Architecture changes need an ADR PR first. ADRs and PRs that touch `ws-math`, `ws-events`, `ws-sim`, `ws-lod`, `ws-persist`, or `ws-ffi` get independent review by the other AI collaborator (Claude and ChatGPT), with Noah as final approver.
 - Reviews of proposals go in `docs/reviews/`.

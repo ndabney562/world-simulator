@@ -1,5 +1,12 @@
 # Architecture Proposal Changelog
 
+## Architecture V1 freeze (2026-10-14)
+
+Revision 4 (`fe2f3db`) was frozen as Architecture V1 and merged into `main` (PR #1). Later changes follow [docs/process/architecture-change-process.md](../process/architecture-change-process.md).
+
+- ADR 0013: geospatial and visual-provider work (Cesium, open data, Google) is a later Technical Prototype spike and does not block proof of the Rust → FFI → Unity → iPhone path. Note added to [20-mvp.md](20-mvp.md) §21.2.
+- [17-repository-structure.md](17-repository-structure.md) §18.3 and [21-decisions-now-vs-later.md](21-decisions-now-vs-later.md) §22.5 updated now that `main` exists.
+
 ## Revision 4 (2026-10-14): ChatGPT review
 
 Applied Noah's instructions based on ChatGPT's independent review. The central architecture is unchanged: Rust simulation core → Unity 6 / URP → Cesium where useful → iPhone.
