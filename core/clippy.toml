@@ -1,0 +1,8 @@
+# Simulation logic uses integer simulation time, never the wall clock
+# (docs/architecture/25-determinism-policy.md). A future crate that
+# legitimately needs the wall clock (for example a frame-budget timer in
+# ws-ffi) must allow the lint locally with a justification comment.
+disallowed-methods = [
+    { path = "std::time::SystemTime::now", reason = "simulation logic must not read the wall clock; use simulation ticks" },
+    { path = "std::time::Instant::now", reason = "simulation logic must not read the wall clock; use simulation ticks" },
+]
