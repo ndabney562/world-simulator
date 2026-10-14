@@ -1,0 +1,16 @@
+{
+    "name": "WorldSim.Rendering",
+    "rootNamespace": "WorldSim.Rendering",
+    "references": [
+        "WorldSim.Bridge"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,49 @@
+# Unity-generated folders (regenerated on open; never committed)
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uild/
+/[Bb]uilds/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# IDE and solution files Unity generates
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Crash and profiler output
+sysinfo.txt
+crashlytics-build.properties
+*.apk
+*.aab
+*.unitypackage
+
+# Native build outputs copied in by the Rust build (TP-003). The libraries are
+# build artifacts and are not committed; TP-003 decides how their .meta import
+# settings are kept.
+/[Aa]ssets/[Pp]lugins/**/*.a
+/[Aa]ssets/[Pp]lugins/**/*.dylib
+/[Aa]ssets/[Pp]lugins/**/*.so
+/[Aa]ssets/[Pp]lugins/**/*.dll
+/[Aa]ssets/[Pp]lugins/**/*.bundle/
+/[Aa]ssets/[Pp]lugins/**/*.xcframework/
+
+# Test Runner output
+/TestResults*.xml
+
+# macOS
+.DS_Store

@@ -1,0 +1,32 @@
+# Unity text assets: LF line endings, and merges through Unity's Smart Merge
+# (UnityYAMLMerge). Without the merge driver configured locally (see
+# README.md), git falls back to its normal text merge.
+*.unity      text eol=lf merge=unityyamlmerge
+*.prefab     text eol=lf merge=unityyamlmerge
+*.asset      text eol=lf merge=unityyamlmerge
+*.mat        text eol=lf merge=unityyamlmerge
+*.anim       text eol=lf merge=unityyamlmerge
+*.controller text eol=lf merge=unityyamlmerge
+*.physicMaterial text eol=lf merge=unityyamlmerge
+*.lighting   text eol=lf merge=unityyamlmerge
+*.meta       text eol=lf merge=unityyamlmerge
+
+# Other text
+*.cs         text eol=lf diff=csharp
+*.asmdef     text eol=lf
+*.asmref     text eol=lf
+*.json       text eol=lf
+*.md         text eol=lf
+*.txt        text eol=lf
+*.shader     text eol=lf
+*.hlsl       text eol=lf
+*.uss        text eol=lf
+*.uxml       text eol=lf
+
+# Binaries (none committed yet; no Git LFS, per ADR 0007)
+*.png  binary
+*.jpg  binary
+*.psd  binary
+*.fbx  binary
+*.wav  binary
+*.ogg  binary
