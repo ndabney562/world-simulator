@@ -1,0 +1,27 @@
+# Architecture Proposal Changelog
+
+## Revision 4 (2026-10-14): ChatGPT review
+
+Applied Noah's instructions based on ChatGPT's independent review. The central architecture is unchanged: Rust simulation core → Unity 6 / URP → Cesium where useful → iPhone.
+
+1. **Visual providers.** Google Photorealistic 3D Tiles are formalized as an optional visual backdrop behind a provider abstraction (open data, Google, NASA, future sources), never part of simulation state. New: [23-visual-providers.md](23-visual-providers.md); ADR 0008.
+2. **Stage progression.** Technical Prototype (MVP-0) → Vertical Slice (about one Bay Ridge block, 10–30 people, 3–5 buildings, one intervention, no visual polish) → Neighbourhood MVP (6–12 blocks, preserved) → City → Planet → Solar System. Rewritten: [19-roadmap.md](19-roadmap.md), [20-mvp.md](20-mvp.md); ADR 0009.
+3. **Determinism.** Strict cross-platform bit-identical determinism is now desirable, not a blocker; tiered policy. New: [25-determinism-policy.md](25-determinism-policy.md); ADR 0010.
+4. **World events and history.** A first-class event system. New: [24-world-events-and-causality.md](24-world-events-and-causality.md); ADR 0011.
+5. **Causal provenance.** A practical model of direct links, bounded provenance tags, aggregate attribution, and optional counterfactuals, with confidence classes. In [24](24-world-events-and-causality.md) and [13](13-god-interventions.md) §14.8; ADR 0012.
+6. **Consistency pass.** Removed leftovers of the fictional, stylized, custom-Metal design and the revision banners; rewrote affected sections so that each states the current design directly.
+
+Files rewritten in full: README, 01, 02, 03, 04, 06, 07, 08, 11, 14, 15, 17, 18, 19, 20, 21, 22, glossary.
+Files edited in place: 05 (event roll-up across levels), 09 (synthetic population calibration, event-based memory, provenance), 10 (reproducibility tiers, real data, ephemerides), 12 (event refinement during materialization, provenance), 13 (causal provenance section), 16 (event system as LLM context; zero cost).
+
+## Revision 3 (2026-10-14)
+
+Bay Ridge chosen as the first area; the stack (Rust core + Unity + Cesium) accepted; zero-cost policy. ADRs 0005–0007.
+
+## Revision 2 (2026-10-14)
+
+Noah's decisions: real Earth, realistic visuals, single-player, iPhone 15 Pro minimum. ADRs 0001–0004. Stack recommendation moved from a custom Swift/Metal front end to Unity + Cesium.
+
+## Revision 1 (2026-10-14)
+
+Initial proposal covering the 22 points of the brief.
