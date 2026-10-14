@@ -40,36 +40,28 @@ jobs:
         working-directory: core
     steps:
       - uses: actions/checkout@v4
-      - name: Detect Rust workspace
-        id: detect
-        working-directory: .
+      - name: Install pinned Rust toolchain
         shell: bash
         run: |
-          if [ -f core/Cargo.toml ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Rust checks not run::core/Cargo.toml does not exist yet. TP-001 creates the workspace and removes this skip."
-          fi
-      - name: Install Rust toolchain
-        if: steps.detect.outputs.present == 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+          channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
+          rustc --version
+          cargo --version
       - name: Cache cargo
-        if: steps.detect.outputs.present == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: core
       - name: Format
-        if: steps.detect.outputs.present == 'true'
         run: cargo fmt --all --check
       - name: Clippy
-        if: steps.detect.outputs.present == 'true'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Build
-        if: steps.detect.outputs.present == 'true'
         run: cargo build --workspace --all-targets --locked
       - name: Test
-        if: steps.detect.outputs.present == 'true'
         run: cargo test --workspace --locked
+      - name: Dependency direction
+        run: python3 ../scripts/check_core_deps.py
+      - name: Dependency check script tests
+        working-directory: .
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v

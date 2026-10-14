@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["crates/ws-sim"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+# Lints shared by every crate (each crate opts in with `[lints] workspace = true`).
+# CI runs clippy with `-D warnings`, so every warning below fails the build.
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Backed by `clippy.toml`: no wall-clock reads in simulation crates.
+disallowed_methods = "deny"
+
+[profile.release]
+# Integer overflow panics in every profile, so release builds cannot
+# silently wrap where debug builds would stop (determinism policy).
+overflow-checks = true

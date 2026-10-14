@@ -1,0 +1,12 @@
+[package]
+name = "ws-sim"
+version = "0.1.0"
+description = "World Simulator simulation core: the world and its tick loop."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
