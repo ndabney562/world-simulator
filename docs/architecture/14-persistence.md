@@ -1,5 +1,7 @@
 # 15. Persistence and Save Architecture
 
+> **Revision 2 (2026-10-14):** Saves now also record the **dataset version**. Photoreal visuals need a network connection, while the simulation still runs offline, and a CDN serves the processed open-data tiles. See [22 §R.7](22-real-earth-and-realism.md#r7-revised-persistence-and-connectivity).
+
 Covers point 15.
 
 ## 15.1 What a save contains

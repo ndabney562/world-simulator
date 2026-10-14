@@ -1,5 +1,7 @@
 # 16. Performance and Memory Strategy for Modern iPhones
 
+> **Revision 2 (2026-10-14):** Budgets now also need to cover Cesium tile streaming and Unity's runtime overhead. Both are measured in the Phase 0 spike on an iPhone 15 Pro. See [22](22-real-earth-and-realism.md).
+
 Covers point 16.
 
 ## 16.1 Target devices (proposal; decision D-9)

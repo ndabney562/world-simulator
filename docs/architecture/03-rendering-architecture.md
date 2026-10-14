@@ -1,5 +1,7 @@
 # 4. Rendering Architecture
 
+> **Revision 2 (2026-10-14):** The world is now real Earth with a realistic look, so rendering is a **hybrid**: Google Photorealistic 3D Tiles for the backdrop and our own semantic geometry near the camera. It runs on Unity and Cesium rather than custom Metal. See [22 §R.4](22-real-earth-and-realism.md#r4-revised-rendering-approach-hybrid). The snapshot interface, camera-relative coordinates, budgets, and LOD principles below still apply. The "stylized" and Metal-specific parts are superseded.
+
 Covers point 4. Rendering LOD specifically is in [06](06-rendering-lod.md).
 
 ## 4.1 Principles

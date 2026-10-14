@@ -1,6 +1,6 @@
 # World Simulator — Technical Architecture Proposal
 
-Status: **Proposal, for review** (no implementation yet)
+Status: **Proposal, for review** (no implementation yet). **Revision 2 (2026-10-14):** updated for Noah's decisions (real Earth, realistic look, single-player, iPhone 15 Pro minimum); see [22-real-earth-and-realism.md](22-real-earth-and-realism.md) and [`docs/adr/`](../adr/).
 Author: Claude (Anthropic), for Noah
 Date: 2026-10-14
 Intended reviewers: Noah, ChatGPT (independent review)
@@ -34,6 +34,7 @@ Each file maps to one or two of the 22 points in the brief, so a reviewer can ch
 | 20 | Phased roadmap | [19-roadmap.md](19-roadmap.md) |
 | 21 | First playable MVP | [20-mvp.md](20-mvp.md) |
 | 22 | Decide now vs. postpone | [21-decisions-now-vs-later.md](21-decisions-now-vs-later.md) |
+| — | **Revision 2: real Earth, Google data, realistic visuals, revised stack** | [22-real-earth-and-realism.md](22-real-earth-and-realism.md) |
 | — | Glossary of terms used across the documents | [glossary.md](glossary.md) |
 
 ## Important caveat: inputs this proposal was based on
@@ -50,15 +51,15 @@ The brief asked for the complete Project Instructions to be read first. **No Pro
 | A2 | Primary platform is modern iPhone; other platforms are secondary. | Drives the stack, the memory budget and the renderer. |
 | A3 | The player is an observer/"god" who can move the camera continuously from a single street to the whole solar system and intervene at any scale. | Drives the LOD, materialization and intervention design. |
 | A4 | The world is populated by NPCs living plausible daily lives (homes, work, relationships), not just scenery. | Drives the agent architecture and the cost model. |
-| A5 | The world is fictional and procedurally generated (a procedurally generated Earth-like planet in a procedurally generated or stylized solar system), not a 1:1 replica of real Earth. | Real-Earth data is a different project; see [01](01-hard-problems.md) and decision D-11. |
-| A6 | Visual fidelity is secondary to simulation depth and scale continuity. | Lets us commit to a stylized art direction, which is essential on iPhone at these scales. |
+| A5 | ~~The world is fictional and procedurally generated.~~ **Revised: real Earth** (Noah, 2026-10-14). Real geography from open data, Google 3D Tiles as the visual backdrop, synthetic people. | See [22](22-real-earth-and-realism.md), ADR 0001. |
+| A6 | ~~Stylized art direction.~~ **Revised: realistic look preferred** (Noah, 2026-10-14). Simulation depth still comes first where the two conflict. | See [22 §R.4](22-real-earth-and-realism.md), ADR 0002. |
 | A7 | Development is done largely with AI collaborators (Claude, ChatGPT) working in Linux containers that cannot run Xcode, plus Noah on a Mac for device builds. | Strongly favours a headless, Linux-testable simulation core. |
 
 ## Executive summary
 
 **The core insight.** "Continuous scale from street to solar system" is not one simulation running at all scales. It is a hierarchy of *different* simulations, each valid at its own scale, plus a disciplined contract for moving information up (aggregation) and down (materialization) between them. The world is only ever fully detailed where someone is looking or where something important is happening. Everything else is statistics, schedules, and deterministic procedural generation that can re-create plausible detail on demand. Getting that contract right is the project; rendering and content are comparatively well-understood problems.
 
-**Recommended stack (point 3).** A custom, headless, deterministic **simulation core in Rust** (a Cargo workspace that builds and runs its full test suite on Linux and macOS), embedded in a **native iOS app written in Swift with a Metal renderer**. The core knows nothing about rendering; the renderer only consumes per-frame snapshots. This gives full control over the three things off-the-shelf engines handle poorly for this project: multi-scale coordinates, simulation LOD, and determinism. It also lets the AI collaborators build and test most of the system in their Linux environments. The main cost is that we must build our own renderer, tools and asset pipeline, which is why the proposal commits to a stylized look and keeps the core engine-agnostic so a Unity front end remains a fallback.
+**Recommended stack (point 3), revised.** After the real-Earth and realism decisions, the recommendation is the **headless Rust core unchanged, with Unity (URP) plus Cesium for Unity as the iOS front end**, streaming Google Photorealistic 3D Tiles as the backdrop ([22 §R.5](22-real-earth-and-realism.md)). The original recommendation follows for reference: a custom, headless, deterministic **simulation core in Rust** (a Cargo workspace that builds and runs its full test suite on Linux and macOS), embedded in a **native iOS app written in Swift with a Metal renderer**. The core knows nothing about rendering; the renderer only consumes per-frame snapshots. This gives full control over the three things off-the-shelf engines handle poorly for this project: multi-scale coordinates, simulation LOD, and determinism. It also lets the AI collaborators build and test most of the system in their Linux environments. The main cost is that we must build our own renderer, tools and asset pipeline, which is why the proposal commits to a stylized look and keeps the core engine-agnostic so a Unity front end remains a fallback.
 
 **Foundational decisions proposed now** (detail in [21](21-decisions-now-vs-later.md)):
 
@@ -68,6 +69,7 @@ The brief asked for the complete Project Instructions to be read first. **No Pro
 4. Every state mutation, from player and interventions alike (and eventually LLM suggestions), is a command recorded in a journal, which makes saves, replay, undo and debugging the same mechanism.
 5. A formal aggregation / disaggregation contract between simulation LOD levels, with conservation tests.
 6. Stable, deterministic entity identity so that the same person reappears when you zoom back in.
-7. A stylized art direction and a minimum device target (proposed: A17 Pro / iPhone 15 Pro class and newer, 8 GB RAM).
+7. ~~A stylized art direction~~ A realistic, hybrid look (Google tiles plus our own near-field geometry), and a minimum device target of the iPhone 15 Pro (confirmed).
+8. Google data is used for **display only**. Simulation data comes from open datasets (OSM/Overture, Copernicus DEM, GHSL), because Google's terms prohibit deriving data from its tiles.
 
-**Recommended MVP (point 21).** "One living neighborhood": a few procedurally generated city blocks, a few hundred NPCs with daily schedules, a camera that goes from street level to a few kilometres up, two simulation LOD levels with real materialization/dematerialization, three god interventions, time controls, an inspector, and save/load. It is small in content but exercises every architectural spine the later phases depend on.
+**Recommended MVP (point 21).** "One living neighborhood", now **a real neighbourhood Noah chooses**, shown over Google 3D Tiles: a few city blocks, a few hundred NPCs with daily schedules, a camera that goes from street level to a few kilometres up, two simulation LOD levels with real materialization/dematerialization, three god interventions, time controls, an inspector, and save/load. It is small in content but exercises every architectural spine the later phases depend on.

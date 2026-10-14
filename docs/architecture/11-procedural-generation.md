@@ -1,5 +1,7 @@
 # 12. Procedural Generation Strategy
 
+> **Revision 2 (2026-10-14):** With real Earth, the macro and layout stages below (system, planet, terrain, settlements, roads, footprints) are replaced by **real open data** (OpenStreetMap/Overture, Copernicus DEM, GHSL/WorldPop). Procedural generation remains for everything the data does not contain: people, households, schedules, interiors, building use, and missing details. Google data cannot be used as simulation input. See [22 §R.2–R.3](22-real-earth-and-realism.md#r2-open-data-for-the-simulation-layer).
+
 Covers point 12.
 
 ## 12.1 Requirements

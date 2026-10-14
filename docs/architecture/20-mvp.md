@@ -1,5 +1,7 @@
 # 21. First Playable MVP
 
+> **Revision 2 (2026-10-14):** The MVP now uses **one real neighbourhood chosen by Noah**, with a Google 3D Tiles backdrop, near-field buildings built from OSM data, and a synthetic population. Everything else below stands. See [22 §R.8](22-real-earth-and-realism.md#r8-revised-mvp).
+
 Covers point 21. This is the deliverable of Phase 2 in [19](19-roadmap.md).
 
 ## 21.1 Principle

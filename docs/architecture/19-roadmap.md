@@ -1,5 +1,7 @@
 # 20. Phased Development Roadmap
 
+> **Revision 2 (2026-10-14):** The phases are unchanged, but each one now includes real-data work, and Phase 0 adds Unity/Cesium/Google-tiles spikes. See [22 §R.9](22-real-earth-and-realism.md#r9-updated-roadmap-notes).
+
 Covers point 20: from the first technical prototype through neighbourhood, city, planetary and solar-system simulation.
 
 Each phase has **exit criteria**. A phase is done when its criteria are met on real hardware, not when its features exist. Durations are deliberately not given; effort is shown relatively, and the plan should be re-estimated after Phase 1 with real data.

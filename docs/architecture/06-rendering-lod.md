@@ -1,5 +1,7 @@
 # 7. Rendering LOD Architecture
 
+> **Revision 2 (2026-10-14):** In the planet, region, and city bands, Google Photorealistic 3D Tiles (streamed and selected by Cesium) replace the procedural terrain and building HLOD described below. Screen-space-error selection, crowd and vehicle LOD, visual proxies, and budgets still apply. See [22 §R.4](22-real-earth-and-realism.md#r4-revised-rendering-approach-hybrid).
+
 Covers point 7. See [03](03-rendering-architecture.md) for the overall renderer and [05](05-simulation-lod.md) for simulation LOD.
 
 ## 7.1 Selection metric

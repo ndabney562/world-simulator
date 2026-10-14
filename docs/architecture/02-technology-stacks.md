@@ -1,5 +1,7 @@
 # 2–3. Technology Stacks and Recommendation
 
+> **Revision 2 (2026-10-14):** The recommendation below has been **revised**. Because Noah chose real Earth and a realistic look, the front end is now **Unity (URP) plus Cesium for Unity**, and the Rust core is unchanged. See [22 §R.5](22-real-earth-and-realism.md#r5-revised-stack-recommendation). The analysis below is kept for reference.
+
 Covers points 2 (2–3 viable stacks with pros and cons) and 3 (recommended stack, with emphasis on iPhone performance and deployment).
 
 ## 2.1 What the stack must do well, in priority order

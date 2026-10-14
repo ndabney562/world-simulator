@@ -1,5 +1,7 @@
 # 8. Coordinate System (and Time Representation)
 
+> **Revision 2 (2026-10-14):** For real Earth, the body-fixed frame is **ECEF on the WGS84 ellipsoid** rather than a sphere, heights are ellipsoidal (DEM geoid heights are converted), and time and ephemerides are real. The frame hierarchy and precision strategy below are unchanged. See [22 §R.6](22-real-earth-and-realism.md#r6-revised-coordinate-details).
+
 Covers point 8: a coordinate system that supports meter-scale interactions and astronomical distances. Time is included because it has the same multi-scale problem.
 
 ## 8.1 The numbers that drive the design
