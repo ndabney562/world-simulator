@@ -20,7 +20,7 @@ Each stage is a **vertical slice of the architecture, not of the content**. They
 | Journal and event log | Commands journaled; events with IDs and causal links; queried by a test |
 | LOD round trip | Headless L1 ⇄ L2 transitions with conservation checks |
 | Persistence | Save and load of the toy world; schema version present |
-| Provider abstraction | Open-data provider and a quota-capped Google provider switchable at runtime, with the core state hash unchanged |
+| Provider abstraction | Open-data provider and a quota-capped Google provider switchable at runtime, with the core state hash unchanged. Delivered by a separate spike that does not gate the core path (ADR 0013) |
 
 Not in scope: real buildings, real population calibration, gameplay, visual quality.
 

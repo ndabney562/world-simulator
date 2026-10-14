@@ -73,5 +73,5 @@ The test for "decide now": **would changing this later force a rewrite of large 
 ## 22.5 Open questions for Noah
 
 1. Exact Neighbourhood MVP bounds (proposed: around 3rd–5th Avenue and 75th–86th Street).
-2. Whether to create a `main` branch from the accepted proposal at the start of the Technical Prototype (recommended), so that later work can use pull requests.
+2. ~~Whether to create a `main` branch~~ Resolved: `main` was created at the Architecture V1 freeze (PR #1).
 3. Committing the Project Instructions to `docs/vision/`, so that both AI reviewers work from the same text.

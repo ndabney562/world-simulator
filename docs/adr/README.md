@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted / Superseded), Context, Decision, and Consequences. Changes to an accepted decision get a new ADR that supersedes the old one.
+One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted / Superseded), Context, Decision, and Consequences. Changes to an accepted decision get a new ADR that supersedes the old one. Start from [0000-template.md](0000-template.md); the process is in [docs/process/architecture-change-process.md](../process/architecture-change-process.md).
 
 | ADR | Decision | Status |
 |---|---|---|
@@ -16,3 +16,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0010](0010-tiered-determinism.md) | Tiered reproducibility instead of strict cross-platform determinism | Accepted |
 | [0011](0011-world-event-history-system.md) | First-class world event and history system | Accepted |
 | [0012](0012-causal-provenance.md) | Practical causal provenance | Accepted |
+| [0013](0013-technical-prototype-core-path-first.md) | Technical Prototype proves the core path before visual providers | Accepted |
