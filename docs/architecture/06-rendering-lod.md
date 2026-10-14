@@ -1,79 +1,70 @@
 # 7. Rendering LOD Architecture
 
-> **Revision 2 (2026-10-14):** In the planet, region, and city bands, Google Photorealistic 3D Tiles (streamed and selected by Cesium) replace the procedural terrain and building HLOD described below. Screen-space-error selection, crowd and vehicle LOD, visual proxies, and budgets still apply. See [22 §R.4](22-real-earth-and-realism.md#r4-revised-rendering-approach-hybrid).
-
-Covers point 7. See [03](03-rendering-architecture.md) for the overall renderer and [05](05-simulation-lod.md) for simulation LOD.
+Covers point 7. See [03](03-rendering-architecture.md) for the overall front end, [23](23-visual-providers.md) for backdrop providers, and [05](05-simulation-lod.md) for simulation LOD.
 
 ## 7.1 Selection metric
 
-Rendering LOD is driven by **projected screen-space error** (how many pixels of error a representation would introduce), not by fixed distances. This works identically at every scale: a 10 m building and a 1,000 km continent are both handled by "is the coarser version within N pixels of the finer one?". A global quality factor scales N with the device's thermal state and the frame-time budget.
+Rendering LOD is driven by **projected screen-space error**: how many pixels of error a representation would introduce. This works the same at every scale, and it is also how Cesium selects 3D Tiles. A global quality factor scales the error threshold with the device's thermal state and the frame-time budget.
 
 ## 7.2 Scale bands
 
-Bands are not hard modes; they are configuration describing which representations exist and which systems are active. Transitions between bands are blended.
+Bands are configuration, not hard modes: they say which representations and providers are active. Transitions between bands are blended.
 
-| Band | Camera altitude (approx.) | What is drawn |
-|---|---|---|
-| Street | 0–200 m | Full meshes, skinned/animated people, props, decals, interiors if visible, near shadows |
-| Neighbourhood | 200 m–3 km | Building meshes (simplified), instanced people with vertex animation, cars, trees |
-| City | 3–50 km | Merged block meshes (HLOD), people and cars as point sprites or flow-line shaders driven by aggregates, road network as textured strips |
-| Region | 50–1,000 km | Terrain tiles, settlement footprints as textured overlays, night light maps, clouds, rivers |
-| Planet | 1,000 km–1 million km | Planet sphere with procedural surface textures, atmosphere, cloud layer, city lights; moons |
-| System | Beyond | Bodies as spheres or sprites with minimum on-screen size, orbit lines, labels; star field |
+| Band | Camera altitude (approx.) | Backdrop (providers) | Simulation-owned content |
+|---|---|---|---|
+| Street | 0–200 m | Open-data near field (our geometry); Google clipped out | Full building meshes, animated people, props, effects |
+| Neighbourhood | 200 m–3 km | Open-data tiles; optional Google beyond ~1 km | Simplified buildings where changed; instanced people; overlays |
+| City | 3–50 km | Open-data tiles or optional Google | Visual proxies (crowd density, traffic flow), changed areas, events (fire, flood) |
+| Region | 50–1,000 km | Open-data terrain plus imagery | Settlement-scale overlays, weather |
+| Planet | 1,000 km–1 million km | NASA day and night imagery on the globe; clouds; atmosphere | Planet-scale overlays (storms, impacts) |
+| System | Beyond | NASA planetary imagery; star field | Bodies at minimum on-screen size, orbit lines, labels |
 
-## 7.3 Representations per content type
+## 7.3 Representations of simulation-owned content
 
-**Terrain and planet surface.** A cube-sphere: six faces, each a quadtree of tiles (the same cell hierarchy used for simulation addressing, see [07](07-coordinates-and-time.md)). Tiles are selected by screen-space error (in the style of chunked LOD / CDLOD), with **geomorphing** (vertices blend between levels) to avoid popping. Far away, the planet is a single sphere mesh with baked tile textures; there is no separate "planet model", just the top of the same quadtree.
+**Buildings** (from the same descriptor: real footprint and massing plus generated facade):
+1. A full mesh with facade detail (and an interior when relevant).
+2. A simplified mesh: real massing with a facade texture or shader.
+3. Block-level merged meshes (hierarchical LOD).
+4. Beyond the neighbourhood band, the backdrop provider shows buildings. Simulation-owned buildings are drawn only where the simulation changed them (damaged, demolished, new), with exclusion zones hiding the provider's version.
 
-**Buildings.** Four representations, generated from the same procedural descriptor:
-1. Full mesh with window and door detail (and interior when relevant).
-2. Simplified mesh (box-and-roof plus facade texture or shader pattern).
-3. **Hierarchical LOD (HLOD):** all buildings in a block merged into one mesh; then a district merged into one low-poly mesh.
-4. Surface texture and height-map contribution at region scale; night-time light map at planet scale.
+**People:**
+1. Skinned, realistic characters with full animation (tens, near the camera).
+2. Instanced meshes with baked or vertex animation (hundreds to low thousands).
+3. Point sprites or tiny impostors (thousands to tens of thousands).
+4. Density fields: crowd texture drawn from aggregate density, with no individual positions.
 
-**People.** Four representations:
-1. Skinned mesh with full animation (only tens, near the camera).
-2. Instanced mesh with vertex-animation textures (hundreds to low thousands).
-3. Point sprites or tiny impostors (thousands to tens of thousands), positions from simulation or from visual proxies.
-4. Density field: a shader that draws crowd texture from an aggregate density map; no individual positions at all.
+**Vehicles** (City stage on): meshes, then instanced simple meshes, then flow shading on roads driven by aggregate volumes.
 
-**Vehicles.** Same pattern as people: meshes, then instanced simple meshes, then flow-line shading on roads driven by aggregate traffic volumes.
+**Vegetation:** instanced meshes, then impostor cards, then imagery colour.
 
-**Vegetation.** Instanced meshes, then impostor cards, then biome colour on terrain.
+**Celestial bodies:** below a few pixels, bodies are drawn as sprites with a minimum size, plus optional orbit lines and labels. This is a deliberate presentation compromise, because at true scale they would be invisible from most places in the solar system.
 
-**Celestial bodies.** When the projected size falls below a few pixels, bodies are drawn as sprites with a minimum size, plus optional orbit lines and labels, because realistic scale makes planets invisible from almost anywhere in the solar system. (This is a deliberate presentation compromise.)
+## 7.4 Visual proxies: drawing what is not simulated individually
 
-## 7.4 Visual proxies: drawing what is not simulated
-
-When the simulation is at L3 or coarser for a node (see [05](05-simulation-lod.md)), there are no individuals to draw. The core provides **visual proxies** derived from aggregates:
-- Density per cell and time of day, flows per road segment, activity per building (lit windows, smoke, construction).
-- A deterministic seed per proxy so the renderer can scatter people or cars that look consistent frame to frame.
-
-Proxies are explicitly decorative: tapping one asks the core to materialize the underlying entity ([12](12-materialization.md)). This is what lets a city at night look alive from 10 km up without simulating a million people individually.
+When the simulation is at L3 or coarser for an area ([05](05-simulation-lod.md)), the core supplies **visual proxies** derived from aggregates: density per cell and time of day, flows per road or sidewalk segment, and activity per building (lit windows at night). Each comes with a deterministic seed, so scattered crowds look the same from frame to frame. Proxies are decorative; tapping one asks the core to materialize the underlying entity ([12](12-materialization.md)).
 
 ## 7.5 Transitions
 
-- **Dithered cross-fades** between representations over a short duration (temporal and screen-door dither, cheap on tile GPUs and compatible with temporal upscaling).
-- **Geomorphing** for terrain.
-- **Hysteresis** on switch thresholds, as for simulation LOD.
-- **Atmosphere and depth-of-field** help hide transitions in the city and region bands.
-- Mismatch between rendering and simulation transitions is expected; the rule is that rendering never shows *fewer* individuals than are simulated near the camera, and proxies fade out as real individuals are materialized.
+- Dithered cross-fades between representations.
+- Cesium's own refinement for backdrop tiles.
+- Hysteresis on switch thresholds, as for simulation LOD.
+- Atmosphere and aerial perspective hide transitions in the city and region bands.
+- **The rule:** rendering never shows *fewer* individuals than are simulated near the camera, and proxies fade out as real individuals are materialized.
+- Switching the backdrop provider ([23](23-visual-providers.md)) uses a short cross-fade and never affects simulation content.
 
 ## 7.6 Streaming and residency
 
-- Every representation is a cacheable GPU resource with a known size, tracked by a residency manager with per-category memory budgets (terrain, buildings, characters, textures).
-- Requests are prioritised by screen-space error reduction per byte and by predicted camera motion (during a fast zoom, prefetch the next coarser or finer band along the zoom direction).
-- Eviction is least-recently-visible within budget. Because everything is procedurally regenerable, eviction never loses data.
+- Every representation is a cacheable GPU resource of known size, tracked against per-category budgets (backdrop tiles, simulation buildings, characters, textures).
+- Requests are prioritised by screen-space error reduction per byte and by predicted camera motion: during a fast zoom, the next coarser or finer band is prefetched.
+- Eviction is least-recently-visible. Simulation geometry is regenerable from data and core state. Backdrop tiles follow each provider's caching rules (Google tiles are never kept beyond its terms).
 
-## 7.7 Budgets (initial targets, to be validated on device in Phase 1)
+## 7.7 Budgets (initial targets, validated on an iPhone 15 Pro during the Technical Prototype)
 
 | Budget | Target |
 |---|---|
-| Frame time (GPU) | ≤ 25 ms at 30 fps sustained; 60 fps where thermals allow |
-| Draw calls per frame | Low hundreds (instancing and HLOD) |
-| Animated skinned characters | ≤ 50 |
-| Vertex-animated instanced characters | ≤ 2,000 |
+| GPU frame time | ≤ 25 ms at 30 fps sustained; 60 fps where thermals allow |
+| Draw calls | Low hundreds, via instancing and merging |
+| Skinned realistic characters | ≤ 30–50 |
+| Instanced animated characters | ≤ 2,000 |
 | Point-sprite people | ≤ 50,000 |
-| GPU resident memory for world content | ~600–800 MB on an 8 GB device (see [15](15-ios-performance-memory.md)) |
-
-These numbers are starting hypotheses; Phase 1 measures them on real hardware and the budgets become ADRs.
+| GPU memory for world content (backdrop + simulation) | ~600–800 MB ([15](15-ios-performance-memory.md)) |

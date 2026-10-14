@@ -1,75 +1,80 @@
 # 4. Rendering Architecture
 
-> **Revision 2 (2026-10-14):** The world is now real Earth with a realistic look, so rendering is a **hybrid**: Google Photorealistic 3D Tiles for the backdrop and our own semantic geometry near the camera. It runs on Unity and Cesium rather than custom Metal. See [22 §R.4](22-real-earth-and-realism.md#r4-revised-rendering-approach-hybrid). The snapshot interface, camera-relative coordinates, budgets, and LOD principles below still apply. The "stylized" and Metal-specific parts are superseded.
-
-Covers point 4. Rendering LOD specifically is in [06](06-rendering-lod.md).
+Covers point 4. Rendering LOD specifically is in [06](06-rendering-lod.md); visual providers in [23](23-visual-providers.md).
 
 ## 4.1 Principles
 
-1. **The renderer is a consumer, never an owner, of world state.** It reads immutable snapshots produced by the core and holds only GPU-side caches (meshes, textures, instance buffers) that can be thrown away and rebuilt at any time.
-2. **The GPU never sees absolute coordinates.** All positions sent to the GPU are 32-bit floats relative to the camera (or to a nearby render origin), computed on the CPU from 64-bit frame-relative positions. See [07](07-coordinates-and-time.md).
-3. **Stylized and budget-first.** Every pass has a fixed millisecond and memory budget; quality scales down before frame rate does.
-4. **Designed for Apple's tile-based GPUs.** Use memoryless attachments, minimise render-pass switches and bandwidth, prefer forward+ over fat G-buffers.
-5. **Scale-independent pipeline.** The same pipeline renders a street, a city from a plane, and a planet from orbit; what changes is which representations are submitted, not the pipeline.
+1. **The front end is a consumer, never an owner, of world state.** Unity reads immutable snapshots produced by the Rust core. It holds only GPU-side caches (meshes, textures, instance buffers) that can be thrown away and rebuilt at any time.
+2. **The GPU never sees absolute coordinates.** Positions reach the GPU as 32-bit values relative to the camera or to a nearby origin. The core computes them from 64-bit frame-relative positions, and Cesium's georeference handles origin shifting for 3D Tiles ([07](07-coordinates-and-time.md)).
+3. **Realistic, within a budget.** Realism comes from real data (real massing, real terrain, aerial imagery, real sun position) plus physically based materials and lighting. Every pass has a fixed millisecond and memory budget, and quality scales down before frame rate does.
+4. **Backdrop and simulation are separate layers.** Visual providers draw the backdrop; our own code draws everything the simulation owns ([23](23-visual-providers.md)).
+5. **Scale-independent pipeline.** The same pipeline renders a street, a city, and a planet; what changes is which representations and providers are active.
 
 ## 4.2 Threading and data flow
 
 ```
- Core (Rust)                               iOS app (Swift / Metal)
- ─────────────                             ───────────────────────
- sim tick N  ──► builds RenderSnapshot N ──► triple-buffered snapshot ring
-                 (camera-relative later)        │
-                                                ▼
-                                   Frame: interpolate N-1 → N for smooth motion
-                                   Visibility & LOD selection (CPU, then GPU compute)
-                                   Encode command buffers ──► GPU
+ Rust core                                   Unity 6 / URP (C#)
+ ─────────                                   ──────────────────
+ sim tick N ──► RenderSnapshot N ──────────► triple-buffered snapshot ring
+               (simulation geometry,            │
+                exclusion zones, overlays,      ▼
+                camera-relative transforms)  Frame: interpolate N-1 → N
+                                             Provider manager: backdrop tiles (Cesium)
+                                             Simulation layer: instanced meshes, effects
+                                             URP render ──► GPU
 ```
 
-- The simulation tick rate (for example 10–20 Hz for active agents) is decoupled from the display rate (30, 60, or 120 Hz with ProMotion). The renderer interpolates positions between the last two snapshots so motion is smooth at any display rate.
-- A **RenderSnapshot** is a compact, versioned description of what is visible: camera and frame chain, terrain tile requests, building instance descriptors, agent instance arrays (position, heading, animation state, appearance seed), aggregate visualizations (density fields, traffic flows, city light maps), celestial bodies, weather and lighting parameters.
-- To avoid copies on unified memory, the Swift side allocates shared-storage `MTLBuffer`s and passes raw pointers to the core, which fills instance data directly. Ownership rules (which buffer the GPU is reading) are enforced by the triple-buffer ring.
-- Procedural mesh generation (buildings, terrain tiles) runs on background job threads in the core and hands finished vertex/index data to the renderer, which uploads it asynchronously. A missing mesh is drawn with a placeholder (lower LOD or impostor), never blocking the frame.
+- The simulation tick rate (for example 10–20 Hz for active agents) is decoupled from the display rate (30 or 60 Hz, with ProMotion used for UI and camera). Unity interpolates between the last two snapshots.
+- The **RenderSnapshot** is a compact, versioned description of what the simulation wants drawn: camera and frame chain, simulation-owned building descriptors and changes, agent instance arrays (position, heading, animation state, appearance seed), visual proxies for aggregate areas (density, flows), exclusion zones and overlays for providers, and weather and lighting parameters.
+- To avoid copies, Unity allocates native buffers (for example `NativeArray`s backing compute or graphics buffers) and passes pointers to the core, which fills instance data directly. Buffer ownership follows the triple-buffer ring.
+- Mesh generation for simulation geometry (buildings from footprints and massing, terrain patches) runs on background job threads in the core and is uploaded asynchronously by Unity. A missing mesh is drawn with a placeholder (a lower LOD, or the provider's backdrop), never blocking the frame.
 
-## 4.3 Frame structure (initial)
+## 4.3 Layers
 
-A **forward+ (clustered) renderer**, chosen over deferred because it is simpler, works well with Apple's tile memory, handles many small lights (street lamps, windows at night) via light clustering, and keeps bandwidth low.
-
-Passes, in order:
-
-1. **Depth-range partitioning.** The scene is split into depth layers, each with its own near/far planes, rendered far-to-near and composited: (a) sky, stars and distant celestial bodies; (b) planet-scale layer (terrain, oceans, clouds, atmosphere); (c) near layer (buildings, people, vehicles, props). Each layer uses **reversed-Z with a 32-bit float depth buffer**, which on its own gives excellent precision over a wide range. With layering, depth precision is never a limiting factor at any zoom level. Logarithmic depth was considered but breaks early-Z and hardware depth optimisations on tile-based GPUs, so it is not the default.
-2. **Shadow pass**: a small cascaded shadow map (2–3 cascades) only for the near layer; at planet scale, terrain self-shadowing comes from precomputed horizon or ambient terms.
-3. **Light culling**: compute pass assigning lights to clusters.
-4. **Opaque pass**: terrain, buildings, characters (GPU-instanced), props.
-5. **Atmosphere and aerial perspective**: physically based but precomputed scattering lookup tables (in the style of Bruneton or Hillaire), which give a consistent look from street level through to orbit. This is one of the main tools that makes scale transitions feel continuous.
-6. **Transparent pass**: water, glass, particles (rain, smoke, fire), clouds (layered impostor or raymarched at low resolution and upscaled).
-7. **Post-processing**: tone mapping, a stylized colour grade, bloom for city lights, optional depth-of-field for "tilt-shift" at neighbourhood scale (which also hides LOD transitions).
-8. **Upscale**: render at dynamic internal resolution and upscale with **MetalFX** (temporal where it is supported and stable, spatial otherwise).
-9. **UI**: SwiftUI/UIKit overlay for menus and inspectors; in-world labels (names, statistics) rendered by the Metal pass for performance.
-
-## 4.4 Geometry sources
-
-| Content | Source | Notes |
+| Layer | Drawn by | Content |
 |---|---|---|
-| Terrain | Procedural heightfield tiles on a cube-sphere quadtree | Generated by the core on demand (possibly GPU compute later), cached per tile. |
-| Water | Sea level plus procedural rivers and lakes | Stylized shader; no fluid simulation. |
-| Roads | Procedural road graph to mesh strips | Generated per city cell. |
-| Buildings | Procedural grammar from parcel, zoning and style seed | Assembled from a small library of modular parts (walls, roofs, windows) plus generated footprints; merged per block for distant LODs. |
-| Interiors | Generated on demand only when entered or looked into | Not needed for the MVP. |
-| People | A few base meshes plus appearance parameters (proportions, colours, clothing variants) | GPU instancing; animation via vertex-animation textures for crowds, skinned meshes only near the camera. |
-| Vehicles | Small library of modular meshes | Instanced. |
-| Vegetation | Instanced meshes near; impostor cards mid; texture tint far | Density from biome data. |
-| Celestial bodies | Sphere meshes with procedural or baked textures | Planet surfaces transition into the terrain system when approached. |
+| Sky and space | Unity + NASA imagery provider | Sun, moon, stars, planets (by ephemeris) |
+| Backdrop | Provider manager (Cesium 3D Tiles and imagery) | Open-data visual tiles by default; optional Google Photorealistic 3D Tiles at distance; NASA imagery from orbit |
+| Simulation geometry | Our Unity code from snapshots | Buildings the simulation owns near the camera and wherever changed; terrain patches; props |
+| Agents | Our Unity code from snapshots | People and vehicles (instanced) |
+| Overlays and effects | Our Unity code from snapshots | Fire, smoke, water, rain, density and flow visualizations, selection |
+| UI | Unity UI Toolkit | Inspector, history, time controls, attribution line |
 
-Authored assets are deliberately few: a modular kit of parts plus shaders. Procedural generation provides the variety, which keeps the app small and the content consistent with the simulation.
+Depth precision across scales comes from Unity's reversed-Z depth, Cesium's origin shifting, and camera near/far planes adjusted per scale band. At planet and system scale, distant bodies are drawn in a separate camera pass with its own near and far planes.
 
-## 4.5 Renderer–simulation interface contract
+## 4.4 Frame structure (URP)
 
-- The renderer may **request** detail (for example "the camera is looking at cell X at this resolution"). Requests are hints to the core's interest system; they never directly create entities.
-- The core decides what is materialized (simulation LOD) and the renderer decides how to draw whatever exists (rendering LOD). Where the simulation holds only aggregates, the core provides **visual proxies**: density fields, flow lines, and seeds that let the renderer draw plausible crowds or traffic without simulated individuals behind them. See [06](06-rendering-lod.md).
-- Picking (tapping a person or building) goes through the core: the renderer returns a ray in frame coordinates, the core resolves it against its own spatial index and returns a stable entity ID. If the tap lands on a visual proxy, the core materializes the entity on demand (see [12](12-materialization.md)).
+1. Shadow maps: a small cascade count, near field only.
+2. Opaque pass: backdrop tiles, simulation buildings, agents (GPU instanced), props.
+3. Sky and atmosphere: physically based sky and aerial perspective, consistent from street level to orbit, which is one of the main tools for making scale transitions feel continuous.
+4. Transparent pass: water, glass, particles (rain, smoke, fire), clouds.
+5. Post-processing: tone mapping, a restrained colour grade, bloom for night lighting.
+6. Upscaling: dynamic resolution with URP's upscaling options (evaluated on device in the Technical Prototype).
+7. UI overlay, including the combined data attribution ([23](23-visual-providers.md)).
 
-## 4.6 Tooling
+Lighting uses the **real sun position** for the simulation date and time at the camera's location. Google tiles have baked lighting, which cannot match this exactly. That is accepted, and fog, atmosphere, and the distance at which they are used reduce the mismatch.
 
-- Metal debugging via Xcode's GPU frame capture and Instruments (Metal System Trace) on device.
-- A built-in **debug overlay** in the app: frame-time breakdown per pass, memory per category, LOD band, materialized-entity counts, thermal state.
-- The desktop inspector in `tools/` renders 2D and simple 3D debug views via `wgpu`; it is a debugging tool, not a second production renderer.
+## 4.5 Geometry sources
+
+| Content | Source |
+|---|---|
+| Terrain | NYC 2017 LiDAR for the MVP area (Copernicus DEM elsewhere later), as heightfield patches |
+| Ground texture | NYC orthoimagery |
+| Buildings | NYC 3-D Building Model and footprints with heights; facades and roofs generated procedurally with realistic PBR materials matched to the area's building types (brick rowhouses, limestone and brownstone, apartment blocks) |
+| Streets and sidewalks | OSM geometry, aligned to the footprints and imagery |
+| Interiors | Generated on demand only when entered or viewed (not before the City stage) |
+| People | A small set of realistic base characters with appearance parameters (body proportions, skin and hair, clothing variants); instanced, with animation LOD |
+| Vehicles | A small library of realistic modular meshes (City stage) |
+| Vegetation | Street trees from NYC open data (the street tree census) where available; instanced meshes near, impostors far |
+
+## 4.6 Front-end and simulation interface contract
+
+- The front end may **request** detail ("the camera is looking at this cell at this resolution"). Requests are hints to the core's interest manager, never direct entity creation.
+- The core decides what is materialized (simulation LOD). The front end decides how to draw whatever exists (rendering LOD). Where the simulation holds only aggregates, the core provides visual proxies ([06](06-rendering-lod.md)).
+- **Picking** goes through the core: Unity sends a ray in frame coordinates, and the core resolves it against its own spatial index (never against provider geometry) and returns a stable entity ID. Tapping a visual proxy asks the core to materialize the entity on demand ([12](12-materialization.md)).
+
+## 4.7 Tooling
+
+- The Unity Profiler and Frame Debugger, Xcode GPU frame capture, and Instruments on device.
+- An in-app debug overlay: frame time per stage, memory per category, LOD state, materialized counts, provider status and quota, and thermal state.
+- The desktop `ws-inspector` (Rust) for simulation debugging without Unity.

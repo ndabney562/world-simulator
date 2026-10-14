@@ -2,71 +2,76 @@
 
 Covers point 22.
 
-The test for "decide now": **would changing this later force a rewrite of large parts of the core, or invalidate saves and tests?** If yes, decide now and record an ADR in `docs/adr/`. If no, postpone until real data (measurements, playtests) exists, and keep the decision behind an interface.
+The test for "decide now": **would changing this later force a rewrite of large parts of the core, or invalidate saves and tests?** If yes, decide now and record an ADR in [`docs/adr/`](../adr/). If no, postpone until real data (measurements, playtests) exists, and keep the decision behind an interface.
 
-## 22.1 Decide now (Phase 0 ADRs)
+## 22.1 Decided (ADRs accepted)
+
+| ID | Decision | ADR |
+|---|---|---|
+| D-1 | **Stack:** Rust simulation core → Unity 6 / URP front end → Cesium for Unity where useful → iPhone | 0005 |
+| D-2 | **Core/front-end separation:** headless core; commands in, snapshots and query results out; a coarse-grained C ABI | 0005 |
+| D-3 | **Reproducibility policy:** tiered. Exact for identity and structure everywhere; replay-exact on the same build and platform; bounded differences elsewhere ([25](25-determinism-policy.md)) | 0010 |
+| D-9 | **Minimum device:** iPhone 15 Pro (8 GB), current and previous iOS | 0004 |
+| D-11 | **Real Earth:** open data for simulation, synthetic people | 0001 |
+| D-12 | **Realistic visuals** within iPhone limits | 0002 |
+| D-13 | **Single-player** | 0003 |
+| D-16 | **Zero cost:** free tools and open data; Google optional and capped; Apple's $99 per year is the known exception | 0007 |
+| D-17 | **MVP area:** Bay Ridge, Brooklyn | 0006 |
+| D-18 | **Visual providers are optional and swappable**, never part of simulation state ([23](23-visual-providers.md)) | 0008 |
+| D-19 | **Stage progression:** Technical Prototype → Vertical Slice → Neighbourhood MVP → City → Planet → Solar System ([19](19-roadmap.md)) | 0009 |
+| D-20 | **World event and history system** as a first-class, shared record ([24](24-world-events-and-causality.md)) | 0011 |
+| D-21 | **Practical causal provenance** for interventions and major events (direct links, bounded tags, aggregate attribution, optional counterfactuals) | 0012 |
+
+## 22.2 Decide now (proposed; to be written as ADRs at the start of the Technical Prototype)
 
 | ID | Decision | Proposed answer | Why it cannot wait |
 |---|---|---|---|
-| D-1 | Technology stack | Rust headless core + **Unity/URP + Cesium for Unity** iOS front end (revised; [22 §R.5](22-real-earth-and-realism.md)) | Everything else is written in it. |
-| D-2 | Core/renderer separation | Headless core; commands in, snapshots out; coarse-grained, buffer-based FFI | Retrofitting separation is a rewrite. It is also what keeps the Unity fallback open. |
-| D-3 | Determinism policy | Same-build, same-architecture determinism guaranteed and tested; counter-based RNG streams; soft transcendental math; integer time; canonical iteration order | Cannot be retrofitted; every system must follow it from line one. |
-| D-4 | Coordinate system | Frame hierarchy; 64-bit floats per frame; cube-sphere cell IDs; cell-local 32-bit offsets; camera-relative GPU data; spherical bodies ([07](07-coordinates-and-time.md)) | Positions appear in every system, every save, every test. |
-| D-5 | Time representation | 64-bit integer microseconds; derived calendars; multi-rate ticks | Same reason. |
-| D-6 | World-state model | Seed + generator versions + canonical deltas + journal; three kinds of state ([08](08-world-state.md)) | Defines saves, procgen, and LOD. |
-| D-7 | Entity identity | Deterministic procedural IDs, persistent promotion, separate namespace for spawned entities ([09](09-entities-and-agents.md)) | Changing it breaks saves and consistency across zoom levels. |
-| D-8 | Mutation model | All external changes are validated, journaled commands; interventions are data composed from an effect vocabulary | Underpins saves, replay, undo, LLM integration, and testing. |
-| D-9 | Minimum device | **Decided:** iPhone 15 Pro and newer, 8 GB RAM; current and previous iOS (ADR 0004) | Sets every budget. (Can be relaxed later, not tightened easily.) |
-| D-10 | LOD contract | Every domain defines aggregation, disaggregation, and invariants per level before it can cross levels ([05](05-simulation-lod.md)) | The defining architectural rule; must be enforced from the first domain. |
-| D-11 | Real Earth vs. fictional world | **Decided: real Earth** (ADR 0001). Open data for simulation, Google 3D Tiles for display, synthetic people | Changes the data pipeline, licensing, storage, and scope; see [22](22-real-earth-and-realism.md). |
-| D-12 | Art direction | **Decided: realistic** (ADR 0002). Hybrid photoreal backdrop plus realistic near-field geometry, within iPhone limits | Determines renderer and stack. |
-| D-13 | Single-player | **Decided: single-player only** (ADR 0003). The simulation runs offline; photoreal visuals need a network connection | Multiplayer would change persistence and networking design. |
-| D-16 | Data sources and the Google terms boundary | Google data for display only; OSM/Overture, Copernicus DEM, GHSL/WorldPop, and ESA WorldCover for simulation; pinned dataset versions | Mixing derived Google data into the simulation would violate its terms and is hard to unwind. |
-| D-14 | Versioning discipline | Save format, rules, and generator versions recorded from the first save; golden tests for generators | Cheap now, impossible to add retroactively to existing saves. |
-| D-15 | Process | ADRs for architecture changes; cross-review between AI collaborators; Noah as approver; `main` always green | Needed before multiple contributors start writing code. |
+| D-4 | Coordinate system | Frame hierarchy; ECEF/WGS84 body-fixed frame; S2-style cell IDs; cell-local 32-bit offsets; ellipsoidal heights; camera-relative GPU data ([07](07-coordinates-and-time.md)) | Positions appear in every system, save, and test |
+| D-5 | Time representation | 64-bit integer microseconds from J2000; real UTC calendar; multi-rate ticks | Same reason |
+| D-6 | World-state model | Baseline (dataset version + seed + generator versions) + canonical deltas + journal + event log ([08](08-world-state.md)) | Defines saves, generation, and LOD |
+| D-7 | Entity identity | Tier 1 deterministic procedural IDs, persistent promotion, a separate namespace for spawned entities ([09](09-entities-and-agents.md)) | Changing it breaks saves and zoom consistency |
+| D-8 | Mutation model | Validated, journaled commands; interventions composed from an effect vocabulary ([13](13-god-interventions.md)) | Underpins saves, replay, undo, LLM integration, and testing |
+| D-10 | LOD contract | Each domain defines aggregation, disaggregation, invariants, and event roll-up per level ([05](05-simulation-lod.md)) | The defining architectural rule |
+| D-14 | Versioning discipline | Save format, rules, generator, and dataset versions recorded from the first save; golden tests | Cannot be added to existing saves retroactively |
+| D-15 | Process | ADRs, cross-review between AI collaborators, Noah as approver, `main` always green | Needed before multiple contributors write code |
+| D-22 | Data-source register | Every source has licence, attribution, and version recorded in `docs/data/`; Google never used as simulation input | Licence mistakes are hard to unwind |
 
-## 22.2 Decide in Phase 0 via a short spike (then lock)
+## 22.3 Decide in the Technical Prototype via short spikes (then lock)
 
 | ID | Decision | Options |
 |---|---|---|
-| S-1 | ECS library | `bevy_ecs` standalone, `hecs`, or a minimal custom store, behind `ws-ecs` |
-| S-2 | Binary serialization format | `serde` + a compact binary codec, FlatBuffers, Cap'n Proto; must support schema evolution |
-| S-3 | Rust ↔ Swift bridge | Hand-written C ABI with `cbindgen`, or UniFFI; must support shared Metal buffers without copies |
-| S-4 | Sector cell level | ~1 km (level 13 on an Earth-sized planet) proposed; confirm with materialization cost measurements |
-| S-5 | Frame-rate target | 30 fps sustained with opportunistic 60, or 60 sustained with lower budgets; decided from device measurements |
+| S-1 | ECS library | `bevy_ecs` standalone, `hecs`, or a minimal custom store behind `ws-ecs` |
+| S-2 | Binary serialization format | `serde` with a compact codec, FlatBuffers, Cap'n Proto; must support schema evolution |
+| S-3 | Rust ↔ Unity bridge details | A hand-written C ABI with `cbindgen` plus C# bindings (hand-written or generated); native buffers shared without copies |
+| S-4 | Sector cell level | ~1 km (level 13) proposed; confirm with materialization cost measurements |
+| S-5 | Frame-rate target | 30 fps sustained with opportunistic 60, or 60 sustained with lower budgets |
+| S-6 | Unity CI | Unity iOS builds in CI on the free plan, or local builds on Noah's Mac |
+| S-7 | Event store layout | SQLite table and index design, compaction cadence, provenance-tag cap and decay constants |
+| S-8 | Vertical Slice block | Which exact Bay Ridge block, chosen for data quality |
 
-## 22.3 Deliberately postpone
+## 22.4 Deliberately postponed
 
 | Topic | Why postponing is safe or better | Revisit |
 |---|---|---|
-| Economy model details | Needs the LOD contract and playtesting first; isolated behind its own domain crate | Phase 2–3 |
-| Specific weather and climate models | Coarse environment fields are enough until the planet phase | Phase 4 |
-| Vehicle simulation depth | Not needed until the city phase | Phase 3 |
-| Interiors | On-demand generation fits the existing pipeline later | Phase 3+ |
-| Advanced AI (GOAP, deep social simulation) | Utility AI and schedules cover the MVP; minds are layered so more can be added | Phase 3+ |
-| LLM provider and features | The architecture already isolates them; provider landscape changes fast | After MVP |
-| Generator-version migration policy (keep old generators vs. migrate) | Versioning is recorded now; the policy can be chosen when the first breaking generator change happens | First breaking change |
-| N-body or non-Keplerian orbital mechanics | Analytic orbits suffice; interventions use parametric models | Phase 5 |
-| ~~Ellipsoidal planets, real ephemerides~~ | Now required for real Earth (WGS84, real ephemerides); see [22 §R.6](22-real-earth-and-realism.md) | Phase 0 / Phase 5 |
-| Multiplayer | Assumed out of scope; journals keep the door open | Only if the vision changes |
-| Other platforms (iPad, Mac, Android) | iPad/Mac are cheap later with Swift/Metal; Android needs a new front end | After MVP |
-| Monetisation, modding, user-generated content | Product decisions; modding would benefit from the data-driven rules already planned | After MVP |
-| iCloud sync, shareable worlds, replays as features | Built on the persistence model without changing it | Phase 3+ |
-| Audio architecture | Independent of the simulation core | Phase 2+ |
-| Undo as a player feature | Supported internally; whether players get it is a design call | Phase 2 design |
+| Economy model details | Needs the LOD contract and playtesting first; isolated in its own domain crate | Neighbourhood MVP to City |
+| Weather and climate models | Coarse environment fields suffice until the Planet stage | Planet |
+| Vehicle simulation depth | Not needed until the City stage | City |
+| Interiors | On-demand generation fits the existing pipeline later | City and beyond |
+| Advanced AI (GOAP, deep social simulation) | Utility AI and schedules cover the early stages; minds are layered | City and beyond |
+| LLM provider and features | Already isolated; the landscape changes fast | After the Neighbourhood MVP |
+| Generator and dataset migration policy | Versions are recorded now; the policy is chosen at the first breaking change | First breaking change |
+| Counterfactual explanation UI | The event model supports it; cost and value are better judged later | City |
+| Planet-wide data pipeline and hosting | Staged by region; costs reviewed against ADR 0007 when needed | City, Planet |
+| N-body or non-ephemeris orbital mechanics | Ephemerides suffice; interventions use parametric models | Solar System |
+| Multiplayer | Out of scope (ADR 0003) | Only if the vision changes |
+| Other platforms (iPad, Mac, Android) | Unity makes them cheaper later | After the Neighbourhood MVP |
+| Monetisation, modding, user-generated content | Product decisions | After the Neighbourhood MVP |
+| iCloud sync, shareable worlds, replay features | Built on the persistence model without changing it | City and beyond |
+| Audio architecture | Independent of the core | Neighbourhood MVP |
+| Undo as a player feature | Supported internally; a design call | Neighbourhood MVP design |
 
-## 22.4 Questions for Noah
+## 22.5 Open questions for Noah
 
-Answered 2026-10-14: real Earth, realistic, single-player, iPhone 15 Pro minimum (ADRs 0001–0004). Then: MVP area Bay Ridge, stack accepted, zero cost (ADRs 0005–0007). Questions answered in that second round:
-
-1. Which real neighbourhood should the MVP use?
-2. Do you accept the revised stack (Rust core + Unity + Cesium)?
-3. Are you OK with Google Maps Platform usage costs and a network requirement for photoreal visuals?
-
-Original questions (answered):
-
-1. **D-11:** Is the world fictional and procedurally generated, or must it be based on real Earth?
-2. **D-12:** Is a stylized look acceptable, or is realism a core goal?
-3. **D-13:** Single-player only?
-4. **D-9:** Is iPhone 15 Pro and newer an acceptable minimum?
-5. Can the full Project Instructions / vision text be committed to `docs/vision/` so both AI reviewers work from the same source?
+1. Exact Neighbourhood MVP bounds (proposed: around 3rd–5th Avenue and 75th–86th Street).
+2. Whether to create a `main` branch from the accepted proposal at the start of the Technical Prototype (recommended), so that later work can use pull requests.
+3. Committing the Project Instructions to `docs/vision/`, so that both AI reviewers work from the same text.

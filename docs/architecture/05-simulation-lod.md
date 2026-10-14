@@ -8,7 +8,7 @@ Rendering LOD decides how something is *drawn*. Simulation LOD decides how somet
 
 ## 6.2 The level ladder
 
-Every spatial node (cell, building, district, city, region, planet, system) is simulated at exactly one level at a time. Proposed levels:
+Every spatial node (cell, building, block, neighbourhood, city, region, planet, system) is simulated at exactly one level at a time. Proposed levels:
 
 | Level | Name | Representation | Typical step | Typical count on device |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@ Every spatial node (cell, building, district, city, region, planet, system) is s
 | L1 | **Active** | Individual with needs and decisions, steering and pathfinding, simplified social interactions | 0.1–1 s | hundreds to a few thousand |
 | L2 | **Background** | Individual as a schedule: current activity, location at building granularity, next event time | Discrete events | tens of thousands |
 | L3 | **Household / building** | Occupancy counts, household budgets, building condition | Hourly | thousands of buildings |
-| L4 | **District / neighbourhood** | Cohorts (age × occupation × wealth ...), flows (commute, migration), services, crime, mood | Daily | hundreds |
+| L4 | **Neighbourhood / district** | Cohorts (age × occupation × wealth ...), flows (commute, migration), services, crime, mood | Daily | hundreds |
 | L5 | **Settlement / city** | System-dynamics model: economy, population growth, infrastructure, governance, culture traits | Daily to monthly | dozens |
 | L6 | **Region / planet** | Climate zones, biomes, macro-demography, trade between settlements, factions, technology | Monthly to yearly | one per body |
 | L7 | **Celestial** | Orbital elements and physical parameters | Analytic | dozens of bodies |
@@ -75,4 +75,8 @@ The player must never be able to "catch" the LOD system lying about something th
 1. Facts the player has observed are preserved (persistent entities, short-term observation cache).
 2. Aggregates shown in the UI are the same numbers the simulation uses, never separate estimates.
 3. Detail generated on zoom-in must be consistent with aggregates shown at the coarser zoom.
-4. Where coarse models cannot produce a specific outcome (who exactly started the riot), the outcome is decided at materialization time and then becomes fact.
+4. Where coarse models cannot produce a specific outcome (who exactly started the riot), the outcome is decided at materialization time and then becomes fact, recorded as a refining world event linked to the coarse event ([24](24-world-events-and-causality.md)).
+
+## 6.8 Events across levels
+
+Each level emits world events at its own granularity: individual events at L0–L2, and **aggregate events** at L3 and coarser ("14 births in this district in March"). The aggregation contract in 6.3 extends to events: individual events of a type roll up into the aggregate events of the next level, and aggregate counts must match ([24 §24.10](24-world-events-and-causality.md)). Causal attribution at coarse levels is statistical ([24 §24.6](24-world-events-and-causality.md)).

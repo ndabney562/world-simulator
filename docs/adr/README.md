@@ -8,6 +8,11 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0002](0002-realistic-visuals.md) | Realistic visuals preferred | Accepted |
 | [0003](0003-single-player.md) | Single-player only | Accepted |
 | [0004](0004-minimum-device-iphone-15-pro.md) | Minimum device is the iPhone 15 Pro | Accepted |
-| [0005](0005-stack-rust-core-unity-cesium.md) | Stack: Rust core + Unity (URP) + Cesium for Unity | Accepted |
+| [0005](0005-stack-rust-core-unity-cesium.md) | Stack: Rust core + Unity 6 (URP) + Cesium for Unity | Accepted |
 | [0006](0006-mvp-area-bay-ridge.md) | MVP area: Bay Ridge, Brooklyn | Accepted |
 | [0007](0007-zero-cost-policy.md) | Zero-cost policy: open data by default, Google tiles optional and capped | Accepted |
+| [0008](0008-visual-backdrop-providers.md) | Visual backdrops are optional, swappable providers | Accepted |
+| [0009](0009-stage-progression.md) | Stage progression: Technical Prototype → Vertical Slice → Neighbourhood MVP → City → Planet → Solar System | Accepted |
+| [0010](0010-tiered-determinism.md) | Tiered reproducibility instead of strict cross-platform determinism | Accepted |
+| [0011](0011-world-event-history-system.md) | First-class world event and history system | Accepted |
+| [0012](0012-causal-provenance.md) | Practical causal provenance | Accepted |

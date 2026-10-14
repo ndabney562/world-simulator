@@ -1,22 +1,22 @@
 # 9. World-State Architecture
 
-Covers point 9.
+Covers point 9. Related: [11](11-procedural-generation.md) (data and generation), [14](14-persistence.md) (saves), [24](24-world-events-and-causality.md) (events), [23](23-visual-providers.md) (why visual providers are not world state).
 
 ## 9.1 Three kinds of state
 
-Everything in the world falls into exactly one of three categories. Keeping them separate is what makes the world both huge and storable.
+Everything in the world falls into exactly one of three categories. Keeping them separate is what makes a real-Earth world both huge and storable.
 
 | Kind | Definition | Stored in saves? | Examples |
 |---|---|---|---|
-| **Canonical** | Source of truth that cannot be regenerated | Yes | Aggregates of touched regions, notable entities, everything changed by interventions, history log, RNG stream positions where needed |
-| **Procedural baseline** | Content that is a pure function of `(world seed, address, generator version, upstream canonical state)` | No (regenerated) | Terrain, road layout, buildings, the default residents of a building, their names and traits |
-| **Derived / transient** | Caches, indices, materialized detail with no lasting changes, render data | No | Spatial indices, pathfinding graphs, materialized anonymous NPCs, GPU meshes |
+| **Canonical** | Source of truth that cannot be regenerated | Yes | Aggregates of touched areas, notable entities, everything changed by interventions, the world event log, the command journal, RNG stream positions where needed |
+| **Baseline** (data-driven + procedural) | A pure function of `(dataset version, world seed, address, generator version, upstream canonical state)` | No (regenerated) | Real terrain, real streets and building footprints and heights from processed open data; synthetic residents, households, names, traits, and schedules; building use where the data is silent; facades and interiors |
+| **Derived / transient** | Caches, indices, materialized detail with no lasting changes, render data | No | Spatial indices, navigation graphs, materialized anonymous NPCs, GPU meshes, **everything from visual providers** |
 
-The world is therefore:
+So the world is:
 
-> **World = procedural baseline(seed, generator versions) + canonical deltas + journal**
+> **World = baseline(dataset version, seed, generator versions) + canonical deltas + command journal + world event log**
 
-A region nobody has touched costs zero bytes in a save. A region the player has interacted with costs only what changed.
+An area nobody has touched costs zero bytes in a save; a touched area costs only what changed. Real-world data enters only through the **versioned simulation tiles** produced by our pipeline ([11](11-procedural-generation.md)). Visual providers such as Google 3D Tiles are never part of world state ([23](23-visual-providers.md)).
 
 ## 9.2 The world tree
 
@@ -24,57 +24,55 @@ All spatial state hangs off one hierarchy, which doubles as the simulation-LOD h
 
 ```
 World
- └─ Star system
-     └─ Body (planet / moon)               L6–L7 state: orbit, climate, macro-demography
-         └─ Region (cube-sphere cell, ~100–1,000 km)     biomes, settlements list, trade
-             └─ Settlement (city / town)   L5 state: economy, governance, culture
-                 └─ District (~1–5 km)     L4 state: cohorts, services, flows
-                     └─ Sector cell (~1 km)   unit of materialization, streaming, persistence
-                         └─ Parcel / building    L3 state: occupancy, condition, ownership
-                             └─ (unit / room)    generated on demand
+ └─ Solar system                      ephemerides (L7)
+     └─ Earth                         climate, macro-demography (L6)
+         └─ Region (S2 cell ~100–1,000 km)    e.g. New York metro: trade, migration
+             └─ Settlement / city      L5: economy, governance (e.g. New York City)
+                 └─ Neighbourhood / district   L4: cohorts, services, flows (e.g. Bay Ridge)
+                     └─ Sector cell (~1 km)    unit of materialization, streaming, persistence
+                         └─ Block → Parcel / building    L3: occupancy, condition, use
+                             └─ Unit / room            generated on demand
 ```
 
 Two kinds of hierarchy coexist:
-- **Spatial cells** (the cube-sphere quadtree) give addressing, partitioning, and streaming.
-- **Semantic nodes** (settlement, district, building) give simulation meaning. Each semantic node is anchored in one or more cells; a city spans many sector cells. The mapping between them is generated procedurally and stored only when changed.
+- **Spatial cells** (the S2-style hierarchy) give addressing, partitioning, and streaming.
+- **Semantic nodes** (city, neighbourhood, block, building) give simulation meaning. They come from real data where possible (administrative boundaries, neighbourhood tabulation areas, Census tracts and blocks, tax lots, and building identifiers from NYC data) and are anchored to one or more cells.
 
 ## 9.3 Node state
 
 Each node carries:
-- **Identity**: a stable ID (see [09](09-entities-and-agents.md)) and its address in the tree.
-- **Baseline reference**: generator ID and version used to create it.
-- **Current LOD level** and its level-specific state (for example a district at L4 holds cohort tables; at L2 it holds a list of resident IDs and schedules).
-- **Aggregate summary** that is always present regardless of level (population, key indicators). This is what parents read and what the UI shows when zoomed out, so the zoomed-out view never needs to materialize anything.
-- **Delta set**: canonical changes relative to the baseline (a building demolished, a park added, a resident moved out).
+- **Identity**: a stable ID ([09](09-entities-and-agents.md)). Where the source data has a stable real-world key (such as NYC's building identifier), it is recorded as an attribute; it is never the only key, because data versions change.
+- **Baseline reference**: the dataset version and generator versions used.
+- **Current LOD level** and its level-specific state.
+- **Aggregate summary**, always present regardless of level (population, key indicators). This is what parents read and what the UI shows when zoomed out.
+- **Delta set**: canonical changes relative to the baseline.
+- **Provenance tags** on state that interventions or major events changed (bounded; [24 §24.6](24-world-events-and-causality.md)).
 - **Dirty flags** for incremental saving.
 
 ## 9.4 Storage layout in memory
 
-- **Active detail** (materialized entities at L0–L2) lives in an ECS (archetype or sparse-set storage) for cache-friendly iteration by systems.
-- **Aggregates** live in compact per-level tables (struct-of-arrays), keyed by node ID, because they are iterated by coarse systems in bulk.
-- **Cold canonical state** (touched but not currently loaded regions) lives on disk ([14](14-persistence.md)) and is paged in by the streaming system in sector-cell or district chunks.
-- **Spatial indices** (per-cell grids and a hierarchical index over cells) are derived and rebuilt on load.
+- **Active detail** (materialized entities at L0–L2) lives in an ECS for cache-friendly iteration.
+- **Aggregates** live in compact per-level struct-of-arrays tables keyed by node ID.
+- **Cold canonical state** (touched but not loaded areas) and the **event store** live on disk ([14](14-persistence.md)) and are paged in by cell.
+- **Spatial indices** are derived and rebuilt on load.
 
 ## 9.5 Ownership and mutation rules
 
-1. Every piece of state has exactly one owning system. Other systems read it or send events/commands to the owner.
-2. External mutation only via commands ([04](04-simulation-architecture.md)).
-3. Cross-node effects only via flows, events, and environmental fields, never by reaching into another node's internals. This keeps nodes independently simulatable at different levels and independently storable.
-4. All mutations are applied at tick boundaries in a deterministic order.
+1. Every piece of state has exactly one owning system; others read it or send events and commands to the owner.
+2. External mutation happens only through commands ([04](04-simulation-architecture.md)).
+3. Cross-node effects go only through flows, scheduler events, and environmental fields, never by reaching into another node's internals.
+4. Mutations are applied at tick boundaries in a deterministic order.
+5. Meaningful mutations emit world events with cause and provenance ([24](24-world-events-and-causality.md)).
 
 ## 9.6 Environmental fields
 
-Some state is naturally continuous over space rather than attached to entities: temperature, precipitation, pollution, noise, light, disease prevalence, land value. These are stored as **multi-resolution grids** attached to the cell hierarchy: coarse values at region level, refined on demand near the camera by procedural detail conditioned on the coarse value. Interventions (rain here, plague there) often act on fields.
+Continuous quantities (temperature, precipitation, pollution, noise, light, disease prevalence, land value) are stored as **multi-resolution grids** on the cell hierarchy: coarse values at region level, refined on demand near the camera. They are seeded from real climate normals where available. Interventions often act on fields, and fields carry provenance tags so that consequences can be traced.
 
 ## 9.7 History and facts
 
-- A **history log** of significant events (births, deaths, marriages, fires, elections, interventions) is part of canonical state, indexed by entity, node, and time.
-- **Facts the player has observed** (that a specific named person lives in this building, that a shop was closed) are canonical. This is how the "the world does not lie" guarantee from [05](05-simulation-lod.md) is enforced.
-- Log retention: full detail for notable entities and recent events; older insignificant events are compacted into statistics.
+- The **world event log** ([24](24-world-events-and-causality.md)) is canonical state: the structured history of the world, indexed by actor, location, type, time, and cause.
+- **Facts the player has observed** (that a specific person lives in this building) are canonical, which enforces the "the world does not lie" guarantee ([05](05-simulation-lod.md)).
 
 ## 9.8 Consistency between levels
 
-The aggregate summary of a node must always equal the aggregation of its children (for counted quantities) or be within tolerance (for distributions). This is checked:
-- After every LOD transition (in debug builds and tests).
-- Periodically by a background validator in debug builds.
-- Exhaustively in headless soak tests ([18](18-testing-strategy.md)).
+The aggregate summary of a node must equal the aggregation of its children (for counted quantities) or be within tolerance (for distributions). Aggregate events must match the individual events they summarise. These are checked after every LOD transition in debug builds, periodically by a background validator, and exhaustively in headless soak tests ([18](18-testing-strategy.md)).

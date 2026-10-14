@@ -1,75 +1,76 @@
-# World Simulator — Technical Architecture Proposal
+# World Simulator: Technical Architecture Proposal
 
-Status: **Proposal, for review** (no implementation yet). **Revision 2 (2026-10-14):** updated for Noah's decisions (real Earth, realistic look, single-player, iPhone 15 Pro minimum); see [22-real-earth-and-realism.md](22-real-earth-and-realism.md) and [`docs/adr/`](../adr/). **Revision 3:** MVP area is Bay Ridge, Brooklyn; the stack is accepted; zero-cost policy (open data by default, Google tiles optional) — see §R.11 of that file and ADRs 0005–0007.
-Author: Claude (Anthropic), for Noah
-Date: 2026-10-14
-Intended reviewers: Noah, ChatGPT (independent review)
+Status: **Accepted direction, under review** (no implementation yet)
+Current revision: **4** (2026-10-14), after ChatGPT's independent review. See [CHANGELOG.md](CHANGELOG.md).
+Authors: Claude (Anthropic) for Noah; reviewed by ChatGPT.
 
-This directory is the first architecture and technical-planning pass for World Simulator. It deliberately contains no implementation code. Its job is to make the hard decisions explicit, propose a foundation that can realistically grow from a street-level prototype to a solar-system-scale simulation on iPhone, and be honest about which parts of the vision require approximation.
+This directory is the architecture and technical plan for World Simulator: a continuous-scale simulation of **real Earth**, from a single Bay Ridge street to the solar system, on **iPhone**. It contains no implementation code. Its job is to make the hard decisions explicit, define a foundation that can realistically grow from a one-block prototype to solar-system scale, and be honest about what must be approximated.
+
+## Decisions so far
+
+| ADR | Decision |
+|---|---|
+| [0001](../adr/0001-real-earth.md) | The world is real Earth: open data for simulation, synthetic people |
+| [0002](../adr/0002-realistic-visuals.md) | Realistic visuals, within iPhone limits |
+| [0003](../adr/0003-single-player.md) | Single-player |
+| [0004](../adr/0004-minimum-device-iphone-15-pro.md) | Minimum device: iPhone 15 Pro |
+| [0005](../adr/0005-stack-rust-core-unity-cesium.md) | Rust simulation core → Unity 6 / URP → Cesium for Unity → iPhone |
+| [0006](../adr/0006-mvp-area-bay-ridge.md) | First area: Bay Ridge, Brooklyn |
+| [0007](../adr/0007-zero-cost-policy.md) | Zero-cost policy |
+| [0008](../adr/0008-visual-backdrop-providers.md) | Visual backdrops (Google, open data, NASA) are optional, swappable providers, never simulation state |
+| [0009](../adr/0009-stage-progression.md) | Technical Prototype → Vertical Slice → Neighbourhood MVP → City → Planet → Solar System |
+| [0010](../adr/0010-tiered-determinism.md) | Tiered reproducibility instead of strict cross-platform bit-identical determinism |
+| [0011](../adr/0011-world-event-history-system.md) | A first-class world event and history system |
+| [0012](../adr/0012-causal-provenance.md) | Practical causal provenance for interventions and major events |
 
 ## How to read this
 
-Each file maps to one or two of the 22 points in the brief, so a reviewer can check coverage point by point.
+Each file maps to one or more of the 22 points in the original brief; files 22–25 cover topics added during review.
 
 | # | Topic | File |
 |---|-------|------|
-| 1 | Hardest engineering problems (and a reality check on the vision) | [01-hard-problems.md](01-hard-problems.md) |
-| 2, 3 | Candidate technology stacks and the recommended stack | [02-technology-stacks.md](02-technology-stacks.md) |
+| 1 | Hardest engineering problems, and a reality check | [01-hard-problems.md](01-hard-problems.md) |
+| 2, 3 | Technology stacks and the chosen stack | [02-technology-stacks.md](02-technology-stacks.md) |
 | 4 | Rendering architecture | [03-rendering-architecture.md](03-rendering-architecture.md) |
 | 5 | Simulation architecture | [04-simulation-architecture.md](04-simulation-architecture.md) |
 | 6 | Simulation LOD | [05-simulation-lod.md](05-simulation-lod.md) |
 | 7 | Rendering LOD | [06-rendering-lod.md](06-rendering-lod.md) |
-| 8 | Coordinate system (and time) | [07-coordinates-and-time.md](07-coordinates-and-time.md) |
+| 8 | Coordinate system and time | [07-coordinates-and-time.md](07-coordinates-and-time.md) |
 | 9 | World-state architecture | [08-world-state.md](08-world-state.md) |
-| 10 | Entity / agent architecture | [09-entities-and-agents.md](09-entities-and-agents.md) |
-| 11 | Physics architecture | [10-physics.md](10-physics.md) |
-| 12 | Procedural generation | [11-procedural-generation.md](11-procedural-generation.md) |
+| 10 | Entities and agents | [09-entities-and-agents.md](09-entities-and-agents.md) |
+| 11 | Physics | [10-physics.md](10-physics.md) |
+| 12 | Data ingestion and procedural generation | [11-procedural-generation.md](11-procedural-generation.md) |
 | 13 | Materialization / dematerialization | [12-materialization.md](12-materialization.md) |
-| 14 | God-intervention system | [13-god-interventions.md](13-god-interventions.md) |
-| 15 | Persistence / saves | [14-persistence.md](14-persistence.md) |
+| 14 | God interventions (including causal provenance) | [13-god-interventions.md](13-god-interventions.md) |
+| 15 | Persistence and saves | [14-persistence.md](14-persistence.md) |
 | 16 | iPhone performance and memory | [15-ios-performance-memory.md](15-ios-performance-memory.md) |
 | 17 | AI / LLM augmentation of NPCs | [16-ai-llm-npcs.md](16-ai-llm-npcs.md) |
 | 18 | Repository structure | [17-repository-structure.md](17-repository-structure.md) |
 | 19 | Testing strategy | [18-testing-strategy.md](18-testing-strategy.md) |
-| 20 | Phased roadmap | [19-roadmap.md](19-roadmap.md) |
-| 21 | First playable MVP | [20-mvp.md](20-mvp.md) |
-| 22 | Decide now vs. postpone | [21-decisions-now-vs-later.md](21-decisions-now-vs-later.md) |
-| — | **Revision 2: real Earth, Google data, realistic visuals, revised stack** | [22-real-earth-and-realism.md](22-real-earth-and-realism.md) |
-| — | Glossary of terms used across the documents | [glossary.md](glossary.md) |
-
-## Important caveat: inputs this proposal was based on
-
-The brief asked for the complete Project Instructions to be read first. **No Project Instructions or vision document were available to this session**: the repository was empty (no commits) and the project had no instructions text visible to the session that wrote this. The proposal is therefore based on the vision as described in the brief itself, plus the assumptions below. Any assumption that is wrong should be corrected before the "decide now" items in [21](21-decisions-now-vs-later.md) are locked.
-
-**Recommendation:** commit the Project Instructions / vision document into the repository (for example `docs/vision/project-instructions.md`) so that every collaborator, human or AI, reviews against the same text.
-
-### Working assumptions about the vision
-
-| ID | Assumption | Why it matters |
-|----|------------|----------------|
-| A1 | Single-player, offline-first game/simulation. | Multiplayer would change persistence, determinism and networking requirements fundamentally. |
-| A2 | Primary platform is modern iPhone; other platforms are secondary. | Drives the stack, the memory budget and the renderer. |
-| A3 | The player is an observer/"god" who can move the camera continuously from a single street to the whole solar system and intervene at any scale. | Drives the LOD, materialization and intervention design. |
-| A4 | The world is populated by NPCs living plausible daily lives (homes, work, relationships), not just scenery. | Drives the agent architecture and the cost model. |
-| A5 | ~~The world is fictional and procedurally generated.~~ **Revised: real Earth** (Noah, 2026-10-14). Real geography from open data, Google 3D Tiles as the visual backdrop, synthetic people. | See [22](22-real-earth-and-realism.md), ADR 0001. |
-| A6 | ~~Stylized art direction.~~ **Revised: realistic look preferred** (Noah, 2026-10-14). Simulation depth still comes first where the two conflict. | See [22 §R.4](22-real-earth-and-realism.md), ADR 0002. |
-| A7 | Development is done largely with AI collaborators (Claude, ChatGPT) working in Linux containers that cannot run Xcode, plus Noah on a Mac for device builds. | Strongly favours a headless, Linux-testable simulation core. |
+| 20 | Staged roadmap | [19-roadmap.md](19-roadmap.md) |
+| 21 | Technical Prototype, Vertical Slice, Neighbourhood MVP | [20-mvp.md](20-mvp.md) |
+| 22 | Decided, decide-now, and postponed decisions | [21-decisions-now-vs-later.md](21-decisions-now-vs-later.md) |
+| — | Real Earth: data sources, licensing, realism, cost | [22-real-earth-and-realism.md](22-real-earth-and-realism.md) |
+| — | Visual backdrop provider abstraction | [23-visual-providers.md](23-visual-providers.md) |
+| — | World events, history, and causal provenance | [24-world-events-and-causality.md](24-world-events-and-causality.md) |
+| — | Determinism and reproducibility policy | [25-determinism-policy.md](25-determinism-policy.md) |
+| — | Glossary | [glossary.md](glossary.md) |
 
 ## Executive summary
 
-**The core insight.** "Continuous scale from street to solar system" is not one simulation running at all scales. It is a hierarchy of *different* simulations, each valid at its own scale, plus a disciplined contract for moving information up (aggregation) and down (materialization) between them. The world is only ever fully detailed where someone is looking or where something important is happening. Everything else is statistics, schedules, and deterministic procedural generation that can re-create plausible detail on demand. Getting that contract right is the project; rendering and content are comparatively well-understood problems.
+**The core insight.** "Continuous scale from street to solar system" is not one simulation running at every scale. It is a hierarchy of different simulations, each valid at its own scale, with a disciplined contract for moving information up (aggregation) and down (materialization) between them. The world is fully detailed only where someone is looking or something important is happening. Everywhere else it is statistics, schedules, and a deterministic baseline (real open data plus synthetic people) that can re-create plausible detail on demand. Getting that contract right is the project.
 
-**Recommended stack (point 3), revised.** After the real-Earth and realism decisions, the recommendation is the **headless Rust core unchanged, with Unity (URP) plus Cesium for Unity as the iOS front end**, streaming Google Photorealistic 3D Tiles as the backdrop ([22 §R.5](22-real-earth-and-realism.md)). The original recommendation follows for reference: a custom, headless, deterministic **simulation core in Rust** (a Cargo workspace that builds and runs its full test suite on Linux and macOS), embedded in a **native iOS app written in Swift with a Metal renderer**. The core knows nothing about rendering; the renderer only consumes per-frame snapshots. This gives full control over the three things off-the-shelf engines handle poorly for this project: multi-scale coordinates, simulation LOD, and determinism. It also lets the AI collaborators build and test most of the system in their Linux environments. The main cost is that we must build our own renderer, tools and asset pipeline, which is why the proposal commits to a stylized look and keeps the core engine-agnostic so a Unity front end remains a fallback.
+**Stack.** A headless **Rust simulation core** (built and tested on Linux and macOS, shipped to iOS as a static library) drives a **Unity 6 / URP** front end, with **Cesium for Unity** for georeferencing and 3D Tiles where useful. The core owns all world state. Unity only draws snapshots and sends commands.
 
-**Foundational decisions proposed now** (detail in [21](21-decisions-now-vs-later.md)):
+**Real Earth, legally and for free.** Simulation data comes from open sources (the NYC 3-D Building Model, footprints, LiDAR, and orthoimagery; OpenStreetMap/Overture; Census/ACS; NASA/JPL). People are synthetic. **Google Photorealistic 3D Tiles are an optional, capped visual backdrop** behind a provider abstraction. Switching providers never changes simulation state.
 
-1. Headless, deterministic core; renderer is a pure consumer of snapshots.
-2. Hierarchical reference frames with 64-bit floats per frame, cell-addressed surface positions with 32-bit local offsets, and camera-relative 32-bit rendering. 64-bit integer time.
-3. World = *seed + generator versions + journal of deltas*. Procedural content is never stored unless something changed it.
-4. Every state mutation, from player and interventions alike (and eventually LLM suggestions), is a command recorded in a journal, which makes saves, replay, undo and debugging the same mechanism.
-5. A formal aggregation / disaggregation contract between simulation LOD levels, with conservation tests.
-6. Stable, deterministic entity identity so that the same person reappears when you zoom back in.
-7. ~~A stylized art direction~~ A realistic, hybrid look (Google tiles plus our own near-field geometry), and a minimum device target of the iPhone 15 Pro (confirmed).
-8. Google data is used for **display only**. Simulation data comes from open datasets (OSM/Overture, Copernicus DEM, GHSL), because Google's terms prohibit deriving data from its tiles.
+**Explainable history.** A first-class **world event system** records what happened, where, to whom, and why, with causal links. It feeds NPC memories, history views, statistics, intervention consequences ("what did my intervention do?"), and later LLM dialogue. Causal provenance is practical, with stated confidence, not a universal causal-inference engine.
 
-**Recommended MVP (point 21).** "One living neighborhood", now **a real neighbourhood Noah chooses**, shown over Google 3D Tiles: a few city blocks, a few hundred NPCs with daily schedules, a camera that goes from street level to a few kilometres up, two simulation LOD levels with real materialization/dematerialization, three god interventions, time controls, an inspector, and save/load. It is small in content but exercises every architectural spine the later phases depend on.
+**Reproducibility, by tier.** Exact where identity and structure depend on it, replay-exact on the same build and platform, and bounded differences acceptable elsewhere.
+
+**Staging.** A **Technical Prototype** proves the foundations; a **Vertical Slice** of about one Bay Ridge block (10–30 people, 3–5 buildings, one intervention) runs every spine end to end without visual polish; the **Neighbourhood MVP** (6–12 Bay Ridge blocks) is the first playable version; then **City**, **Planet**, and **Solar System**.
+
+## Inputs and remaining gaps
+
+- The original Project Instructions text was not available to the session that wrote the first draft. The vision as understood is reflected in the decisions above. Committing the Project Instructions to `docs/vision/` is still recommended.
+- The repository currently has only the architecture branch, no `main`. Creating `main` from the accepted proposal is the first step of the Technical Prototype.

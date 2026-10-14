@@ -2,89 +2,89 @@
 
 Covers point 1 of the brief, plus the explicit challenge to unrealistic assumptions that the brief requested.
 
-The span of the vision is roughly **15 orders of magnitude in space** (about 1 cm of hand-scale interaction to about 7.5 × 10¹² m, the radius of the Kuiper belt) and **about 10 orders of magnitude in time** (sub-second physics steps to centuries of history and orbital periods). No single data structure, numeric type, simulation model or renderer is valid across that range. Every hard problem below is a consequence of that fact.
+The span of the vision is roughly **15 orders of magnitude in space** (about 1 cm of hand-scale interaction to about 7.5 × 10¹² m, the Kuiper belt) and **about 10 orders of magnitude in time** (sub-second physics steps to centuries of history and orbital periods). No single data structure, numeric type, simulation model, or renderer is valid across that range, and every hard problem below follows from that. The world is real Earth (ADR 0001) with realistic visuals (ADR 0002) on iPhone (ADR 0004), at zero cost (ADR 0007), which adds data and licensing problems on top.
 
 ## 1.1 The hardest problems, ranked
 
 ### P1. Macro–micro consistency (the defining problem)
 
-The world must tell the same story whether you look at it as 4,000 individual residents or as "District 7: population 4,000, unemployment 6%, mood: tense". When you zoom out, detail must collapse into aggregates without losing facts the player can check. When you zoom back in, detail must be regenerated so that it is consistent with (a) the aggregates, (b) everything the player has already seen, and (c) everything that happened while nobody was looking.
+The world must tell the same story whether you look at it as 4,000 individual residents of Bay Ridge or as "District: population 4,000, unemployment 6%, mood: tense". Zooming out must collapse detail into aggregates without losing facts the player can check. Zooming back in must regenerate detail consistent with (a) the aggregates, (b) everything the player has already seen, and (c) everything that happened while nobody was looking.
 
 Why it is hard:
+- Information is genuinely lost when individuals become statistics; we must decide explicitly which information survives (notability, [09](09-entities-and-agents.md); the event history, [24](24-world-events-and-causality.md)).
+- Emergent micro effects are not captured by macro models unless we design for it.
+- Aggregates and individuals drift apart unless each LOD level has defined aggregation and disaggregation functions and conservation is tested ([05](05-simulation-lod.md)).
 
-- Information is genuinely lost when 4,000 individuals become a handful of statistics. We must decide, explicitly, *which* information survives (see "notability" in [12](12-materialization.md)).
-- Emergent micro-level effects (a riot started by three angry people) are not captured by macro models unless we design for it.
-- Aggregates updated by macro rules and individuals updated by micro rules will drift apart unless each LOD level has a well-defined aggregation and disaggregation function and conservation is tested.
-
-This is closer to multi-scale modelling in computational science than to anything game engines provide, and it is the main reason for the custom simulation core recommended in [02](02-technology-stacks.md).
+This is closer to multi-scale modelling in computational science than to anything game engines provide, and it is the main reason the simulation lives in its own core ([02](02-technology-stacks.md)).
 
 ### P2. Numeric precision across 15 orders of magnitude
 
-- 32-bit floats (what GPUs and most engines use for transforms) have a 24-bit mantissa. At Earth's radius (6.4 × 10⁶ m) the spacing between representable values is **0.5 m**; at 1 AU it is **16 km**. A planet-centred `float` position makes a walking person jitter visibly; a Sun-centred one is useless.
-- 64-bit floats are fine for positions inside one planet frame (sub-nanometre at Earth's radius) and still about **1 mm** at Neptune's distance from the Sun, but GPUs are slow or lack support for them, and velocities and accumulated integration error still need care.
-- Depth buffers have the same problem: a single near/far range cannot cover a street-level object 0.5 m away and a planet 4 × 10⁸ m away.
-
-Solution sketch in [07](07-coordinates-and-time.md): a hierarchy of reference frames, 64-bit math per frame, cell-relative 32-bit offsets for dense surface entities, and camera-relative 32-bit data on the GPU.
+32-bit floats (what GPUs and engines use) have 0.5 m spacing at Earth's radius and 16 km at 1 AU. 64-bit floats suffice within one frame but are slow or unsupported on GPUs. Depth buffers face the same range problem. Solution: a frame hierarchy, 64-bit math per frame, cell-relative 32-bit offsets, and camera-relative GPU data ([07](07-coordinates-and-time.md)).
 
 ### P3. Simulating the unobserved world cheaply but credibly
 
-A planet's worth of people cannot be simulated individually (see the reality check below). Unobserved regions must advance with coarse models, sometimes lazily ("simulate on read": compute what happened only when someone looks), while still producing coherent history. Getting the cheapness/credibility trade-off right per domain (population, economy, ecology, weather) is a long-running design problem, not a one-time decision.
+Earth's population cannot be simulated individually. Unobserved regions must advance with coarse models, sometimes lazily ("simulate on read"), while still producing coherent history. The cheapness/credibility trade-off has to be tuned per domain (population, economy, ecology, weather), and that tuning is a long-running design task.
 
 ### P4. Time-scale coupling
 
-Street-level agents need ticks of ~0.1–1 s. Orbits need days to years per second of wall-clock time. You cannot run street-level simulation at "1 year per second". **Time warp and simulation LOD are therefore coupled:** as the player speeds up time, fine levels must be suspended or dematerialized and their behaviour taken over by coarser models, just as when the player zooms out. The architecture must treat time scale as a second LOD axis.
+Street-level agents need ticks of 0.1–1 s; orbits need years per second. Fine levels cannot run at high time warp, so **time warp and simulation LOD are coupled**: speeding up time demotes fine levels just as zooming out does.
 
-### P5. Rendering continuity from 1 m to 10¹² m on a phone
+### P5. Real-Earth data at planetary scale, on a phone, for free
 
-Continuous zoom requires: multi-frustum or logarithmic depth, terrain that streams from planet-scale to street-scale (chunked LOD on a sphere), atmospheric scattering that looks right from the ground and from orbit, cities that read correctly as buildings, then blocks, then light patterns, and people that degrade from animated characters to dots to density fields. All of this must fit in the thermal envelope of a phone and stream fast enough that a quick pinch-zoom does not show holes.
+Real geography needs large datasets (building footprints and heights, terrain, roads, population). They must be legally usable for simulation, which rules out Google data ([22](22-real-earth-and-realism.md)). They must be processed by our own pipeline, versioned so saves stay valid, and delivered within app-size and zero-cost limits. Data quality varies hugely by region; New York City is unusually good, which is why the MVP is in Bay Ridge.
 
-### P6. Mobile constraints: memory, thermals, storage, battery
+### P6. Realistic rendering continuity from 1 m to 10¹² m on a phone
 
-iOS kills apps that exceed their memory limit (jetsam) with no warning to the user. iPhones throttle under sustained load, so peak benchmarks are misleading; sustained performance after 10+ minutes is what matters. App size and on-device storage limit how much pre-baked content and save data we can carry. Every budget in the system must be explicit and enforced. See [15](15-ios-performance-memory.md).
+Continuous zoom requires depth handling across ranges, terrain and building streaming from planet to street, an atmosphere that looks right from the ground and from orbit, cities that read as buildings, then blocks, then lights, and people that degrade from animated characters to density fields. Realism adds a hard extra problem: blending photoreal backdrops (optional Google tiles) with our own editable geometry ([23](23-visual-providers.md)).
 
-### P7. Determinism and reproducibility
+### P7. Mobile constraints: memory, thermals, storage, battery
 
-Determinism, meaning the same seed plus the same inputs gives the same world, underpins: regenerating the same people when you zoom back in, compact saves (store inputs and deltas, not everything), undoing god interventions, reproducing bugs, and regression tests. Floating-point non-determinism (different math libraries, fused multiply-add, parallel reduction order, thread scheduling) quietly destroys this. It must be designed in from the first line of code; it cannot be retrofitted.
+iOS terminates apps that exceed their memory limit without warning. iPhones throttle under sustained load, so sustained performance after 15–20 minutes is what counts. App size limits the data we can ship. Every budget must be explicit and enforced ([15](15-ios-performance-memory.md)).
 
-### P8. Interventions whose consequences cross scales
+### P8. Reproducibility
 
-"Drop a meteor on this city", "make this person a charismatic prophet", "double the moon's mass": each intervention has to act on whatever representation currently exists (individuals if materialized, aggregates if not) and remain consistent when the representation changes later. A generalized system needs a finite effect vocabulary with well-defined semantics at each LOD level. See [13](13-god-interventions.md).
+Regenerating the same people on zoom-in, compact saves, undoing interventions, reproducing bugs, and regression tests all need reproducible simulation. The policy is tiered: exact where identity and structure depend on it, same-build-exact for replay, and bounded differences acceptable elsewhere ([25](25-determinism-policy.md)). It must be designed in from the first line of code.
 
-### P9. Persistence of a mostly generated world
+### P9. Interventions and their consequences across scales
 
-If everything the player touches is persisted forever, save files grow without bound. If too little is persisted, the world forgets things the player cares about. The solution (seed + deltas + notability policy + compaction) requires stable identities and versioned generators, because a generator change silently alters every un-persisted part of every existing save.
+"Drop a meteor on Brooklyn", "make this person a charismatic organiser": each intervention must act on whichever representation currently exists and stay consistent as representations change ([13](13-god-interventions.md)). The player will also want to know what their intervention *did*, which needs a causal record ([24](24-world-events-and-causality.md)).
 
-### P10. Streaming under fast camera motion
+### P10. Persistence of a mostly derived world
 
-A pinch from street level to orbit crosses six orders of magnitude in under a second. Rendering, procedural generation and simulation LOD transitions must be asynchronous, prioritised and budgeted, with graceful placeholders, or the frame rate collapses exactly when the player is most impressed.
+Saves stay small only if regenerable content (data-driven and procedural baseline) is not stored. That requires stable identities, versioned generators and datasets, a notability policy, and bounded event retention ([14](14-persistence.md)).
 
-### P11. Debuggability of emergent behaviour
+### P11. Streaming under fast camera motion
 
-When a district's population collapses in year 40, someone has to find out why. That needs deterministic replay, event logs, inspectors for every level, and headless batch runs. Tooling is a first-class part of the architecture, not an afterthought.
+A pinch from street to orbit crosses six orders of magnitude in under a second. Data loading, mesh generation, provider tiles, and LOD transitions must be asynchronous, prioritised, and budgeted, with graceful placeholders.
 
-### P12. Process: AI-assisted development across two models
+### P12. Debuggability and explainability of emergent behaviour
 
-Large parts of the code will be written by AI collaborators who see only part of the codebase at a time. This favours: strongly typed languages, small crates with narrow interfaces, extensive automated tests that run in Linux containers, architecture decision records (ADRs), and invariants that are checked in code rather than remembered.
+When a district's population collapses in year 40, someone must find out why. That needs replay, a structured event history with causal links, inspectors at every level, and headless batch runs. Players need the same explanations ("why did this city decline?").
+
+### P13. Process: AI-assisted development across two models
+
+Most of the code will be written by AI collaborators who see part of the codebase at a time. That favours strongly typed languages, small crates with narrow interfaces, extensive Linux-runnable tests, ADRs, and invariants checked in code.
 
 ## 1.2 Reality check: where the vision must be approximated
 
-The brief asked for an explicit challenge to unrealistic assumptions. These are the places where the long-term vision cannot be achieved literally and must rely on approximation, abstraction, procedural generation, simulation LOD, or other compromises.
-
-| Vision element (as understood) | Literal version | Why it is not feasible | What we do instead |
+| Vision element | Literal version | Why it is not feasible | What we do instead |
 |---|---|---|---|
-| Every person on a planet is simulated | ~8 billion individual agents | At even 200 bytes each that is 1.6 TB of state, and updating it would take far longer than real time on any phone. | Individuals exist only where materialized (thousands at once). Everyone else is represented as cohorts and statistics, with deterministic identities that can be re-materialized on demand. |
-| "Continuous" scale | One seamless model from 1 cm to 10¹³ m | No numeric type, model, or renderer spans that range. | Discrete LOD bands with **perceptually** continuous transitions (cross-fades, hysteresis, morphing). Continuity is a property of the experience, not the data. |
-| Real physics everywhere | Global rigid-body, fluid and climate simulation | Computationally impossible on any hardware, let alone a phone. | Rigid-body physics only inside a small "physics bubble" near the camera. Everything else uses kinematic, statistical, parametric or scripted models. See [10](10-physics.md). |
-| Realistic weather and climate | CFD atmosphere | Supercomputer-scale. | Coarse climate zones plus procedural weather systems (fronts, storms) on a coarse grid, with local visual detail generated on demand. |
-| A faithful copy of real Earth (**now chosen**) | Real streets, buildings, terrain, population | Terabytes of data; Google data is display-only and cannot be stored or used to derive geometry; OSM is ODbL; data quality varies; no real individuals can be modelled | Real geography from open data, Google 3D Tiles as a streamed backdrop, synthetic people and interiors, pinned dataset versions. See [22](22-real-earth-and-realism.md). |
-| Photorealism at every scale on iPhone (**realistic look now chosen**) | AAA visuals from street to orbit | Thermal and memory budgets cannot sustain AAA street scenes with thousands of realistic people; Google's mesh is static, has baked lighting, and cannot be edited | Photorealism from Google tiles at a distance, where the realism is in the data; realistic PBR near field with a few dozen high-quality characters and crowd LOD beyond; upscaling and dynamic resolution. See [22 §R.4](22-real-earth-and-realism.md). |
-| Anything a god can imagine | Open-ended interventions with emergent consequences | Every effect needs defined semantics at every LOD level; unbounded effects cannot be simulated. | A finite, extensible **effect vocabulary** composed into interventions. LLMs may later translate free text into that vocabulary, but cannot invent new physics. Extreme interventions (destroy a moon) use parametric or scripted outcomes. |
-| Centuries of emergent history and culture | Agent-level simulation over centuries | Cost scales with population × time. | Macro-level historical models (demography, economy, factions, culture traits) for long time spans; individual-level detail only in observed windows. Notable individuals persist as "legends" in the record. |
-| Solar system "to scale" and "alive" | Every body inhabited and detailed | Space is overwhelmingly empty; distances make travel slow; detail on other bodies multiplies cost. | Bodies on analytic orbits; time warp; other bodies either uninhabited or represented at macro level only until the design calls for more. |
-| Persist everything the player ever saw | Unbounded save growth | Storage and load-time costs. | Notability policy: anything the player interacted with, named, or that took part in significant events is persisted; anonymous background detail is regenerated rather than stored. Short-term observation cache avoids "the person I just saw vanished". |
-| Same results on every device | Bit-identical cross-platform floating point | Achievable only with strict discipline and still risky. | Guarantee determinism for the same build on the same architecture (all shipping iPhones are arm64). Test cross-architecture (Linux x86-64 vs. Apple arm64) and treat divergence as a bug, but do not make saves depend on it. |
-| Real-time LLM-driven NPCs | Every NPC thinks via an LLM | Cost, latency, offline play, determinism, and battery all rule it out. | Rule-based deterministic NPC minds; LLMs only as an optional presentation and suggestion layer whose outputs are recorded as inputs. See [16](16-ai-llm-npcs.md). |
+| Every person on Earth simulated | ~8 billion individual agents | At 200 bytes each that is 1.6 TB of state, and far slower than real time | Individuals exist only where materialized (thousands at once); everyone else lives in cohorts and statistics with deterministic identities that can be re-materialized |
+| Real people | Actual residents of Bay Ridge | Privacy, ethics, and no data | **Synthetic population** calibrated to Census statistics; no real individuals modelled |
+| "Continuous" scale | One seamless model from 1 cm to 10¹³ m | No numeric type, model, or renderer spans that range | Discrete LOD bands with perceptually continuous transitions |
+| Real physics everywhere | Global rigid-body, fluid, and climate simulation | Computationally impossible | Rigid bodies only in a small bubble; kinematic, statistical, parametric, or scripted models elsewhere ([10](10-physics.md)) |
+| Realistic weather and climate | An atmospheric CFD model | Supercomputer-scale | Coarse climate zones plus procedural weather systems; local detail generated on demand |
+| A faithful copy of real Earth | Every building, interior, and detail | Open data has gaps (heights, entrances, interiors); Google data cannot be used for simulation; planet-wide data is huge | Real skeleton from open data (best in NYC), procedural fill for gaps and interiors, staged coverage, pinned dataset versions ([22](22-real-earth-and-realism.md)) |
+| Photorealism everywhere on iPhone | AAA visuals from street to orbit | Thermal and memory budgets; Google's mesh is static, has baked lighting, and cannot be edited | Realism from real data (massing, LiDAR, imagery) and PBR near the camera; optional photoreal Google backdrop at distance; a few dozen realistic characters with crowd LOD beyond |
+| Anything a god can imagine | Unbounded interventions | Every effect needs defined semantics at every LOD level | A finite, extensible effect vocabulary; parametric or scripted outcomes for extreme interventions ([13](13-god-interventions.md)) |
+| Perfect causal explanations | A universal causal-inference engine | Unsolvable in general and too expensive | Practical provenance: direct links, bounded provenance tags, aggregate attribution, optional counterfactual runs, each with a stated confidence ([24](24-world-events-and-causality.md)) |
+| Centuries of emergent history | Agent-level simulation over centuries | Cost scales with population × time | Macro historical models for long spans; individual detail only in observed windows; notables kept as legends |
+| A living solar system | Every body inhabited and detailed | Space is empty; travel is slow; detail multiplies cost | Real ephemerides; time warp; other bodies uninhabited (as in reality) unless the design adds macro-only settlements |
+| Persist everything ever seen | Unbounded saves | Storage and load time | Notability policy, event retention by importance, regenerate anonymous detail, short-term observation cache |
+| Bit-identical results on every device | Cross-platform exact floating point | Costly and brittle | Tiered reproducibility policy ([25](25-determinism-policy.md)) |
+| LLM-driven NPC minds | Every NPC thinks via an LLM | Cost, latency, offline play, reproducibility, battery | Deterministic minds; LLMs only as an optional presentation and suggestion layer ([16](16-ai-llm-npcs.md)) |
+| Entirely free at any scale | No costs ever | Hosting planet-scale data and metered services cost money at scale; Apple distribution costs $99 per year | Free open data and tools; MVP data shipped in the app; Google optional and capped; revisit hosting when scale requires it (ADR 0007) |
 
-The general principle these compromises follow:
+The principle behind these compromises:
 
-> **Simulate at the coarsest level that preserves every fact the player can check, and keep enough information to re-create the finer levels deterministically when they look.**
+> **Simulate at the coarsest level that preserves every fact the player can check, and keep enough information to re-create the finer levels, and to explain what happened, when they look.**

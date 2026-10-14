@@ -1,105 +1,88 @@
 # 20. Phased Development Roadmap
 
-> **Revision 2 (2026-10-14):** The phases are unchanged, but each one now includes real-data work, and Phase 0 adds Unity/Cesium/Google-tiles spikes. See [22 §R.9](22-real-earth-and-realism.md#r9-updated-roadmap-notes).
+Covers point 20. Revised in Revision 4 to the progression agreed after ChatGPT's review (ADR 0009):
 
-Covers point 20: from the first technical prototype through neighbourhood, city, planetary and solar-system simulation.
+> **Technical Prototype → Vertical Slice → Neighbourhood MVP → City → Planet → Solar System**
 
-Each phase has **exit criteria**. A phase is done when its criteria are met on real hardware, not when its features exist. Durations are deliberately not given; effort is shown relatively, and the plan should be re-estimated after Phase 1 with real data.
+Each stage has **exit criteria**. A stage is done when its criteria are met on real hardware (iPhone 15 Pro, ADR 0004), not when its features exist. Durations are deliberately not given; effort is shown relatively, and the plan is re-estimated after the Technical Prototype with real data. Stage definitions for the first three stages are in [20](20-mvp.md).
 
-## Phase 0: Foundations
+## Stage 1: Technical Prototype ("MVP-0")
 
-Goal: lock in the decisions that are expensive to change and build the skeleton they live in.
+**Purpose: prove the foundational architecture only.** No real gameplay, no visual polish, no real-data rendering required.
 
-- Commit the vision / Project Instructions to `docs/vision/`; ChatGPT review of this proposal into `docs/reviews/`; ADRs for every "decide now" item ([21](21-decisions-now-vs-later.md)).
-- Repository skeleton, CI (Linux + macOS + iOS build), conventions file for AI collaborators.
-- `ws-math` (frames, typed positions, cube-sphere cell IDs), `ws-time`, `ws-rng`, with property tests.
-- Spikes (throwaway, documented): ECS library choice; serialization format; Rust-to-Swift bridge with shared Metal buffers; minimal Metal renderer drawing 10,000 instanced boxes from core-written buffers on device; measure memory limit and thermal behaviour on the minimum device.
-- `ws-cli` skeleton and determinism-hash harness.
+- Repository skeleton, CI (Linux core, macOS core, Unity iOS build), conventions file for AI collaborators, ADR process in use.
+- Rust foundations: frames and typed positions (WGS84/ECEF, cell IDs, local ENU), integer time, counter-based RNG, ID scheme, minimal ECS wrapper, command queue and journal, minimal event log with causal links, determinism tiers and state hashing ([25](25-determinism-policy.md)).
+- Rust ↔ Unity bridge on iPhone: the core as a native static library, commands in, render snapshot out through shared buffers, with no per-entity calls.
+- A synthetic test scene placed at real Bay Ridge coordinates: a flat cell, a few boxes as "buildings", and a few dozen moving agents. Unity draws them with Cesium georeferencing.
+- Headless `ws-cli` runner; save and load of the trivial world; one headless LOD round trip (L1 ⇄ L2) with conservation checks.
+- Spikes, each documented: ECS library choice; serialization format; Cesium plus open-data geometry on device; Google tiles through the provider abstraction with quota enforcement ([23](23-visual-providers.md)); memory and thermal limits on an iPhone 15 Pro.
 
-Exit criteria: all "decide now" ADRs accepted; CI green; an iOS build running the core on device and drawing core-provided instances at a stable frame rate; determinism harness in place.
+Exit criteria: a Tier 1 and Tier 2 determinism harness running in CI; the iPhone build runs the core and draws core-provided instances at a stable frame rate for 20 minutes; save/load round-trips state hashes; all spikes written up as ADRs or notes.
 
-Relative effort: small-medium.
+Relative effort: small to medium.
 
-## Phase 1: Technical prototype ("one living street")
+## Stage 2: Vertical Slice (about one real Bay Ridge block)
 
-Goal: prove the architectural spine end to end at the smallest scale.
+**Purpose: run every architectural spine end to end, at the smallest real scale.** Visual polish is not a requirement.
 
-- One sector cell, flat-ish terrain, procedurally generated street, a handful of buildings (simple descriptors).
-- ~100 agents with schedules (L2) and needs/utility (L1), pathfinding and local avoidance.
-- Two simulation LOD levels (L1 ⇄ L2 ⇄ L3 for buildings) with real materialization/dematerialization and the observation cache.
-- Command queue and journal; one intervention end-to-end.
-- Save/load with versioned format.
-- Camera from street to ~500 m with two rendering LOD representations for buildings and people.
-- Inspector (tap an agent, see state).
+Scope (as specified by Noah; details in [20 §20.3](20-mvp.md)): about one real Bay Ridge block; about 10–30 synthetic people; 3–5 representative buildings built from real data; basic camera and zoom; Rust ↔ Unity communication; simulation time; at least one simulation-LOD transition; save/load; entity inspection; and one god intervention whose consequences are recorded as linked events.
 
-Exit criteria: round-trip conservation tests pass over thousands of seeds; same-build determinism verified; sustained frame rate on the minimum device for 20 minutes; save/load reproduces identical state. **Re-evaluation gate**: is the custom renderer cost acceptable, or should the front end switch to Unity over the same core ([02](02-technology-stacks.md))?
+Exit criteria: in [20 §20.3](20-mvp.md).
 
 Relative effort: medium.
 
-## Phase 2: Neighbourhood (the MVP phase)
+## Stage 3: Neighbourhood MVP (6–12 Bay Ridge blocks)
 
-Goal: the first playable MVP ([20](20-mvp.md)).
+**Purpose: the first playable version**, testing whether the core fantasy (a living, real neighbourhood you can observe and influence) is engaging.
 
-- Several blocks (~0.5–1 km²), several hundred residents, workplaces, shops, a school, a park.
-- Day/night, weather (rain) affecting behaviour; households and simple household economy.
-- Notability and persistence of notables; history log; three interventions; time controls.
-- Rendering: street to neighbourhood band, cross-fades, atmosphere, stylized look established.
+Scope: in [20 §20.4](20-mvp.md). Summary: 6–12 blocks around 3rd–5th Avenue and 75th–86th Street (bounds to be confirmed); hundreds to a few thousand synthetic residents (L0–L3); day and night with the real sun position; weather; three interventions with causal-consequence views; history and "what happened here?"; realistic open-data visuals; Google backdrop optional.
 
-Exit criteria: MVP criteria in [20](20-mvp.md) met; TestFlight build in testers' hands.
+Exit criteria: in [20 §20.4](20-mvp.md); TestFlight build in testers' hands (requires the Apple developer membership, the one known cost in ADR 0007).
 
 Relative effort: medium-large.
 
-## Phase 3: City
+## Stage 4: City (New York City, starting with Brooklyn)
 
-Goal: tens of districts and a city of 100,000+ people, almost all at aggregate levels, with full zoom from street to city band.
-
-- L3–L5 models: district cohorts, commuting and migration flows, city economy and services, simple governance.
-- Settlement layout generator (roads, districts, zoning), building grammar at scale, HLOD.
-- Interest manager with budgets across many districts; streaming of cells; visual proxies (crowd density, traffic flow) for aggregate districts.
-- Vehicles (L1 lane-following near camera, flows elsewhere).
-- Interventions at district and city scale (fire spreading, epidemic, economic boom/bust).
+- Data pipeline for a whole metro area (NYC Open Data citywide, OSM/Overture, Census/ACS).
+- L3–L5 models: district cohorts, commuting and migration flows, city economy and services, simple governance; subway and road networks as flow networks.
+- Interest manager with budgets across many districts; streaming of simulation tiles from a free-tier host; visual proxies for aggregate districts.
+- Vehicles: lane-following near the camera, flows elsewhere.
+- City-scale interventions (fire spreading, epidemic, economic shock) with aggregate causal attribution ([24](24-world-events-and-causality.md)).
 - Statistical-equivalence tests between levels become a CI requirement.
 
-Exit criteria: a 20-minute flight from a street to whole-city view and back with no visible holes, no conservation violations, sustained frame rate, save size within budget after hours of play.
+Exit criteria: a 20-minute flight from a Bay Ridge street to a whole-city view and back with no visible holes and no conservation violations; sustained frame rate; save size and event store within budget after hours of play; "why did this district decline?" answered from events.
 
 Relative effort: large.
 
-## Phase 4: Planet
+## Stage 5: Planet (real Earth)
 
-Goal: one Earth-like planet with many settlements, terrain from orbit to street, climate and biomes.
+- A global open-data pipeline (Overture, Copernicus DEM, GHSL/WorldPop, ESA WorldCover) staged region by region; synthetic populations for every settlement.
+- Globe rendering through Cesium with the open-data provider; NASA imagery from orbit; optional Google backdrop.
+- L6 models: climate zones, inter-city trade, macro-demography, factions.
+- Time warp coupled with LOD (days to years per second).
+- Planet-scale interventions and causal attribution across regions.
 
-- Cube-sphere terrain LOD, atmosphere scattering, oceans, clouds.
-- Planet generation (macro elevation, climate zones, biomes, rivers) and pre-history simulation (settlements, cultures).
-- L6 models: climate, inter-city trade, macro-demography, factions.
-- Time warp coupled with LOD (days to years per second at planet scale).
-- Planet-scale interventions (climate change, disasters, plagues across continents).
-
-Exit criteria: continuous zoom from orbit to any street on the planet; centuries of history simulated at warp without collapse of invariants; memory and thermal budgets met.
+Exit criteria: continuous zoom from orbit to any covered street; decades of history simulated at warp with invariants holding; memory and thermal budgets met; hosting still within free tiers, or a new cost decision taken (ADR 0007).
 
 Relative effort: very large.
 
-## Phase 5: Solar system
+## Stage 6: Solar System
 
-Goal: the planet within a solar system of bodies on analytic orbits, with continuous zoom out to system scale.
+- Real ephemerides (JPL) for planets and moons, deterministic evaluation; the full frame hierarchy in use.
+- System-scale rendering (depth ranges, minimum-size sprites, orbit lines) with NASA imagery providers.
+- Celestial interventions with parametric outcome models whose consequences propagate as linked events to planet and city levels.
 
-- Full frame hierarchy in use; Kepler orbits; moons; system-scale rendering (multiple depth ranges, sprites with minimum size, orbit lines, star field).
-- Celestial interventions with parametric outcome models (impacts, orbit changes, tides).
-- Optional: other bodies with macro-only settlement models.
+Exit criteria: smooth zoom from a Bay Ridge street to the outer solar system and back with no precision artefacts; celestial interventions propagating coherently, with traceable causal chains.
 
-Exit criteria: smooth zoom from a street to the outer system and back with precision artefacts absent at every scale (no jitter, no z-fighting), and celestial interventions propagating coherently to planetary and city levels.
+Relative effort: medium (most of the hard work is in earlier stages).
 
-Relative effort: medium (most of the hard work is in Phases 1–4).
+## Beyond: depth
 
-## Phase 6 and beyond: depth
+Richer social, political, and cultural models; optional LLM features ([16](16-ai-llm-npcs.md)); interiors in depth; audio; branching timelines; replays; iPad and Mac builds.
 
-- Richer social, cultural and political models; institutions; long-term history and legends.
-- Optional LLM features ([16](16-ai-llm-npcs.md)): dialogue text for notables, natural-language interventions.
-- Interiors in depth, more building and culture styles, audio.
-- Branching timelines, replays, world sharing.
-- Additional platforms (iPad and Mac via the same Swift/Metal app, Android only with a different front end).
+## Cross-cutting tracks (all stages)
 
-## Cross-cutting tracks (all phases)
-
-- Performance measurement on device every phase.
-- Documentation and ADRs kept current; `docs/architecture/` updated when reality diverges from this proposal.
-- Tooling (`ws-inspector`, debug overlays) grows with every simulation feature.
+- Device performance measurement every stage.
+- ADRs and `docs/architecture/` kept current; a changelog entry per revision ([CHANGELOG](CHANGELOG.md)).
+- Tooling (`ws-inspector`, debug overlays, event and causality browser) grows with every simulation feature.
+- Licence and attribution compliance for every new data source and provider.

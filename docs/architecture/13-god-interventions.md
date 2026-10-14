@@ -45,7 +45,7 @@ An effect type that cannot define an aggregate equivalent is restricted to mater
 
 ## 14.4 How an intervention reaches unmaterialized targets
 
-Example: "plague in this city" while the city is at L5 (no individuals exist).
+Example: "plague in New York City" while the city is at L5 (no individuals exist).
 1. Apply at L5: the city's epidemic model gets new infected counts and parameters.
 2. Flows carry it to neighbouring settlements at L5 through the trade and migration network.
 3. The player zooms into a district: disaggregation produces individuals, and the district's epidemic state determines which ones are sick, by seeded sampling. Those individuals now carry an `Infected` component, consistent with the aggregate.
@@ -62,7 +62,7 @@ Some interventions exceed what any model can simulate credibly (destroy the moon
 
 ## 14.6 Undo, branching, and replay
 
-Because the world is deterministic and every intervention is a journaled command:
+Because the simulation is replay-exact on the same build and platform (Tier 2, [25](25-determinism-policy.md)) and every intervention is a journaled command:
 - **Undo** = restore the nearest snapshot before the intervention and replay the journal without it. Snapshots are taken periodically and before every intervention, so undo is fast.
 - **Branching timelines** (try an intervention, compare outcomes) are the same mechanism and can be added later at little architectural cost.
 - **Replay** of interventions is exact, which makes interventions testable as scenarios.
@@ -75,6 +75,22 @@ Whether undo is a player-facing feature is a design question; the architecture s
 2. **Intervention composer** that lets the player assemble target + effects + timing.
 3. **Natural-language input** (optional, LLM-based): free text is translated into a candidate intervention in the effect vocabulary, shown to the player for confirmation, then submitted like any other. The LLM never applies effects directly ([16](16-ai-llm-npcs.md)).
 
-## 14.8 Observability
+## 14.8 Causal provenance of interventions
 
-Every intervention gets an inspector record: what it targeted, what it changed at each level, and a timeline of consequences (derived from the history log by causal tagging: events carry the ID of the intervention that caused them, directly or through a chain). Players and developers can answer "what did my plague actually do?"
+Every applied intervention creates an `player.intervention_applied` **world event**, the root of its causal tree ([24](24-world-events-and-causality.md)). From there, consequences are linked by the practical provenance model in [24 §24.6](24-world-events-and-causality.md):
+
+1. **Direct effects** of each effect type are emitted as events with `caused_by` links to the root. For example, "curse with illness" causes an `life.illness` event for the target.
+2. **Provenance tags** are attached to every component, field, or aggregate the effects changed. Later events produced while reading tagged state record the intervention as a `contributed_to` cause, with weights that decay with each hop and with time. Intervention roots are always tracked; tags are bounded per piece of state.
+3. **Aggregate attribution:** effects applied at L3+ keep an attributable share in the coarse models (infections descending from the plague's seed cases; the economic delta from a "bless the shop" effect), so aggregate events can state an attributed fraction.
+4. **Optional counterfactual summary:** for a "what did this do?" screen, the game may run a background, coarse-level branch from the pre-intervention snapshot without the intervention and compare the outcomes. This is possible because the simulation is replay-exact on the same build ([25](25-determinism-policy.md)).
+
+Each linked consequence carries a confidence class (`direct`, `contributing`, `statistical`, `counterfactual`), and the UI words them differently ("caused", "contributed to", "associated with").
+
+Requirements on every effect type (adding to 14.3):
+- Declare which event types it emits directly.
+- Declare which state it tags.
+- At aggregate levels, declare how its attributable share is tracked, or state that it is untracked (in which case explanations fall back to counterfactuals or say "unknown").
+
+## 14.9 Observability
+
+Every intervention has an inspector record: what it targeted, what it changed at each level, and a timeline of consequences built from the causal links and attributions above. Players and developers can answer "what did my plague actually do?" and "what happened here?", and see how confident each answer is.

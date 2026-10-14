@@ -1,6 +1,6 @@
 # ADR 0002: Realistic visuals preferred
 
-- Status: Accepted
+- Status: Accepted (refined by ADRs 0007 and 0008: the Google backdrop is optional and capped; open-data visuals are the default)
 - Date: 2026-10-14
 - Decided by: Noah
 
@@ -12,5 +12,5 @@ Target a realistic look through a hybrid approach: Google Photorealistic 3D Tile
 
 ## Consequences
 - The front-end recommendation changes from custom Swift/Metal to Unity (URP) plus Cesium for Unity. The Rust simulation core is unchanged.
-- The seam between Google geometry and our own geometry is a top Phase 0/1 risk.
+- The seam between Google geometry and our own geometry is a risk to evaluate in the Technical Prototype and Vertical Slice.
 - Street-level crowds still rely on LOD: a few dozen realistic characters near the camera, with simpler representations beyond.

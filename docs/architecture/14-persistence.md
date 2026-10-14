@@ -1,64 +1,59 @@
 # 15. Persistence and Save Architecture
 
-> **Revision 2 (2026-10-14):** Saves now also record the **dataset version**. Photoreal visuals need a network connection, while the simulation still runs offline, and a CDN serves the processed open-data tiles. See [22 §R.7](22-real-earth-and-realism.md#r7-revised-persistence-and-connectivity).
-
-Covers point 15.
+Covers point 15. Related: [08](08-world-state.md) (what is canonical), [24](24-world-events-and-causality.md) (event store), [25](25-determinism-policy.md) (reproducibility).
 
 ## 15.1 What a save contains
 
-Following the seed-plus-delta model ([08](08-world-state.md)):
-
 | Part | Contents |
 |---|---|
-| Header | Save format version, game build, world seed, generator versions, rules version, simulation time, settings that affect simulation |
-| Canonical aggregates | Coarse state of every node that differs from its baseline (most nodes at L5+ do, because they are simulated; most fine nodes do not) |
-| Canonical entities | All notable entities and their components; ID counters |
-| Deltas | Per-node changes to the procedural baseline (structures, land use, overrides) |
-| History log | Significant events, compacted per retention policy |
-| Journal | Commands since the last full snapshot (player actions, interventions) |
-| Snapshots | Periodic full canonical snapshots, for fast load, undo, and replay |
-| Observation cache | Optional; may be dropped on save to keep size down |
+| Header | Save format version, game build, world seed, **dataset version**, generator versions, rules version, simulation time, settings that affect simulation |
+| Canonical aggregates | Coarse state of every node that differs from its baseline, including intervention attributions |
+| Canonical entities | Notable entities and their components (including provenance tags); ID counters |
+| Deltas | Per-node changes to the baseline (structures, land use, overrides) |
+| **World event store** | Structured events with causal links and indices, compacted by the retention policy ([24 §24.8](24-world-events-and-causality.md)) |
+| Command journal | Commands since the last full snapshot (player actions, interventions, adopted LLM suggestions) |
+| Snapshots | Periodic full canonical snapshots, for fast loading, undo, replay, and counterfactual branches |
+| Observation cache | Optional; may be dropped on save |
 
-A save does **not** contain procedural baseline content, derived data (indices, navigation graphs), or anonymous materialized entities.
+A save does **not** contain: the baseline (simulation tiles and procedural content), derived data (indices, navigation graphs), anonymous materialized entities, or anything from visual providers ([23](23-visual-providers.md)).
 
 ## 15.2 Storage technology
 
-- **SQLite** as the container on device: transactional, crash-safe, well supported on iOS, queryable for inspectors, and handles partial loading by key. Accessed from Rust via `rusqlite`.
-- Data layout: one table per kind of record (nodes, entities, deltas, events, journal, snapshots), keyed by IDs and by **Hilbert-ordered cell IDs** ([07](07-coordinates-and-time.md)) so spatially close data is close on disk.
-- Bulk component data stored as **compressed binary blobs per node** (for example a district's entity table), using a versioned, schema-evolving binary format and fast compression (LZ4 or zstd). The exact format (custom with `serde`, FlatBuffers, Cap'n Proto, ...) is postponed to a Phase 0 spike; the requirement now is that every record carries a schema version.
+- **SQLite** as the container on device (transactional, crash-safe, queryable for inspector and history queries, partial loading by key), accessed from Rust with `rusqlite`.
+- Tables per kind of record (nodes, entities, deltas, events, causal links, journal, snapshots), keyed by IDs and by **Hilbert-ordered cell IDs**, so spatially close data is close on disk and region queries are range scans.
+- Bulk component data stored as compressed binary blobs per node, in a versioned, schema-evolving format (the exact format is chosen in a Technical Prototype spike). Every record carries a schema version.
 - One SQLite file per save slot.
 
 ## 15.3 Saving
 
-- **Autosave is incremental**: only dirty nodes and new journal entries are written.
-- Saves are taken at tick boundaries. The core produces a **copy-on-write snapshot** of dirty canonical state (cheap, because canonical state is a small fraction of memory) and a background thread serialises and writes it, so saving never hitches the frame.
-- iOS lifecycle: on entering background, flush the journal and dirty nodes immediately within the time iOS allows; the journal guarantees that at worst the last few seconds are replayed from the previous state.
+- **Autosave is incremental**: dirty nodes, new events, and new journal entries only.
+- Saves are taken at tick boundaries. The core takes a copy-on-write snapshot of dirty canonical state, and a background thread serialises and writes it, so saving never causes a frame hitch.
+- iOS lifecycle: on entering the background, flush the journal and dirty state immediately within the time iOS allows.
 
 ## 15.4 Loading
 
-1. Read the header; check versions (see 15.5).
-2. Load macro state (system, planet, settlements at L5+), which is small.
+1. Read the header and check versions (15.5). Make sure the referenced dataset version is available (shipped with the app for the MVP area; fetched from static hosting later).
+2. Load macro state (system, Earth, regions, cities), which is small.
 3. Load the nodes around the saved camera position and materialize them through the normal pipeline ([12](12-materialization.md)).
-4. Everything else is loaded lazily as the camera moves.
+4. Load everything else lazily as the camera moves.
 
-Load time therefore depends on the area around the camera, not on world size.
+Load time depends on the area around the camera, not on world size.
 
-## 15.5 Versioning and migration
+## 15.5 Versioning, migration, and reproducibility
 
-From the first saveable build:
-- **Save format version** with forward migration steps (version N to N+1), tested against stored fixture saves in CI ([18](18-testing-strategy.md)).
-- **Rules version** and **generator versions** recorded. If a newer build changes a generator, the save either keeps using the old generator version (if retained) or is migrated by materializing and storing the affected content first. Policy is postponed; the recording is not.
-- Determinism caveat: replaying a journal requires the same simulation code. Journals are therefore replayable only within a compatible build; long-term saves rely on snapshots, not on replaying the journal from world creation.
+- **Save format version** with forward migration steps, tested against fixture saves in CI ([18](18-testing-strategy.md)).
+- **Dataset, generator, and rules versions** recorded. If a newer build changes any of them, the save keeps the old versions (old tiles kept available) or is migrated by materializing and storing affected content first. The policy is chosen at the first breaking change; the recording is required from day one.
+- **Saves never depend on cross-platform replay.** Loading restores canonical state directly; the baseline is regenerated with Tier 1 exactness. Journals are replayed only on the same build and platform, for undo, debugging, and counterfactuals (Tier 2, [25](25-determinism-policy.md)).
 
 ## 15.6 Size management
 
 - Notability budgets and retirement ([09](09-entities-and-agents.md)) bound entity growth.
-- History log compaction: old insignificant events are rolled into statistics.
-- Journal truncation: once a full snapshot exists, older journal entries are kept only as long as undo/replay needs them.
-- Target (hypothesis, to measure): a typical save stays in the tens of megabytes after many hours of play.
+- Event retention by importance with deterministic compaction into aggregate events; intervention causal chains are retained preferentially ([24 §24.8](24-world-events-and-causality.md)).
+- Journal truncation: once a full snapshot exists, older journal entries are kept only as long as undo and replay need them.
+- Target (a hypothesis, to be measured): a typical save stays in the tens of megabytes after many hours of play.
 
 ## 15.7 Later
 
-- **iCloud sync** of save slots (simple file-level sync is enough for single-player).
-- **Shareable worlds**: because a world is a seed plus deltas, sharing a world or a scenario is small.
-- **Replays** as a feature (watch the history of a city) built on snapshots plus journal.
+- **iCloud sync** of save slots (file-level sync is enough for a single-player game; ADR 0003).
+- **Shareable worlds**: a world is a seed, a dataset version, and deltas, so sharing a world or scenario is small.
+- **Replays and timelines** as a player feature, built on snapshots, journal, and events.
