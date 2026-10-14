@@ -1,5 +1,7 @@
 # 21. First Playable MVP
 
+> **Revision 3 (2026-10-14):** The MVP area is **Bay Ridge, Brooklyn**, rendered from free NYC open data by default, with Google tiles optional ([22 §R.11](22-real-earth-and-realism.md#r11-revision-3-2026-10-14-bay-ridge-stack-accepted-zero-cost)).
+>
 > **Revision 2 (2026-10-14):** The MVP now uses **one real neighbourhood chosen by Noah**, with a Google 3D Tiles backdrop, near-field buildings built from OSM data, and a synthetic population. Everything else below stands. See [22 §R.8](22-real-earth-and-realism.md#r8-revised-mvp).
 
 Covers point 21. This is the deliverable of Phase 2 in [19](19-roadmap.md).

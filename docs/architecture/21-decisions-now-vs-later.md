@@ -57,7 +57,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 
 ## 22.4 Questions for Noah
 
-Answered 2026-10-14: real Earth, realistic, single-player, iPhone 15 Pro minimum. The new open questions are:
+Answered 2026-10-14: real Earth, realistic, single-player, iPhone 15 Pro minimum (ADRs 0001–0004). Then: MVP area Bay Ridge, stack accepted, zero cost (ADRs 0005–0007). Questions answered in that second round:
 
 1. Which real neighbourhood should the MVP use?
 2. Do you accept the revised stack (Rust core + Unity + Cesium)?

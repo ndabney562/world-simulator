@@ -1,6 +1,6 @@
 # World Simulator — Technical Architecture Proposal
 
-Status: **Proposal, for review** (no implementation yet). **Revision 2 (2026-10-14):** updated for Noah's decisions (real Earth, realistic look, single-player, iPhone 15 Pro minimum); see [22-real-earth-and-realism.md](22-real-earth-and-realism.md) and [`docs/adr/`](../adr/).
+Status: **Proposal, for review** (no implementation yet). **Revision 2 (2026-10-14):** updated for Noah's decisions (real Earth, realistic look, single-player, iPhone 15 Pro minimum); see [22-real-earth-and-realism.md](22-real-earth-and-realism.md) and [`docs/adr/`](../adr/). **Revision 3:** MVP area is Bay Ridge, Brooklyn; the stack is accepted; zero-cost policy (open data by default, Google tiles optional) — see §R.11 of that file and ADRs 0005–0007.
 Author: Claude (Anthropic), for Noah
 Date: 2026-10-14
 Intended reviewers: Noah, ChatGPT (independent review)

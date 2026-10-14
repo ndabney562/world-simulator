@@ -139,3 +139,43 @@ New MVP risk to retire first: **visual seam and alignment** between Google geome
 | Data scale (planet-wide open data) | Pipeline and hosting become a real engineering project | Stage it: one neighbourhood, then a metro area, then countries; reuse Overture's processed releases |
 | Network dependence | Poor experience offline or on weak connections | Offline simulation and fallback visuals |
 | Disasters in real places | Reputational and App Store review risk | Tasteful presentation; avoid real identifiable individuals; review policies early |
+
+## R.11 Revision 3 (2026-10-14): Bay Ridge, stack accepted, zero cost
+
+Noah's answers: the MVP area is **Bay Ridge, Brooklyn**; the revised stack (Rust core + Unity + Cesium for Unity) is **accepted**; and the project must be **free**.
+
+### What "free" means for each part
+
+| Item | Cost | Notes |
+|---|---|---|
+| Rust, Cargo, crates, GitHub repo and Actions for a personal repo | Free | GitHub Actions has free minutes; macOS runners use them faster, so keep macOS CI jobs lean. |
+| Unity | Free under Unity Personal | Personal is free below a revenue threshold. Check the current terms before release. |
+| Cesium for Unity / cesium-native | Free | Apache 2.0 licence. |
+| Open data (OSM/Overture, Copernicus, GHSL, NYC Open Data, NASA) | Free | Attribution required; ODbL share-alike on derived databases. |
+| **Google Photorealistic 3D Tiles** | Free only up to a monthly cap | It is an Enterprise SKU with **1,000 free billable events per month**, then about $6 per 1,000 ([pricing](https://developers.google.com/maps/billing-and-pricing/pricing)). The quota counts root tileset requests, and one root request starts a session of up to three hours ([usage and billing](https://developers.google.com/maps/documentation/tile/usage-and-billing)). That is enough for development, but not for a public release with many players. A billing account (with a card) is still needed to get an API key. |
+| Apple developer account | **Not free: $99 per year** | Needed for TestFlight and the App Store. Without it, Noah can still install builds on his own iPhone with a free Apple ID, but they expire after 7 days and can't be distributed. |
+| Data hosting | Free at MVP scale | Bay Ridge's processed data is small enough to **ship inside the app**, so no CDN is needed for the MVP. A free-tier object store can serve later phases until scale makes that impossible. |
+
+### Consequence: open-data realism is the default, Google is optional
+
+To keep the project free at any number of players, the **primary visual path uses only open data**, and Google tiles become an **optional enhancement** with a hard usage cap and automatic fallback. New York City is one of the best places in the world for this, because the city publishes free, high-quality datasets:
+- The **NYC 3-D Building Model** (citywide building massing, GML/multipatch) on [NYC Open Data / Data.gov](https://catalog.data.gov/dataset/3-d-building-model).
+- **Building footprints with heights** on NYC Open Data.
+- **2017 topobathymetric LiDAR** ([Data.gov](https://catalog.data.gov/dataset/topobathymetric-lidar-data-2017)) for terrain, plus tree and roof shape detail.
+- Citywide **orthoimagery** (aerial photos), which gives realistic ground and roof textures.
+- **OpenStreetMap** for streets, sidewalks, entrances, shops, and points of interest.
+- **US Census and American Community Survey** tables for Bay Ridge's population, households, ages, and occupations, to calibrate the synthetic population.
+
+The NYC Open Data terms of use need a quick check before release. The datasets are published for free public use, but their exact attribution requirements should be confirmed.
+
+Revised rendering plan for the MVP:
+1. **Default (free, offline):** realistic PBR buildings generated from the NYC 3D model and footprints, LiDAR terrain, orthoimagery on ground and roofs, and procedurally generated facades matched to Bay Ridge's typical building styles (brick rowhouses, limestone and brownstone, apartment blocks along 4th and 5th Avenues). Everything is editable, so interventions work.
+2. **Optional (developer setting at first):** Google Photorealistic 3D Tiles as a distant backdrop, beyond about 1 km (Manhattan skyline, Verrazzano Bridge, Staten Island), with a hard monthly cap below the free tier and automatic fallback to path 1.
+
+This also removes much of the seam risk from R.4 for the MVP, because the near field is entirely our own geometry. The seam only appears at a distance, where detail is low.
+
+### Bay Ridge as the MVP area: notes
+
+- **Bounds proposal:** about 6–12 blocks around 3rd–5th Avenue and roughly 75th–86th Street, to be refined with Noah. This area includes rowhouses, apartment buildings, and the 3rd and 5th Avenue commercial corridors (shops, restaurants), so daily schedules have places to go. The R train runs along 4th Avenue, and stations can act as entry and exit points for commuters leaving the simulated area.
+- **Population scale:** Bay Ridge is dense (tens of thousands of residents across the neighbourhood), so even a 6–12 block MVP area may hold a few thousand residents. The MVP materializes only the blocks near the camera; the rest stay at L2/L3. That exercises the LOD system from day one, which is what we want.
+- **Data size:** the processed data for this area (footprints, 3D massing, LiDAR-derived terrain, imagery tiles, the OSM graph) is expected to be well under the app-size budget. It will be measured in the Phase 0 pipeline spike.
