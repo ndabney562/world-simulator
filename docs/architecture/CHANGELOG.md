@@ -1,5 +1,12 @@
 # Architecture Proposal Changelog
 
+## ADR 0016: entity identity, storage, and randomness (2026-10-15, Proposed)
+
+ADR 0016 prepares TP-006 (#7). It fixes D-7 (64-bit `EntityId` with two namespace bits; procedural IDs hashed from world seed, dataset version, and a typed generation address; a counter namespace for spawned entities), closes S-1 for the Technical Prototype (a minimal sorted-column store in `ws-ecs`, iterated in ascending ID order, with no ECS library), defines the counter-based randomness model in `ws-rng` (SipHash-2-4 keyed by parent seed and purpose; streams as a key plus an explicit counter), and settles the cell-edge re-expression rule ADR 0015 left to TP-006 (every re-expressed `SurfacePos` lies in its own cell). `ws-ecs` moves to the foundation layer.
+
+- [17-repository-structure.md](17-repository-structure.md) §18.1–18.2: `ws-ecs` described as the entity ID and component store, and listed with the foundation crates.
+- Pointers added to [09-entities-and-agents.md](09-entities-and-agents.md) §10.1–10.2, [21-decisions-now-vs-later.md](21-decisions-now-vs-later.md) (D-7, S-1), and [07-coordinates-and-time.md](07-coordinates-and-time.md) §8.3.
+
 ## ADRs 0014 and 0015 accepted (2026-10-15)
 
 The Product Owner accepted ADR 0014 (time representation, D-5) and ADR 0015 (coordinate representation, D-4) by merging their implementation PRs, #18 (TP-004) and #19 (TP-005). Their status lines and the ADR index now say Accepted (#22). The decisions are unchanged; S-4 (sector level) stays open as ADR 0015 states.

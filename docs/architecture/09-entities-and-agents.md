@@ -8,7 +8,7 @@ Covers point 10. All people are **synthetic**: generated to match real Census st
 - Entities are IDs; components are plain data; systems are functions over component sets.
 - Chosen because it gives cache-friendly bulk iteration (essential for thousands of agents on a phone), easy composition (a person who becomes a firefighter gains a component rather than changing class), straightforward serialization, and natural LOD: an entity's level is expressed by which components it currently has.
 
-Library choice (a Technical Prototype spike): evaluate `bevy_ecs` used standalone and `hecs`, against requirements of deterministic iteration order, no implicit parallel scheduling that could reorder writes, efficient add/remove of components (frequent during LOD changes), and serialization. Whatever is chosen is wrapped behind the core's own world API so it can be replaced.
+Library choice (a Technical Prototype spike): evaluate `bevy_ecs` used standalone and `hecs`, against requirements of deterministic iteration order, no implicit parallel scheduling that could reorder writes, efficient add/remove of components (frequent during LOD changes), and serialization. Whatever is chosen is wrapped behind the core's own world API so it can be replaced. For the Technical Prototype, [ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md) chooses a minimal sorted-column store in `ws-ecs` instead of a library.
 
 ## 10.2 Identity
 
@@ -18,6 +18,8 @@ Identity is the most important property for consistency across zoom levels.
 - **Persistent identity**: when an entity becomes notable (see 10.6), its procedural ID is registered in the canonical entity table and its state is stored. The ID does not change; only its storage status does.
 - **Spawned identity**: entities created at runtime (a child is born, a god spawns a person) get IDs from a deterministic counter in canonical state, in a separate ID namespace.
 - IDs are 64-bit with namespace bits; collisions in procedural IDs are checked in tests across large seed samples.
+
+The bit layout, derivation inputs, and the counter-based randomness built on the same hash are fixed in [ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md).
 
 ## 10.3 Agent representation by LOD level
 

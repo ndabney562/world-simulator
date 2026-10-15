@@ -46,7 +46,7 @@ Solar-system barycentric frame (ICRF-aligned, non-rotating; 64-bit)
 
 **Entity positions on the surface** are stored as `(sector cell ID, 32-bit local ENU offset in metres)`. Within a ~1 km cell, 32-bit precision is about 0.06 mm. When an entity crosses a cell boundary, it is re-expressed in the neighbouring cell's frame at a deterministic point in the tick (cell membership is a Tier 1 integer decision; [25](25-determinism-policy.md)).
 
-The exact types, the S2-compatible cell-ID scheme, the level-13 sector default, and how cell IDs stay bit-identical across platforms are fixed in [ADR 0015](../adr/0015-coordinate-representation.md).
+The exact types, the S2-compatible cell-ID scheme, the level-13 sector default, and how cell IDs stay bit-identical across platforms are fixed in [ADR 0015](../adr/0015-coordinate-representation.md). The rule that keeps a re-expressed position inside its own cell at cell edges, so that `f32` rounding cannot make an entity alternate between cells, is in [ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md) §4.
 
 ## 8.4 Heights, geoid, and curvature
 
