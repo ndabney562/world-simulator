@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0014: time representation (2026-10-14, Proposed)
+
+TP-004 (#5) details D-5: simulation time is a uniform scale of i64 microseconds from 2000-01-01T12:00:00 UTC; UTC labels come from an embedded, versioned leap-second table; host wall-clock measurements enter only as integer inputs. Pointer added to [07-coordinates-and-time.md](07-coordinates-and-time.md) §8.9.
+
 ## Architecture V1 freeze (2026-10-14)
 
 Revision 4 (`fe2f3db`) was frozen as Architecture V1 and merged into `main` (PR #1). Later changes follow [docs/process/architecture-change-process.md](../process/architecture-change-process.md).

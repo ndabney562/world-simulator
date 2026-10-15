@@ -10,7 +10,8 @@ The headless simulation core of the World Simulator: a Cargo workspace that owns
 | `Cargo.lock` | Committed; CI builds with `--locked` |
 | `rust-toolchain.toml` | Exact pinned Rust version, with `rustfmt` and `clippy` |
 | `clippy.toml` | `disallowed-methods`: no wall-clock reads (`SystemTime::now`, `Instant::now`) |
-| `crates/ws-sim/` | The world and its tick loop ([README](crates/ws-sim/README.md)) |
+| `crates/ws-time/` | Simulation time, durations, UTC calendar, system steps ([README](crates/ws-time/README.md)) |
+| `crates/ws-sim/` | The world, its clock, and its tick loop ([README](crates/ws-sim/README.md)) |
 
 Crates are added only when an issue needs them. Each new crate must be added to the layer table in [`scripts/check_core_deps.py`](../scripts/check_core_deps.py) and in [ci.md](../docs/process/ci.md).
 
