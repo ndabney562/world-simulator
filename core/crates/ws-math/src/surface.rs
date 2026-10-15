@@ -62,6 +62,12 @@ impl CellFrame {
 /// integer fact. When movement takes the offset outside the cell,
 /// [`SurfacePos::reexpress`] moves the position into the cell that now
 /// contains it, deterministically.
+///
+/// Within a fraction of a millimetre of a cell edge, rounding the offset to
+/// `f32` can leave the stored position just outside its `cell`, so
+/// [`SurfacePos::occupied_cell`] can differ from [`SurfacePos::cell`] and
+/// repeated re-expression can alternate between two cells (ADR 0015,
+/// Consequences). Movement systems (TP-006) decide the remedy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfacePos {
     cell: CellId,
@@ -172,6 +178,10 @@ impl SurfacePos {
     /// `libm` and correctly rounded arithmetic, so the result, including
     /// the new cell, is the same on every platform. Simulation code calls
     /// this at a fixed point in the tick (07-coordinates-and-time.md §8.3).
+    ///
+    /// Not guaranteed idempotent within a fraction of a millimetre of a cell
+    /// edge: the `f32` offset in the new cell can round back across the
+    /// edge, and calling this again then moves it back (see the type docs).
     ///
     /// # Errors
     ///
