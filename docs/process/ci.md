@@ -11,7 +11,8 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs 
 | Docs consistency | Linux | `scripts/check_docs.py`: every relative Markdown link resolves; the ADR index lists every ADR exactly once with a matching status | Active |
 | Unity project (static) | Linux | `scripts/check_unity_project.py` on `apps/unity/` without the Unity Editor: Unity 6 editor version recorded consistently; only Unity-registry packages; every asset has a `.meta` and GUIDs are unique; scenes and settings are text-serialized; the assembly layout (`WorldSim.Bridge` ← `WorldSim.Rendering`; Editor-only tests); no code in `Providers/`; build scene and render pipeline references resolve; Unity's generated folders are ignored and untracked. Then the script's own tests | Active |
 | Rust core | Linux (x86-64) and macOS 14 (arm64) | In `core/`, with the toolchain pinned in `core/rust-toolchain.toml`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` (includes the no-wall-clock lint from `core/clippy.toml`), `cargo build --workspace --all-targets --locked`, `cargo test --workspace --locked`; then `scripts/check_core_deps.py` (crate dependency direction, below) and its tests (`python3 -m unittest discover -s scripts -p 'test_*.py'`) | Active. There is no skip path: a missing `core/` workspace fails the job |
-| Tier 1 golden tests | Linux (x86-64) and macOS 14 (arm64), inside the Rust core job's `cargo test` | `ws-math` cell IDs, sector membership, and re-expression against `core/crates/ws-math/tests/golden/cell_ids.txt`; any difference on either platform fails the build | Active (TP-005) |
+| Tier 1 golden tests | Linux (x86-64) and macOS 14 (arm64), inside the Rust core job's `cargo test` | `ws-math` cell IDs, sector membership, and re-expression against `core/crates/ws-math/tests/golden/cell_ids.txt`; `ws-rng` SipHash-2-4 reference vectors and derivation and draw values; `ws-world` procedural IDs, residents per building, and target choices against `core/crates/ws-world/tests/golden/toy_world.txt`. Any difference on either platform fails the build | Active (TP-005, TP-006) |
+| Tier 2 replay tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-sim` and `ws-world`: identical per-tick state hashes for 10,000 ticks with the same seed, including a run in a separate process; insertion-order independence. Compared within one platform, never across | Active (TP-006) |
 
 The repository is public, so GitHub-hosted Linux and macOS runners cost nothing (ADR 0007).
 
@@ -35,9 +36,9 @@ python3 ../scripts/check_core_deps.py
 
 | Layer | Crates |
 |---|---|
-| 0 Foundation | `ws-math`, `ws-time`, `ws-rng` |
+| 0 Foundation | `ws-math`, `ws-time`, `ws-rng`, `ws-ecs` |
 | 1 World model and events | `ws-world`, `ws-events` |
-| 2 Domain | `ws-ecs`, `ws-data`, `ws-procgen`, `ws-agents`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-persist`, `ws-snapshot` |
+| 2 Domain | `ws-data`, `ws-procgen`, `ws-agents`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-persist`, `ws-snapshot` |
 | 3 Orchestration | `ws-sim` |
 | 4 Test support | `ws-testkit` (allowed only as a dev-dependency) |
 | 5 C ABI | `ws-ffi` |
@@ -52,8 +53,7 @@ Each is added by the issue that introduces what it checks.
 |---|---|
 | Unity edit-mode tests in CI, once the Product Owner adds the licence secrets (S-6, below) | Follow-up to TP-002 |
 | Native library build for `aarch64-apple-ios`; C header generation check (`cbindgen` output committed and up to date) | TP-003 |
-| Tier 1 golden tests for procedural generation checked on both Linux and macOS | TP-006 |
-| Tier 2 replay tests (separate processes, different thread counts) | TP-008 |
+| Tier 2 replay tests with different thread counts, and journal replay | TP-008 |
 | Save fixture compatibility tests | TP-009 |
 | Event and causality invariant tests | TP-008, TP-010 |
 | iOS Unity build (if feasible on free runners) | TP-011 |

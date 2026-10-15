@@ -1,0 +1,15 @@
+[package]
+name = "ws-ecs"
+version = "0.1.0"
+description = "World Simulator entity identity and canonical component storage: EntityId and sorted component columns iterated in ascending ID order."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

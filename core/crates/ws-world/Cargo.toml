@@ -1,0 +1,16 @@
+[package]
+name = "ws-world"
+version = "0.1.0"
+description = "World Simulator world model: the Technical Prototype toy world of buildings and walking residents, with procedural identity and a canonical state hash."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ws-ecs = { path = "../ws-ecs" }
+ws-math = { path = "../ws-math" }
+ws-rng = { path = "../ws-rng" }
+ws-time = { path = "../ws-time" }
+
+[lints]
+workspace = true
