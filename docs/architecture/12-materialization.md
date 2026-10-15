@@ -7,7 +7,7 @@ Covers point 13: how detailed entities appear and disappear as the player change
 - **Materialization**: promoting a node (sector cell, building, district) from a coarse simulation level to a finer one, creating individual entities whose state is consistent with the coarse state, with everything persisted about them, and with the current time.
 - **Dematerialization**: demoting a node, folding lasting changes into canonical state and aggregates, and discarding the rest.
 
-Both are **transactions** applied at a tick boundary: either the whole node changes level, or none of it does. Both are triggered by the interest manager ([05](05-simulation-lod.md)), never directly by the renderer.
+Both are **transactions** applied at a tick boundary: either the whole node changes level, or none of it does. Both are triggered by the interest manager ([05](05-simulation-lod.md)), never directly by the renderer. The first implementation of this contract (L1 ↔ L2, its validation, atomicity, and place in the tick) is specified in [ADR 0017](../adr/0017-simulation-lod-l1-l2-round-trip.md).
 
 ## 13.2 Materialization pipeline
 

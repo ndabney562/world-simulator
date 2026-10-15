@@ -32,7 +32,7 @@ The same person exists in different forms depending on level ([05](05-simulation
 | L1 Active | + exact position, movement, needs (hunger, energy, social, safety, ...), short-term plan, perception |
 | L0 Focused | + full memory, emotions, detailed relationships, conversation state, physics body, animation state |
 
-Promotion adds components (generated from the deterministic seed plus stored deltas); demotion strips them, folding anything that must persist into the canonical record first.
+Promotion adds components (generated from the deterministic seed plus stored deltas); demotion strips them, folding anything that must persist into the canonical record first. What the Technical Prototype's L2 keeps, discards, and reconstructs is fixed in [ADR 0017](../adr/0017-simulation-lod-l1-l2-round-trip.md) §1 and §10.
 
 ## 10.4 Agent minds (deterministic, no LLM required)
 

@@ -41,6 +41,8 @@ For every adjacent pair of levels (Lk, Lk+1), the design must define:
 
 This contract is the backbone of the simulation. Each new domain (economy, disease, crime) added to the simulation must provide its A, D, and invariants for every level it exists at, or it is not allowed to cross levels.
 
+The first executable pair, L1 ↔ L2 for the Technical Prototype's toy world (the two transitions, exact and toleranced invariants, tick order, randomness, and required tests), is detailed in [ADR 0017](../adr/0017-simulation-lod-l1-l2-round-trip.md).
+
 ## 6.4 Interest and LOD selection
 
 An **interest manager** assigns a level to every node each LOD update (a few times per second, not every frame).
