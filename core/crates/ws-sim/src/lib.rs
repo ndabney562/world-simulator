@@ -24,6 +24,15 @@ pub struct WorldConfig {
     /// Simulation time the world starts at. Supplied by the host (for
     /// example the real date when the player starts a world, or a chosen
     /// date); never read from the device clock.
+    ///
+    /// Any instant is accepted, but [`ws_time::Rate`] ticks are aligned to
+    /// the epoch, so a start that is not a whole number of base steps from
+    /// it (100 ms by default) puts every clock step off the base step's
+    /// `Rate` grid: `world.clock().base_step().is_tick_start(world.now())`
+    /// is then never true, and neither is it for any rate whose step is a
+    /// multiple of the base step. Hosts should
+    /// supply an aligned start until the scheduler (TP-007) decides whether
+    /// to require or enforce alignment.
     pub start: SimTime,
 }
 

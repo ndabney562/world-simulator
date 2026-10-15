@@ -32,7 +32,8 @@ None.
 - Positions and vectors are tagged with their frame; conversions go only through named functions.
 - **Tier 1** ([25-determinism-policy.md](../../../docs/architecture/25-determinism-policy.md)): cell IDs and cell membership are bit-identical on every platform. All trigonometry uses the pure-Rust `libm` crate, never the platform math library, and the rest uses only correctly rounded IEEE 754 operations (no fused multiply-add). Golden values in [`tests/golden/cell_ids.txt`](tests/golden/cell_ids.txt) are checked on Linux x86-64 and macOS arm64 CI. Updating them needs Product Owner approval ([testing-policy.md](../../../docs/process/testing-policy.md) §2).
 - The continuous conversions are Tier 3 by policy (tolerances, not hashes), although they use the same deterministic arithmetic.
-- `SurfacePos::reexpress` returns the input unchanged while the offset is inside its cell, and otherwise moves it into the sector cell that contains it, preserving the position to within 0.1 mm.
+- `SurfacePos::reexpress` returns the input unchanged while the offset is inside its cell, and otherwise expresses it in the sector cell that contains the 64-bit ECEF point, preserving the position to within 0.1 mm.
+- Known limitation (ADR 0015, Consequences): within a fraction of a millimetre of a cell edge, rounding the new offset to `f32` can put the stored position back on the other side. The result's `cell` can then differ from its `occupied_cell`, and repeated `reexpress` calls can alternate between two cells. Results are deterministic, so this is not a Tier 1 violation, but re-expression is not guaranteed to be idempotent there. Movement systems (TP-006) decide the remedy, such as hysteresis.
 - No `unsafe`, no allocation in the conversion paths, no wall clock (the benchmark alone reads it, to time itself).
 
 ## Accuracy
