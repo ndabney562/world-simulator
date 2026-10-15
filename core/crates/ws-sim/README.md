@@ -22,7 +22,7 @@ None yet. The world event system arrives with TP-008.
 
 - `World::new` starts at tick 0 at `WorldConfig::start`; each `World::step` increases the tick by exactly one and the time by exactly one base step.
 - `now == start + tick * base_step` at all times.
-- Clock steps fall on `ws_time::Rate` tick boundaries only if `start` is a whole number of base steps from the epoch. This is not enforced yet; hosts should supply an aligned start until TP-007 decides.
+- Clock steps fall on the base step's `ws_time::Rate` tick boundaries (and those of any rate whose step is a multiple of it) only if `start` is a whole number of base steps from the epoch. This is not enforced yet; hosts should supply an aligned start until TP-007 decides.
 - `World::advance_by_host_elapsed(host_elapsed_us)` multiplies host time by the scale, adds the pending remainder, and takes every whole base step up to the per-call cap. Whole steps beyond the cap are dropped; the sub-step remainder is kept, including across pauses and scale changes. `Paused` takes zero steps.
 - Integer arithmetic only, so the same sequence of host inputs gives the same steps and state, and splitting the same host time differently across calls gives the same result when no call reaches the cap.
 - Time never wraps: a step past `SimTime::MAX` returns `TimeOverflow` and leaves the world unchanged.
