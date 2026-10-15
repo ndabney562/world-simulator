@@ -63,11 +63,15 @@ impl CellFrame {
 /// [`SurfacePos::reexpress`] moves the position into the cell that now
 /// contains it, deterministically.
 ///
-/// Within a fraction of a millimetre of a cell edge, rounding the offset to
-/// `f32` can leave the stored position just outside its `cell`, so
-/// [`SurfacePos::occupied_cell`] can differ from [`SurfacePos::cell`] and
-/// repeated re-expression can alternate between two cells (ADR 0015,
-/// Consequences). Movement systems (TP-006) decide the remedy.
+/// Every position produced by [`SurfacePos::reexpress`] or
+/// [`SurfacePos::from_ecef`] lies in its own cell:
+/// `p.occupied_cell() == Ok(p.cell())`, also within a fraction of a
+/// millimetre of a cell edge, where rounding the offset to `f32` could
+/// otherwise put it back across the edge (ADR 0016 §4). Re-expression is
+/// therefore idempotent, and a position that does not move never changes
+/// cell. [`SurfacePos::new`] and [`SurfacePos::from_ecef_in`] accept offsets
+/// outside the cell, which is how movement writes positions between
+/// re-expressions.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfacePos {
     cell: CellId,
@@ -114,14 +118,19 @@ impl SurfacePos {
     }
 
     /// The surface position of an ECEF point: the sector cell containing
-    /// it, and its offset in that cell's frame. The cell decision is Tier 1.
+    /// it, and its offset in that cell's frame, chosen so that the stored
+    /// position lies in that cell (ADR 0016 §4). The cell decision is Tier 1.
     ///
     /// # Errors
     ///
-    /// As [`Geodetic::from_ecef`](crate::wgs84::Geodetic::from_ecef).
+    /// As [`Geodetic::from_ecef`](crate::wgs84::Geodetic::from_ecef), and
+    /// [`CoordError::BoundaryUnresolved`] as described there.
     pub fn from_ecef(p: Position<Ecef>) -> Result<Self, CoordError> {
-        let cell = CellId::from_ecef(p)?.parent(crate::surface::SECTOR_LEVEL)?;
-        Self::from_ecef_in(p, &CellFrame::new(cell))
+        if !p.is_finite() {
+            return Err(CoordError::NonFinite);
+        }
+        let cell = CellId::from_ecef(p)?.parent(SECTOR_LEVEL)?;
+        settle(p, &CellFrame::new(cell))
     }
 
     /// Expresses an ECEF point in a given sector cell's frame, whether or
@@ -170,31 +179,97 @@ impl SurfacePos {
         CellId::from_ecef(self.to_ecef())?.parent(SECTOR_LEVEL)
     }
 
-    /// Re-expresses the position in the sector cell that contains it.
+    /// Re-expresses the position in the sector cell that contains it
+    /// (ADR 0016 §4).
     ///
-    /// If the offset is still inside its cell, the position is returned
-    /// unchanged, bit for bit. Otherwise the position is converted to ECEF
-    /// and expressed in the containing cell's frame. Every step uses only
-    /// `libm` and correctly rounded arithmetic, so the result, including
-    /// the new cell, is the same on every platform. Simulation code calls
-    /// this at a fixed point in the tick (07-coordinates-and-time.md §8.3).
+    /// 1. Convert to the 64-bit ECEF point `P` and find the sector cell `T`
+    ///    containing it.
+    /// 2. If `T` is the position's cell, return the position unchanged, bit
+    ///    for bit.
+    /// 3. Otherwise express `P` in `T`'s frame, rounding the offset to the
+    ///    nearest `f32`. If that lies in `T`, return it.
+    /// 4. Otherwise (rounding put it back across the edge), among the 3 × 3
+    ///    neighbours of that offset on the `f32` grid (east and north each
+    ///    stepped by −1, 0, or +1 representable values; up unchanged), return
+    ///    the one lying in `T` whose ECEF point is nearest to `P`, ties going
+    ///    to the first in east-then-north order from −1 to +1; if none lies
+    ///    in `T`, the same over 5 × 5.
     ///
-    /// Not guaranteed idempotent within a fraction of a millimetre of a cell
-    /// edge: the `f32` offset in the new cell can round back across the
-    /// edge, and calling this again then moves it back (see the type docs).
+    /// The result always lies in its own cell, so calling this again returns
+    /// it unchanged. Every step uses only `libm`, bit-level `f32` steps, and
+    /// correctly rounded arithmetic, so the result, including the cell, is
+    /// the same on every platform (Tier 1). Wherever step 3 already gives a
+    /// position inside `T`, the result is exactly what it was before ADR
+    /// 0016. Simulation code calls this at a fixed point in the tick
+    /// (07-coordinates-and-time.md §8.3).
     ///
     /// # Errors
     ///
-    /// As [`CellId::from_ecef`].
+    /// As [`CellId::from_ecef`], and [`CoordError::BoundaryUnresolved`] if
+    /// step 4 finds no candidate (never observed).
     pub fn reexpress(&self) -> Result<Self, CoordError> {
         let p = self.to_ecef();
         let cell = CellId::from_ecef(p)?.parent(SECTOR_LEVEL)?;
         if cell == self.cell {
             Ok(*self)
         } else {
-            Self::from_ecef_in(p, &CellFrame::new(cell))
+            settle(p, &CellFrame::new(cell))
         }
     }
+
+    /// Whether the stored position lies in its own cell, with a prebuilt
+    /// frame of that cell.
+    fn lies_in_own_cell(&self, frame: &CellFrame) -> Result<bool, CoordError> {
+        let p = self.to_ecef_with(frame)?;
+        Ok(CellId::from_ecef(p)?.parent(SECTOR_LEVEL)? == self.cell)
+    }
+}
+
+/// Expresses `p` in `frame`'s cell so that the stored position lies in that
+/// cell: steps 3 and 4 of [`SurfacePos::reexpress`] (ADR 0016 §4).
+fn settle(p: Position<Ecef>, frame: &CellFrame) -> Result<SurfacePos, CoordError> {
+    let rounded = SurfacePos::from_ecef_in(p, frame)?;
+    if rounded.lies_in_own_cell(frame)? {
+        return Ok(rounded);
+    }
+    let [e, n, u] = rounded.offset;
+    for radius in 1..=2 {
+        let mut best: Option<(f64, SurfacePos)> = None;
+        for de in -radius..=radius {
+            for dn in -radius..=radius {
+                let offset = [f32_steps(e, de), f32_steps(n, dn), u];
+                let Ok(candidate) = SurfacePos::new(frame.cell, offset) else {
+                    continue;
+                };
+                if !candidate.lies_in_own_cell(frame)? {
+                    continue;
+                }
+                let d = candidate.to_ecef_with(frame)? - p;
+                let d2 = d.dot(d);
+                // Strictly smaller, so ties keep the first in scan order.
+                if best.is_none_or(|(b, _)| d2 < b) {
+                    best = Some((d2, candidate));
+                }
+            }
+        }
+        if let Some((_, pos)) = best {
+            return Ok(pos);
+        }
+    }
+    Err(CoordError::BoundaryUnresolved)
+}
+
+/// `v` moved by `steps` representable `f32` values (up for positive steps).
+/// Bit-level, so exact on every platform.
+fn f32_steps(mut v: f32, steps: i32) -> f32 {
+    for _ in 0..steps.unsigned_abs() {
+        v = if steps > 0 {
+            v.next_up()
+        } else {
+            v.next_down()
+        };
+    }
+    v
 }
 
 #[cfg(test)]
@@ -259,5 +334,70 @@ mod tests {
         assert_eq!(q.occupied_cell(), Ok(q.cell()));
         assert!(q.to_ecef().distance(p.to_ecef()) < 1e-4);
         assert_eq!(q.reexpress(), Ok(q), "re-expressing again is stable");
+    }
+
+    /// The input ADR 0016 §4 documents. Its 64-bit point lies about 30 µm
+    /// inside `89c24564…`, but rounding the offset to `f32` in that cell's
+    /// frame puts it back in `89c2455c…`, so before ADR 0016 re-expression
+    /// alternated between the two cells on every call.
+    fn adr_0016_case() -> SurfacePos {
+        let cell = CellId::from_raw(0x89c2_455c_0000_0000).unwrap();
+        let offset = [
+            f32::from_bits(0xc29b_4918),
+            f32::from_bits(0xc405_dcb4),
+            0.0,
+        ];
+        SurfacePos::new(cell, offset).unwrap()
+    }
+
+    #[test]
+    fn adr_0016_case_needs_the_edge_rule() {
+        // Guards that the case still exercises step 4: plain rounding in the
+        // target cell's frame lands outside that cell.
+        let p = adr_0016_case();
+        let target = CellId::from_raw(0x89c2_4564_0000_0000).unwrap();
+        assert_eq!(p.occupied_cell(), Ok(target));
+        let rounded = SurfacePos::from_ecef_in(p.to_ecef(), &CellFrame::new(target)).unwrap();
+        assert_eq!(
+            rounded.occupied_cell(),
+            Ok(p.cell()),
+            "rounding crosses back"
+        );
+    }
+
+    #[test]
+    fn adr_0016_case_settles_in_the_containing_cell() {
+        let p = adr_0016_case();
+        let q = p.reexpress().unwrap();
+        assert_eq!(q.cell(), CellId::from_raw(0x89c2_4564_0000_0000).unwrap());
+        assert_eq!(q.occupied_cell(), Ok(q.cell()));
+        assert!(q.to_ecef().distance(p.to_ecef()) < 1e-4);
+        let mut r = q;
+        for _ in 0..20 {
+            r = r.reexpress().unwrap();
+            assert_eq!(r, q, "repeated re-expression does not move it");
+        }
+    }
+
+    #[test]
+    fn from_ecef_also_lands_inside_its_cell() {
+        let p = adr_0016_case().to_ecef();
+        let q = SurfacePos::from_ecef(p).unwrap();
+        assert_eq!(q.occupied_cell(), Ok(q.cell()));
+        assert_eq!(q, adr_0016_case().reexpress().unwrap());
+        assert_eq!(
+            SurfacePos::from_ecef(Position::new(f64::NAN, 0.0, 0.0)),
+            Err(CoordError::NonFinite)
+        );
+    }
+
+    #[test]
+    fn f32_steps_move_by_representable_values() {
+        assert_eq!(f32_steps(1.0, 0), 1.0);
+        assert_eq!(f32_steps(1.0, 1), f32::from_bits(1.0f32.to_bits() + 1));
+        assert_eq!(f32_steps(1.0, -1), f32::from_bits(1.0f32.to_bits() - 1));
+        assert_eq!(f32_steps(-1.0, 1), f32::from_bits((-1.0f32).to_bits() - 1));
+        assert_eq!(f32_steps(-1.0, -2), f32::from_bits((-1.0f32).to_bits() + 2));
+        assert!(f32_steps(0.0, 1) > 0.0 && f32_steps(0.0, -1) < 0.0);
     }
 }

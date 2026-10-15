@@ -30,6 +30,10 @@ pub enum CoordError {
     NotSectorCell,
     /// A cell frame was used with a surface position in a different cell.
     FrameMismatch,
+    /// No `f32` offset within two representable steps of the rounded one
+    /// lies inside the target cell (ADR 0016 §4). Never observed; it would
+    /// indicate a bug in the cell geometry rather than bad input.
+    BoundaryUnresolved,
 }
 
 impl fmt::Display for CoordError {
@@ -45,6 +49,9 @@ impl fmt::Display for CoordError {
             Self::InvalidLevel => "cell level is out of range for this operation",
             Self::NotSectorCell => "surface positions must use a sector-level cell",
             Self::FrameMismatch => "cell frame does not belong to this position's cell",
+            Self::BoundaryUnresolved => {
+                "no representable offset near the position lies inside its cell"
+            }
         };
         f.write_str(message)
     }
