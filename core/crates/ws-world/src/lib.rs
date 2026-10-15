@@ -17,24 +17,35 @@
 //!   arrived on. Positions are re-expressed into the containing cell once
 //!   per agent at the end of each step, so every agent lies in its own cell
 //!   after every step (ADR 0016 §4).
+//! - **Simulation LOD.** Each building is a node at L1 (agents stepped
+//!   individually) or L2 (agents as discrete-event schedules); agents move
+//!   between the stores in validated, atomic transactions ([`lod`],
+//!   [ADR 0017]).
 //! - **State hash (Tier 2).** [`ToyWorld::state_hash`] covers canonical
 //!   state only, in canonical order; it is stable within one build and
 //!   platform.
 //!
 //! [ADR 0016]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0016-entity-identity-storage-and-randomness.md
+//! [ADR 0017]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0017-simulation-lod-l1-l2-round-trip.md
 
 pub mod dataset;
 pub mod ids;
+pub mod lod;
 
 use core::fmt;
+use std::collections::BTreeSet;
 
 use ws_ecs::{Column, DuplicateEntity, EntityId, join, join_mut};
 use ws_math::{CellFrame, CoordError, Ecef, Position, SurfacePos};
 use ws_rng::SipHasher24;
-use ws_time::SimDuration;
+use ws_time::{SimDuration, SimTime};
 
 pub use dataset::{BuildingSite, Dataset, TOY_BUILDINGS, TOY_DATASET_VERSION, ToyBuildingSpec};
 pub use ids::{Population, ResidentAddress};
+pub use lod::{
+    Activity, Background, ConservationSummary, Lod, LodError, LodViolation, Origin, Quantity,
+    ScheduleProblem, TransitionReport,
+};
 
 /// A building: where it stands and its box.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,9 +72,10 @@ pub struct Resident {
 /// A resident's movement state (L1).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Walk {
-    /// Velocity in metres per second during the last step, in the ENU
-    /// frame of the cell the agent started that step in; zero while
-    /// waiting.
+    /// Velocity in metres per second, in the ENU frame of the agent's
+    /// cell: during the last step, or towards the target after a
+    /// promotion; zero while waiting. Derived state (ADR 0017 §10): no
+    /// system reads it, and it is not part of the state hash.
     pub velocity: [f32; 3],
     /// The building the agent is walking to, or waiting at.
     pub target: EntityId,
@@ -110,6 +122,8 @@ pub enum WorldError {
     UnknownBuilding(EntityId),
     /// A coordinate operation failed.
     Coord(CoordError),
+    /// A simulation-LOD transition, L2 event, or LOD invariant failed.
+    Lod(LodError),
 }
 
 impl fmt::Display for WorldError {
@@ -118,6 +132,7 @@ impl fmt::Display for WorldError {
             Self::Duplicate(id) => write!(f, "entity ID {id} is used twice"),
             Self::UnknownBuilding(id) => write!(f, "building {id} does not exist"),
             Self::Coord(e) => write!(f, "coordinate error: {e}"),
+            Self::Lod(e) => write!(f, "{e}"),
         }
     }
 }
@@ -136,21 +151,48 @@ impl From<CoordError> for WorldError {
     }
 }
 
+impl From<LodError> for WorldError {
+    fn from(e: LodError) -> Self {
+        Self::Lod(e)
+    }
+}
+
 /// The toy world: buildings and residents in `ws-ecs` columns.
 ///
 /// Every column iterates in ascending [`EntityId`] order. Two worlds with
-/// the same entities and components are equal, and hash equally, however
-/// the entities were inserted.
+/// the same entities and components hash equally, however the entities
+/// were inserted. Every resident has one identity entry and exactly one
+/// state: L1 (`positions` and `walks`) or L2 (`background`), as its
+/// governing building's level says ([`lod`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToyWorld {
     seed: u64,
     dataset_version: u64,
     walk: WalkParams,
     buildings: Column<Building>,
+    /// Each building's simulation level (canonical).
+    node_lod: Column<Lod>,
+    /// Identity of every resident, at every level.
     residents: Column<Resident>,
+    /// L1 state.
     positions: Column<SurfacePos>,
+    /// L1 state.
     walks: Column<Walk>,
+    /// L2 state.
+    background: Column<Background>,
+    /// Derived index of `background`: one `(next event, ID)` per L2 agent.
+    queue: BTreeSet<(SimTime, EntityId)>,
+    /// Derived index: the residents whose store differs from their
+    /// governing building's level, which the next tick's reconciliation
+    /// moves. Rebuildable from the stores and the node levels, checked
+    /// against that rebuild, never hashed. It lets a tick reconcile
+    /// without scanning every agent (ADR 0017 §15).
+    unreconciled: BTreeSet<EntityId>,
 }
+
+/// The planned result of one L1 movement step: each L1 agent's new walk
+/// and position, in ascending ID order.
+pub(crate) struct Movement(Vec<(EntityId, Walk, SurfacePos)>);
 
 impl ToyWorld {
     /// An empty world; entities are added with [`ToyWorld::insert_building`]
@@ -162,9 +204,13 @@ impl ToyWorld {
             dataset_version,
             walk,
             buildings: Column::new(),
+            node_lod: Column::new(),
             residents: Column::new(),
             positions: Column::new(),
             walks: Column::new(),
+            background: Column::new(),
+            queue: BTreeSet::new(),
+            unreconciled: BTreeSet::new(),
         }
     }
 
@@ -203,13 +249,17 @@ impl ToyWorld {
         Ok(world)
     }
 
-    /// Adds a building.
+    /// Adds a building at [`Lod::L1`].
     ///
     /// # Errors
     ///
     /// [`WorldError::Duplicate`] if `id` is already a building.
     pub fn insert_building(&mut self, id: EntityId, building: Building) -> Result<(), WorldError> {
-        Ok(self.buildings.insert(id, building)?)
+        self.buildings.insert(id, building)?;
+        self.node_lod
+            .insert(id, Lod::L1)
+            .expect("buildings and levels have the same IDs");
+        Ok(())
     }
 
     /// Adds a resident waiting at its home building, with no target drawn.
@@ -234,13 +284,18 @@ impl ToyWorld {
         self.insert_resident_state(id, resident, pos, walk)
     }
 
-    /// Adds a resident with explicit position and movement state.
+    /// Adds a resident at L1 with explicit position and movement state.
+    /// An arrived agent must stand exactly at its target's centre
+    /// (ADR 0017 §6). Residency is not reconciled until the next
+    /// transaction or tick.
     ///
     /// # Errors
     ///
     /// [`WorldError::UnknownBuilding`] if the home or target is not a
-    /// building, and [`WorldError::Duplicate`] if `id` is already a
-    /// resident. The world is unchanged on error.
+    /// building, [`WorldError::Duplicate`] if `id` is already a resident,
+    /// and [`WorldError::Lod`] with [`LodViolation::NotAtCentre`] if the
+    /// agent has arrived but is not bit-exactly at its target's centre. The
+    /// world is unchanged on error.
     pub fn insert_resident_state(
         &mut self,
         id: EntityId,
@@ -256,9 +311,52 @@ impl ToyWorld {
         if self.residents.contains(id) {
             return Err(WorldError::Duplicate(id));
         }
+        let centre = self.buildings.get(walk.target).expect("checked above").pos;
+        if walk.arrived && !lod::same_bits(pos, centre) {
+            return Err(LodError::Invariant(LodViolation::NotAtCentre(id)).into());
+        }
         self.residents.insert(id, resident)?;
         self.positions.insert(id, pos)?;
         self.walks.insert(id, walk)?;
+        self.note_residency(id, walk.target, Lod::L1);
+        Ok(())
+    }
+
+    /// Adds a resident directly at L2. Residency is not reconciled, and the
+    /// schedule is not checked against a time, until the next transaction
+    /// or tick ([`ToyWorld::check_lod_invariants`] checks it).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownBuilding`] if the home or a building in the
+    /// schedule does not exist, and [`WorldError::Duplicate`] if `id` is
+    /// already a resident. The world is unchanged on error.
+    pub fn insert_resident_background(
+        &mut self,
+        id: EntityId,
+        resident: Resident,
+        background: Background,
+    ) -> Result<(), WorldError> {
+        let mut buildings = vec![resident.home, background.governing()];
+        if let Activity::Walking {
+            origin: Origin::Building(b),
+            ..
+        } = background.activity
+        {
+            buildings.push(b);
+        }
+        for b in buildings {
+            if !self.buildings.contains(b) {
+                return Err(WorldError::UnknownBuilding(b));
+            }
+        }
+        if self.residents.contains(id) {
+            return Err(WorldError::Duplicate(id));
+        }
+        self.residents.insert(id, resident)?;
+        self.background.insert(id, background)?;
+        self.queue.insert((background.next_event(), id));
+        self.note_residency(id, background.governing(), Lod::L2);
         Ok(())
     }
 
@@ -280,8 +378,16 @@ impl ToyWorld {
     /// [`WorldError::Coord`] from re-expression (never expected), and
     /// [`WorldError::UnknownBuilding`] if a target is missing.
     pub fn step(&mut self, dt: SimDuration) -> Result<(), WorldError> {
+        let movement = self.plan_movement(dt)?;
+        self.commit_movement(movement);
+        Ok(())
+    }
+
+    /// Computes one movement step for every L1 agent without changing the
+    /// world.
+    pub(crate) fn plan_movement(&self, dt: SimDuration) -> Result<Movement, WorldError> {
         if self.walks.is_empty() {
-            return Ok(());
+            return Ok(Movement(Vec::new()));
         }
         // Microseconds to seconds; Tier 2, so floating point is allowed.
         let dt_s = dt.as_micros() as f64 * 1e-6;
@@ -310,7 +416,10 @@ impl ToyWorld {
                     &building_ids,
                     walk.target,
                 );
-                walk.targets_drawn += 1;
+                walk.targets_drawn = walk
+                    .targets_drawn
+                    .checked_add(1)
+                    .ok_or(LodError::CounterExhausted(id))?;
                 walk.arrived = false;
             }
             let t = building_ids
@@ -336,24 +445,38 @@ impl ToyWorld {
             }
             updates.push((id, walk, pos));
         }
-        let mut updates = updates.into_iter();
+        Ok(Movement(updates))
+    }
+
+    /// Writes a planned movement step.
+    pub(crate) fn commit_movement(&mut self, movement: Movement) {
+        let mut departed = Vec::new();
+        let mut updates = movement.0.into_iter();
         join_mut(&mut self.walks, &mut self.positions, |id, walk, pos| {
             let (uid, w, p) = updates.next().expect("one update per resident");
             debug_assert_eq!(uid, id);
+            if w.targets_drawn != walk.targets_drawn {
+                departed.push((id, w.target));
+            }
             *walk = w;
             *pos = p;
         });
-        Ok(())
+        for (id, target) in departed {
+            self.note_residency(id, target, Lod::L1);
+        }
     }
 
     /// Hash of the canonical state, in canonical order. Tier 2: stable
     /// within one build and platform.
     ///
     /// Covers the seed, the dataset version, the walk parameters, and every
-    /// component of every entity: IDs, integer fields, cell IDs, and float
-    /// fields by their bits, column by column in ascending ID order, each
-    /// column prefixed by a tag and its length. Nothing else: no storage
-    /// indices, capacities, addresses, or derived values.
+    /// canonical component of every entity: IDs, integer fields, cell IDs,
+    /// times, and float fields by their bits, column by column in ascending
+    /// ID order, each column prefixed by a tag and its length. That
+    /// includes building levels, which store holds each agent (its L1 or
+    /// L2 columns), and every field of an L2 schedule (ADR 0017 §11).
+    /// Nothing else: no storage indices, capacities, addresses, the L2
+    /// event queue, or derived values such as `Walk::velocity`.
     #[must_use]
     pub fn state_hash(&self) -> u64 {
         let mut h = SipHasher24::new(0, ids::PURPOSE_STATE_HASH.value());
@@ -389,15 +512,42 @@ impl ToyWorld {
         h.write_words(&[4, self.walks.len() as u64]);
         for (id, w) in self.walks.iter() {
             h.write_u64(id.raw());
-            for v in w.velocity {
-                h.write_u64(u64::from(v.to_bits()));
-            }
             h.write_words(&[
                 w.target.raw(),
                 u64::from(w.arrived),
                 u64::from(w.wait_steps),
                 u64::from(w.targets_drawn),
             ]);
+        }
+        h.write_words(&[5, self.node_lod.len() as u64]);
+        for (id, level) in self.node_lod.iter() {
+            h.write_words(&[id.raw(), u64::from(level.as_u8())]);
+        }
+        h.write_words(&[6, self.background.len() as u64]);
+        for (id, bg) in self.background.iter() {
+            h.write_words(&[id.raw(), u64::from(bg.targets_drawn)]);
+            match bg.activity {
+                Activity::Waiting { at, depart } => {
+                    h.write_words(&[0, at.raw(), time_word(depart)]);
+                }
+                Activity::Walking {
+                    origin,
+                    origin_time,
+                    dest,
+                    arrive,
+                } => {
+                    h.write_words(&[1, dest.raw(), time_word(origin_time), time_word(arrive)]);
+                    match origin {
+                        Origin::Building(b) => h.write_words(&[0, b.raw()]),
+                        Origin::Point { cell, offset } => {
+                            h.write_words(&[1, cell.raw()]);
+                            for c in offset {
+                                h.write_u64(u64::from(c.to_bits()));
+                            }
+                        }
+                    }
+                }
+            }
         }
         h.finish()
     }
@@ -443,6 +593,11 @@ impl ToyWorld {
     pub fn resident_ecef(&self, id: EntityId) -> Option<Position<Ecef>> {
         self.positions.get(id).map(SurfacePos::to_ecef)
     }
+}
+
+/// A time as a hash word: its `i64` microseconds, two's complement.
+const fn time_word(t: SimTime) -> u64 {
+    t.as_micros_since_epoch() as u64
 }
 
 fn write_pos(h: &mut SipHasher24, p: SurfacePos) {

@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+ws-ecs = { path = "../ws-ecs" }
 ws-rng = { path = "../ws-rng" }
 ws-time = { path = "../ws-time" }
 ws-world = { path = "../ws-world" }
@@ -16,10 +17,13 @@ ws-world = { path = "../ws-world" }
 # rayon) off.
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
-ws-ecs = { path = "../ws-ecs" }
 
 [[bench]]
 name = "step"
+harness = false
+
+[[bench]]
+name = "lod"
 harness = false
 
 [lints]

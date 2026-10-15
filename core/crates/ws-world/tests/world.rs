@@ -149,6 +149,8 @@ fn insertion_order_does_not_change_state_or_hash() {
     assert_eq!(rev.state_hash(), g.state_hash());
 }
 
+/// Every canonical component changes the hash; derived `velocity` does
+/// not (ADR 0017 §11).
 #[test]
 fn state_hash_covers_every_component() {
     let w = toy(3);
@@ -178,12 +180,20 @@ fn state_hash_covers_every_component() {
         v.state_hash()
     };
     assert_eq!(variant(r, p, s), h);
+    // A position change is visible. Only a walking agent may stand away
+    // from its target's centre (ADR 0017 §6).
+    let walking = Walk {
+        arrived: false,
+        targets_drawn: 1,
+        ..s
+    };
     let moved = SurfacePos::new(
         p.cell(),
         [p.offset()[0] + 0.001, p.offset()[1], p.offset()[2]],
     )
     .unwrap();
-    assert_ne!(variant(r, moved, s), h);
+    assert_ne!(variant(r, moved, walking), variant(r, p, walking));
+    assert_ne!(variant(r, p, walking), h);
     assert_ne!(
         variant(
             r,
@@ -196,7 +206,10 @@ fn state_hash_covers_every_component() {
         h
     );
     assert_ne!(variant(r, p, Walk { wait_steps: 3, ..s }), h);
-    assert_ne!(
+    // Velocity is derived state, not hashed (ADR 0017 §11): worlds that
+    // differ only in velocity hash identically (`velocity_is_derived` in
+    // tests/lod.rs shows they also evolve identically).
+    assert_eq!(
         variant(
             r,
             p,
