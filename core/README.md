@@ -10,6 +10,7 @@ The headless simulation core of the World Simulator: a Cargo workspace that owns
 | `Cargo.lock` | Committed; CI builds with `--locked` |
 | `rust-toolchain.toml` | Exact pinned Rust version, with `rustfmt` and `clippy` |
 | `clippy.toml` | `disallowed-methods`: no wall-clock reads (`SystemTime::now`, `Instant::now`) |
+| `crates/ws-math/` | Coordinates and frames: WGS84, ECEF, ENU, S2-style cell IDs, surface positions ([README](crates/ws-math/README.md)) |
 | `crates/ws-sim/` | The world and its tick loop ([README](crates/ws-sim/README.md)) |
 
 Crates are added only when an issue needs them. Each new crate must be added to the layer table in [`scripts/check_core_deps.py`](../scripts/check_core_deps.py) and in [ci.md](../docs/process/ci.md).
