@@ -83,3 +83,4 @@ A single universal frame in 64-bit integers (for example 1/1024 m resolution, co
 - **Start date:** a new world starts at the current real date, or at a date the player chooses; it never depends on the device clock after creation.
 - Durations are 64-bit microseconds. Tick indices per system derive from simulation time and the system's step.
 - Floating-point time is created only at the point of use (animation phase, orbital anomaly), with integer modular arithmetic first where phases must stay exact.
+- Exact epoch, range, leap-second treatment, and how host wall-clock measurements enter the core: [ADR 0014](../adr/0014-time-representation.md).

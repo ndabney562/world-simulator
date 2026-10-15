@@ -149,3 +149,14 @@ dependencies = [
 [[package]]
 name = "ws-sim"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "ws-time",
+]
+
+[[package]]
+name = "ws-time"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]

@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 28
+  companyName: World Simulator
+  productName: World Simulator
+  m_ActiveColorSpace: 1
+  bundleVersion: 0.1.0
+  applicationIdentifier:
+    iPhone: org.worldsimulator.placeholder
+  buildNumber:
+    iPhone: 0
+  iPhoneSdkVersion: 988
+  iOSTargetOSVersionString: 26.0
+  targetDevice: 0
+  scriptingBackend:
+    iPhone: 1
+  m_BuildTargetGraphicsAPIs:
+  - m_BuildTarget: iOSSupport
+    m_APIs: 10000000
+    m_Automatic: 0

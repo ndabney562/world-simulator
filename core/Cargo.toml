@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/ws-math", "crates/ws-sim"]
+members = ["crates/ws-math", "crates/ws-sim", "crates/ws-time"]
 
 [workspace.package]
 edition = "2024"

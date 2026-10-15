@@ -28,6 +28,20 @@ jobs:
       - name: Check links and ADR index
         run: python3 scripts/check_docs.py
 
+  unity:
+    name: Unity project (static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the Unity project files
+        run: python3 scripts/check_unity_project.py
+      - name: Unity check script tests
+        working-directory: scripts
+        run: python3 -m unittest -v test_check_unity_project
+
   rust:
     name: Rust core (${{ matrix.os }})
     strategy:
