@@ -1,9 +1,12 @@
 //! Simulation core of the World Simulator.
 //!
 //! A [`World`] is created from a [`WorldConfig`] and advanced in fixed base
-//! steps by its [`Clock`] (TP-004). Each step runs the toy world's movement
-//! system ([`ToyWorld::step`], TP-006). Scheduling, commands, the journal,
-//! and further systems arrive in later Technical Prototype issues.
+//! steps by its [`Clock`] (TP-004). Each step runs one toy-world tick
+//! ([`ToyWorld::tick`]): residency reconciliation, the L1 movement system
+//! (TP-006), and the L2 event drain (TP-007). Simulation-LOD transitions
+//! are requested with [`World::set_lod`] between steps ([ADR 0017]).
+//! Commands, the journal, and further systems arrive in later Technical
+//! Prototype issues.
 //!
 //! The world never reads the wall clock, the environment, or the filesystem;
 //! its state is a pure function of its configuration and the sequence of
@@ -11,15 +14,19 @@
 //! inputs ([ADR 0014] §7).
 //!
 //! [ADR 0014]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0014-time-representation.md
+//! [ADR 0017]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0017-simulation-lod-l1-l2-round-trip.md
 
 mod clock;
 
 use core::fmt;
 
 pub use clock::{Clock, TimeScale};
+pub use ws_ecs::EntityId;
 pub use ws_time::{SimTime, TimeOverflow};
 use ws_world::{Dataset, WalkParams};
-pub use ws_world::{Population, ToyWorld, WorldError};
+pub use ws_world::{
+    Lod, LodError, LodViolation, Population, ToyWorld, TransitionReport, WorldError,
+};
 
 /// Parameters a [`World`] is created from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,14 +37,12 @@ pub struct WorldConfig {
     /// example the real date when the player starts a world, or a chosen
     /// date); never read from the device clock.
     ///
-    /// Any instant is accepted, but [`ws_time::Rate`] ticks are aligned to
-    /// the epoch, so a start that is not a whole number of base steps from
-    /// it (100 ms by default) puts every clock step off the base step's
-    /// `Rate` grid: `world.clock().base_step().is_tick_start(world.now())`
-    /// is then never true, and neither is it for any rate whose step is a
-    /// multiple of the base step. Hosts should
-    /// supply an aligned start until the scheduler (TP-007) decides whether
-    /// to require or enforce alignment.
+    /// It must be a tick boundary of the base step (a whole number of
+    /// 100 ms steps from the epoch, ADR 0017 §8), so every clock step and
+    /// every L2 event time share the epoch-aligned grid; [`World::new`]
+    /// rejects any other start rather than rounding it. A host that wants
+    /// the boundary at or before an instant `t` uses
+    /// `Rate::tick_start(Rate::tick_index(t))`.
     pub start: SimTime,
     /// Residents per toy building ([`Population::TOY`] by default: a few
     /// dozen agents in all). A generation input like the seed.
@@ -53,6 +58,33 @@ impl WorldConfig {
             start,
             population: Population::TOY,
         }
+    }
+}
+
+/// Why a world could not be created.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateError {
+    /// `WorldConfig::start` is not a tick boundary of the base step
+    /// (ADR 0017 §8). It is never rounded.
+    UnalignedStart(SimTime),
+    /// Generating the toy world failed.
+    World(WorldError),
+}
+
+impl fmt::Display for CreateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnalignedStart(t) => write!(f, "start {t} is not a base-step boundary"),
+            Self::World(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for CreateError {}
+
+impl From<WorldError> for CreateError {
+    fn from(e: WorldError) -> Self {
+        Self::World(e)
     }
 }
 
@@ -99,17 +131,24 @@ pub struct World {
 impl World {
     /// Creates a world at tick 0 and time `config.start`, with a default
     /// [`Clock`] (100 ms base step, scale ×1) and the toy world generated
-    /// from `config.seed` and the built-in toy dataset.
+    /// from `config.seed` and the built-in toy dataset, every building at
+    /// [`Lod::L1`].
     ///
     /// # Errors
     ///
-    /// [`WorldError::Duplicate`] if two procedural IDs collide (a collision
-    /// is never resolved silently, ADR 0016).
-    pub fn new(config: WorldConfig) -> Result<Self, WorldError> {
-        let dataset = Dataset::toy()?;
+    /// [`CreateError::UnalignedStart`] if `config.start` is not a base-step
+    /// boundary, and [`CreateError::World`] with [`WorldError::Duplicate`]
+    /// if two procedural IDs collide (a collision is never resolved
+    /// silently, ADR 0016).
+    pub fn new(config: WorldConfig) -> Result<Self, CreateError> {
+        let clock = Clock::with_defaults(config.start);
+        if !clock.base_step().is_tick_start(config.start) {
+            return Err(CreateError::UnalignedStart(config.start));
+        }
+        let dataset = Dataset::toy().map_err(WorldError::from)?;
         Ok(Self {
             seed: config.seed,
-            clock: Clock::with_defaults(config.start),
+            clock,
             toy: ToyWorld::generate(
                 config.seed,
                 &dataset,
@@ -119,46 +158,71 @@ impl World {
         })
     }
 
-    /// Advances the world by one tick: one base step of simulation time,
-    /// then the movement system for that step.
+    /// Advances the world by one tick: the toy world's tick from the
+    /// current boundary (reconcile residency, L1 movement, L2 events up to
+    /// the next boundary; ADR 0017 §8), then one base step of simulation
+    /// time.
     ///
     /// # Errors
     ///
     /// [`StepError::Time`] if the step would pass [`SimTime::MAX`] (about
-    /// AD 294,247), and [`StepError::World`] if movement fails; the world is
+    /// AD 294,247), and [`StepError::World`] if the tick fails; the world is
     /// unchanged in both cases.
     pub fn step(&mut self) -> Result<(), StepError> {
         let mut clock = self.clock.clone();
         clock.step()?;
-        self.toy.step(self.clock.base_step().step())?;
+        self.toy.tick(self.clock.now(), self.clock.base_step())?;
         self.clock = clock;
         Ok(())
     }
 
+    /// Applies a simulation-LOD transition request at the current tick
+    /// boundary as one transaction ([`ToyWorld::set_lod`], ADR 0017 §2):
+    /// the listed buildings get the given levels, and every agent whose
+    /// residency then differs from its governing building's level is
+    /// demoted or promoted. Several calls at one boundary apply in call
+    /// order. A plain call until TP-008 journals it.
+    ///
+    /// # Errors
+    ///
+    /// As [`ToyWorld::set_lod`]; the world is then unchanged.
+    pub fn set_lod(&mut self, request: &[(EntityId, Lod)]) -> Result<TransitionReport, LodError> {
+        self.toy
+            .set_lod(self.clock.now(), self.clock.base_step(), request)
+    }
+
+    /// Checks every LOD invariant of the toy world at the current boundary
+    /// ([`ToyWorld::check_lod_invariants`]). Residency is checked only when
+    /// `reconciled` (directly after [`World::set_lod`]).
+    ///
+    /// # Errors
+    ///
+    /// Every violation found.
+    pub fn check_lod_invariants(&self, reconciled: bool) -> Result<(), Vec<LodViolation>> {
+        self.toy
+            .check_lod_invariants(self.clock.now(), self.clock.base_step(), reconciled)
+    }
+
     /// Advances the world by the whole base steps that `host_elapsed_us`
     /// microseconds of host-measured real time amount to at the current
-    /// [`TimeScale`], running the movement system once per step, and
-    /// returns how many ticks were taken. See
+    /// [`TimeScale`], running one toy-world tick per step, and returns how
+    /// many ticks were taken. See
     /// [`Clock::advance_by_host_elapsed`] for the accumulator and the
     /// per-call cap.
     ///
     /// # Errors
     ///
     /// [`StepError::Time`] if the steps would pass [`SimTime::MAX`]; the
-    /// world is then unchanged. [`StepError::World`] if movement fails
+    /// world is then unchanged. [`StepError::World`] if a tick fails
     /// (never expected); the ticks before the failing one stay applied, the
     /// clock counts exactly those, and the pending remainder is unchanged.
     pub fn advance_by_host_elapsed(&mut self, host_elapsed_us: u64) -> Result<u32, StepError> {
         let mut advanced = self.clock.clone();
         let steps = advanced.advance_by_host_elapsed(host_elapsed_us)?;
-        let dt = self.clock.base_step().step();
-        for done in 0..steps {
-            if let Err(e) = self.toy.step(dt) {
-                for _ in 0..done {
-                    self.clock.step()?;
-                }
-                return Err(e.into());
-            }
+        for _ in 0..steps {
+            self.toy.tick(self.clock.now(), self.clock.base_step())?;
+            // `advanced` reached the same time, so this cannot overflow.
+            self.clock.step()?;
         }
         self.clock = advanced;
         Ok(steps)
@@ -309,19 +373,57 @@ mod tests {
 
     #[test]
     fn time_is_start_plus_ticks_times_step() {
-        let start = SimTime::from_micros_since_epoch(-7);
+        // A start before the epoch, on the grid (ADR 0017 §8).
+        let start = SimTime::from_micros_since_epoch(-700_000);
         let mut w = World::new(WorldConfig::new(3, start)).unwrap();
         for host in [0, 33_333, 16_667, 250_000, 1, 99_999] {
             w.advance_by_host_elapsed(host).unwrap();
             w.step().unwrap();
-            let expected = -7 + i64::try_from(w.tick()).unwrap() * 100_000;
+            let expected = -700_000 + i64::try_from(w.tick()).unwrap() * 100_000;
             assert_eq!(w.now().as_micros_since_epoch(), expected);
+            assert!(w.clock().base_step().is_tick_start(w.now()));
+        }
+    }
+
+    #[test]
+    fn unaligned_starts_are_rejected_not_rounded() {
+        // TP-004's old test started at -7 µs; that start is now an error.
+        for us in [-7, 1, -1, 99_999, 100_001, -100_001, 845_208_005_000_001] {
+            let start = SimTime::from_micros_since_epoch(us);
+            assert_eq!(
+                World::new(WorldConfig::new(3, start)),
+                Err(CreateError::UnalignedStart(start)),
+                "{us}"
+            );
+        }
+    }
+
+    #[test]
+    fn aligned_starts_are_accepted() {
+        let rate = Clock::with_defaults(SimTime::EPOCH).base_step();
+        for us in [
+            0,
+            100_000,
+            -100_000,
+            845_208_005_000_000,
+            -845_208_005_000_000,
+            rate.tick_start(rate.tick_index(SimTime::MAX))
+                .unwrap()
+                .as_micros_since_epoch(),
+            rate.tick_start(rate.tick_index(SimTime::MIN) + 1)
+                .unwrap()
+                .as_micros_since_epoch(),
+        ] {
+            let start = SimTime::from_micros_since_epoch(us);
+            let w = World::new(WorldConfig::new(3, start)).unwrap();
+            assert_eq!(w.now(), start, "{us}");
         }
     }
 
     #[test]
     fn step_at_the_end_of_time_is_an_error_not_a_wrap() {
-        let start = SimTime::MAX;
+        let rate = Clock::with_defaults(SimTime::EPOCH).base_step();
+        let start = rate.tick_start(rate.tick_index(SimTime::MAX)).unwrap();
         let mut w = World::new(WorldConfig::new(0, start)).unwrap();
         assert_eq!(w.step(), Err(StepError::Time(TimeOverflow)));
         assert_eq!(w.tick(), 0);

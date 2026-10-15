@@ -573,6 +573,7 @@ dependencies = [
 name = "ws-world"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "ws-ecs",
  "ws-math",
  "ws-rng",

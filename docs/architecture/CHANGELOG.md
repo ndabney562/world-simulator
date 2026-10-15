@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0017 accepted; implemented by TP-007 (2026-10-15)
+
+The Product Owner accepted ADR 0017 by merging PR #26 after ChatGPT's review, and confirmed the acceptance on 2026-10-15; its status line and the ADR index now say Accepted (in the TP-007 implementation PR for issue #8). The decision is unchanged. The implementation adds the L1 ↔ L2 round trip to `ws-world` (`lod` module: `Background`, node levels, the `set_lod` transaction, the L2 event drain, the invariant checker) and the canonical tick order and start alignment to `ws-sim`. Besides the event queue, it keeps one more derived index of the kind §10 allows (the agents awaiting reconciliation), so a tick does not scan every agent; it is rebuildable, checked, and not hashed.
+
 ## ADR 0017: simulation LOD, the L1 ↔ L2 round trip (2026-10-15, Proposed)
 
 ADR 0017 prepares TP-007 (#8). It details D-10 for the first pair of levels: L2 is a discrete-event schedule (waiting at a building until a departure time, or walking a leg with an integer arrival time and one exact keyframe for a leg interrupted by demotion); buildings are LOD nodes and an agent is governed by its destination building; identity is stored once and residency is membership of mutually exclusive L1 and L2 stores; transitions are validated, atomic transactions at tick boundaries in ascending ID order; L1 → L2 → L1 at the same boundary is bit-exact, population and identity are always exact, and timing over elapsed time is toleranced; randomness is indexed by per-entity event counters carried at both levels. It also resolves the start-alignment caveat from TP-004: `WorldConfig::start` must lie on the base-step grid. `Walk::velocity` is reclassified as derived and leaves the state hash.

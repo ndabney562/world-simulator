@@ -20,4 +20,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0014](0014-time-representation.md) | Simulation time representation: uniform i64 microseconds from 2000-01-01T12:00 UTC, leap-second table for UTC | Accepted |
 | [0015](0015-coordinate-representation.md) | Coordinate representation (D-4) and default sector level | Accepted |
 | [0016](0016-entity-identity-storage-and-randomness.md) | Entity identity, component storage, and counter-based randomness (D-7, S-1) | Accepted |
-| [0017](0017-simulation-lod-l1-l2-round-trip.md) | Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007) | Proposed |
+| [0017](0017-simulation-lod-l1-l2-round-trip.md) | Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007) | Accepted |

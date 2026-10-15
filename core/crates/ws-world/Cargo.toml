@@ -12,5 +12,8 @@ ws-math = { path = "../ws-math" }
 ws-rng = { path = "../ws-rng" }
 ws-time = { path = "../ws-time" }
 
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true
