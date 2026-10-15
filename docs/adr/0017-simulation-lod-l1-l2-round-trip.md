@@ -1,8 +1,8 @@
 # ADR 0017: Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007)
 
-- Status: Proposed
+- Status: Accepted (2026-10-15, by merging PR #26)
 - Date: 2026-10-15
-- Decided by: Noah (Product Owner), on Claude's proposal for TP-007; to be reviewed by ChatGPT
+- Decided by: Noah (Product Owner), on Claude's proposal for TP-007; reviewed by ChatGPT
 - Issue: #8 (TP-007)
 - Supersedes: none. Details D-10 of [21-decisions-now-vs-later.md](../architecture/21-decisions-now-vs-later.md) for the first executable pair of levels, and settles the `WorldConfig::start` alignment question that the TP-004 review (PR #21) left to TP-007. ADRs 0014, 0015, and 0016 are unchanged.
 
