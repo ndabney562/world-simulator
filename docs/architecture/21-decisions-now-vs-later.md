@@ -29,7 +29,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 | D-4 | Coordinate system | Frame hierarchy; ECEF/WGS84 body-fixed frame; S2-style cell IDs; cell-local 32-bit offsets; ellipsoidal heights; camera-relative GPU data ([07](07-coordinates-and-time.md)) | Positions appear in every system, save, and test |
 | D-5 | Time representation | 64-bit integer microseconds from J2000; real UTC calendar; multi-rate ticks | Same reason |
 | D-6 | World-state model | Baseline (dataset version + seed + generator versions) + canonical deltas + journal + event log ([08](08-world-state.md)) | Defines saves, generation, and LOD |
-| D-7 | Entity identity | Tier 1 deterministic procedural IDs, persistent promotion, a separate namespace for spawned entities ([09](09-entities-and-agents.md)) | Changing it breaks saves and zoom consistency |
+| D-7 | Entity identity | Tier 1 deterministic procedural IDs, persistent promotion, a separate namespace for spawned entities ([09](09-entities-and-agents.md); detailed in [ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)) | Changing it breaks saves and zoom consistency |
 | D-8 | Mutation model | Validated, journaled commands; interventions composed from an effect vocabulary ([13](13-god-interventions.md)) | Underpins saves, replay, undo, LLM integration, and testing |
 | D-10 | LOD contract | Each domain defines aggregation, disaggregation, invariants, and event roll-up per level ([05](05-simulation-lod.md)) | The defining architectural rule |
 | D-14 | Versioning discipline | Save format, rules, generator, and dataset versions recorded from the first save; golden tests | Cannot be added to existing saves retroactively |
@@ -40,7 +40,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 
 | ID | Decision | Options |
 |---|---|---|
-| S-1 | ECS library | `bevy_ecs` standalone, `hecs`, or a minimal custom store behind `ws-ecs` |
+| S-1 | ECS library | `bevy_ecs` standalone, `hecs`, or a minimal custom store behind `ws-ecs`. Technical Prototype: minimal custom store ([ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)) |
 | S-2 | Binary serialization format | `serde` with a compact codec, FlatBuffers, Cap'n Proto; must support schema evolution |
 | S-3 | Rust ↔ Unity bridge details | A hand-written C ABI with `cbindgen` plus C# bindings (hand-written or generated); native buffers shared without copies |
 | S-4 | Sector cell level | ~1 km (level 13) proposed; confirm with materialization cost measurements |
