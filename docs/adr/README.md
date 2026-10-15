@@ -17,3 +17,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0011](0011-world-event-history-system.md) | First-class world event and history system | Accepted |
 | [0012](0012-causal-provenance.md) | Practical causal provenance | Accepted |
 | [0013](0013-technical-prototype-core-path-first.md) | Technical Prototype proves the core path before visual providers | Accepted |
+| [0015](0015-coordinate-representation.md) | Coordinate representation (D-4) and default sector level | Proposed |

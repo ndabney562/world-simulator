@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0015: coordinate representation (2026-10-15, Proposed)
+
+- ADR 0015 fixes D-4 for TP-005: SI units, right-handed ENU frames, ellipsoidal heights, frame-tagged types, S2-compatible cell IDs computed with portable `libm` math for Tier 1 exactness, and level 13 as the default sector level (S-4 still to be confirmed). Pointer added to [07-coordinates-and-time.md](07-coordinates-and-time.md) §8.3.
+
 ## Architecture V1 freeze (2026-10-14)
 
 Revision 4 (`fe2f3db`) was frozen as Architecture V1 and merged into `main` (PR #1). Later changes follow [docs/process/architecture-change-process.md](../process/architecture-change-process.md).
