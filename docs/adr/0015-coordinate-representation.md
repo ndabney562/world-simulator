@@ -1,6 +1,6 @@
 # ADR 0015: Coordinate representation (D-4) and default sector level
 
-- Status: Proposed
+- Status: Accepted (2026-10-15, by merging PR #19)
 - Date: 2026-10-15
 - Decided by: Noah (Product Owner), on Claude's proposal for TP-005; reviewed by ChatGPT
 - Issue: #6 (TP-005)

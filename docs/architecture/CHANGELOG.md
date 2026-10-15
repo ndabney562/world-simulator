@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADRs 0014 and 0015 accepted (2026-10-15)
+
+The Product Owner accepted ADR 0014 (time representation, D-5) and ADR 0015 (coordinate representation, D-4) by merging their implementation PRs, #18 (TP-004) and #19 (TP-005). Their status lines and the ADR index now say Accepted (#22). The decisions are unchanged; S-4 (sector level) stays open as ADR 0015 states.
+
 ## ADR 0015: coordinate representation (2026-10-15, Proposed)
 
 - ADR 0015 fixes D-4 for TP-005: SI units, right-handed ENU frames, ellipsoidal heights, frame-tagged types, S2-compatible cell IDs computed with portable `libm` math for Tier 1 exactness, and level 13 as the default sector level (S-4 still to be confirmed). Pointer added to [07-coordinates-and-time.md](07-coordinates-and-time.md) §8.3.
