@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0016 accepted; implemented by TP-006 (2026-10-15)
+
+The Product Owner accepted ADR 0016 by merging PR #24 after ChatGPT's review; its status line and the ADR index now say Accepted (in the TP-006 implementation PR, #7). The decision is unchanged. The implementation adds `ws-rng`, `ws-ecs` (a foundation crate, now also in the `scripts/check_core_deps.py` layer table and [ci.md](../process/ci.md)), and `ws-world`, and applies the cell-edge re-expression rule in `ws-math`.
+
 ## ADR 0016: entity identity, storage, and randomness (2026-10-15, Proposed)
 
 ADR 0016 prepares TP-006 (#7). It fixes D-7 (64-bit `EntityId` with two namespace bits; procedural IDs hashed from world seed, dataset version, and a typed generation address; a counter namespace for spawned entities), closes S-1 for the Technical Prototype (a minimal sorted-column store in `ws-ecs`, iterated in ascending ID order, with no ECS library), defines the counter-based randomness model in `ws-rng` (SipHash-2-4 keyed by parent seed and purpose; streams as a key plus an explicit counter), and settles the cell-edge re-expression rule ADR 0015 left to TP-006 (every re-expressed `SurfacePos` lies in its own cell). `ws-ecs` moves to the foundation layer.

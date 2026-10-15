@@ -1,8 +1,8 @@
 # ADR 0016: Entity identity, component storage, and counter-based randomness (D-7, S-1)
 
-- Status: Proposed
+- Status: Accepted (2026-10-15, by merging PR #24)
 - Date: 2026-10-15
-- Decided by: Noah (Product Owner), on Claude's proposal for TP-006; to be reviewed by ChatGPT
+- Decided by: Noah (Product Owner), on Claude's proposal for TP-006; reviewed by ChatGPT
 - Issue: #7 (TP-006)
 - Supersedes: none. Fixes D-7 of [21-decisions-now-vs-later.md](../architecture/21-decisions-now-vs-later.md) in detail, closes S-1 for the Technical Prototype, and settles the cell-edge re-expression rule that [ADR 0015](0015-coordinate-representation.md) left to TP-006 (its Tier 1 requirements are unchanged).
 
