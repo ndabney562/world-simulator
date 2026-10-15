@@ -1,6 +1,6 @@
 # ADR 0014: Simulation time representation (D-5)
 
-- Status: Proposed
+- Status: Accepted (2026-10-15, by merging PR #18)
 - Date: 2026-10-14
 - Decided by: Noah (Product Owner), on Claude's proposal for TP-004 (#5)
 - Issue: #5
