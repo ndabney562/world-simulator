@@ -1,5 +1,11 @@
 # Architecture Proposal Changelog
 
+## ADR 0017: simulation LOD, the L1 ↔ L2 round trip (2026-10-15, Proposed)
+
+ADR 0017 prepares TP-007 (#8). It details D-10 for the first pair of levels: L2 is a discrete-event schedule (waiting at a building until a departure time, or walking a leg with an integer arrival time and one exact keyframe for a leg interrupted by demotion); buildings are LOD nodes and an agent is governed by its destination building; identity is stored once and residency is membership of mutually exclusive L1 and L2 stores; transitions are validated, atomic transactions at tick boundaries in ascending ID order; L1 → L2 → L1 at the same boundary is bit-exact, population and identity are always exact, and timing over elapsed time is toleranced; randomness is indexed by per-entity event counters carried at both levels. It also resolves the start-alignment caveat from TP-004: `WorldConfig::start` must lie on the base-step grid. `Walk::velocity` is reclassified as derived and leaves the state hash.
+
+- Pointers added to [05-simulation-lod.md](05-simulation-lod.md) §6.3, [09-entities-and-agents.md](09-entities-and-agents.md) §10.3, [12-materialization.md](12-materialization.md) §13.1, [21-decisions-now-vs-later.md](21-decisions-now-vs-later.md) (D-10), and [07-coordinates-and-time.md](07-coordinates-and-time.md) §8.9.
+
 ## ADR 0016 accepted; implemented by TP-006 (2026-10-15)
 
 The Product Owner accepted ADR 0016 by merging PR #24 after ChatGPT's review; its status line and the ADR index now say Accepted (in the TP-006 implementation PR, #7). The decision is unchanged. The implementation adds `ws-rng`, `ws-ecs` (a foundation crate, now also in the `scripts/check_core_deps.py` layer table and [ci.md](../process/ci.md)), and `ws-world`, and applies the cell-edge re-expression rule in `ws-math`.
