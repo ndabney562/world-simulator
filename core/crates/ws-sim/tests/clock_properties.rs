@@ -5,7 +5,7 @@ use core::num::NonZeroU32;
 
 use proptest::prelude::*;
 use proptest::test_runner::RngSeed;
-use ws_sim::{Clock, SimTime, TimeScale, World, WorldConfig};
+use ws_sim::{Clock, Population, SimTime, TimeScale, World, WorldConfig};
 use ws_time::{Rate, SimDuration};
 
 /// Fixed seed and no failure-persistence files, so every run checks the same
@@ -93,7 +93,10 @@ proptest! {
         scale in any_scale(),
         inputs in prop::collection::vec(any::<u64>(), 0..64),
     ) {
-        let mut a = World::new(WorldConfig { seed: 9, start: SimTime::EPOCH });
+        // No residents: this checks the clock path of World, as it did
+        // before the toy world existed; movement has its own replay tests.
+        let config = WorldConfig { population: Population::exactly(0), ..WorldConfig::new(9, SimTime::EPOCH) };
+        let mut a = World::new(config).unwrap();
         let mut b = a.clone();
         a.set_time_scale(scale);
         b.set_time_scale(scale);

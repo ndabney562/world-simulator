@@ -82,6 +82,8 @@ fn golden_reexpression_matches_exactly() {
         let p = SurfacePos::new(hex(f[1]), offset).unwrap();
         let q = p.reexpress().unwrap();
         assert_eq!(q.cell(), hex(f[5]), "{f:?}");
+        assert_eq!(q.occupied_cell(), Ok(q.cell()), "{f:?}");
+        assert_eq!(q.reexpress(), Ok(q), "{f:?}");
         assert!(q.to_ecef().distance(p.to_ecef()) < 1e-4, "{f:?}");
     }
 }

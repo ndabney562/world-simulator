@@ -12,7 +12,7 @@
 #
 # reexpress <sector> <east> <north> <up> <result_sector>
 #   SurfacePos::new(sector, [east, north, up] as f32).reexpress() lands in
-#   result_sector.
+#   result_sector, and the result lies in its own cell (ADR 0016).
 #
 # Provenance: produced by this implementation. Every `cell` line except the
 # two cube-vertex points was independently reproduced by s2sphere 0.2.5 (a
@@ -65,3 +65,7 @@ reexpress 89c2455c00000000 100 -100 0 89c2455c00000000
 reexpress 3d55555400000000 -2000 0 0 17fffff400000000
 reexpress 3d55555400000000 2000 0 0 3d55553400000000
 reexpress 3d55555400000000 0 2000 -5 3d55557c00000000
+# Added by TP-006 (ADR 0016 section 4): a point about 30 um from the edge
+# between 89c2455c... and 89c24564.... Before ADR 0016, re-expression of
+# this input alternated between the two cells on every call.
+reexpress 89c2455c00000000 -77.64276 -535.4485 0 89c2456400000000

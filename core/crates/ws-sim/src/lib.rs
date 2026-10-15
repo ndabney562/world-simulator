@@ -1,8 +1,9 @@
 //! Simulation core of the World Simulator.
 //!
 //! A [`World`] is created from a [`WorldConfig`] and advanced in fixed base
-//! steps by its [`Clock`] (TP-004). Scheduling, commands, the journal, and
-//! every simulated system arrive in later Technical Prototype issues.
+//! steps by its [`Clock`] (TP-004). Each step runs the toy world's movement
+//! system ([`ToyWorld::step`], TP-006). Scheduling, commands, the journal,
+//! and further systems arrive in later Technical Prototype issues.
 //!
 //! The world never reads the wall clock, the environment, or the filesystem;
 //! its state is a pure function of its configuration and the sequence of
@@ -13,8 +14,12 @@
 
 mod clock;
 
+use core::fmt;
+
 pub use clock::{Clock, TimeScale};
 pub use ws_time::{SimTime, TimeOverflow};
+use ws_world::{Dataset, WalkParams};
+pub use ws_world::{Population, ToyWorld, WorldError};
 
 /// Parameters a [`World`] is created from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,52 +39,152 @@ pub struct WorldConfig {
     /// supply an aligned start until the scheduler (TP-007) decides whether
     /// to require or enforce alignment.
     pub start: SimTime,
+    /// Residents per toy building ([`Population::TOY`] by default: a few
+    /// dozen agents in all). A generation input like the seed.
+    pub population: Population,
+}
+
+impl WorldConfig {
+    /// A configuration with the toy population.
+    #[must_use]
+    pub const fn new(seed: u64, start: SimTime) -> Self {
+        Self {
+            seed,
+            start,
+            population: Population::TOY,
+        }
+    }
+}
+
+/// Why a world could not be stepped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepError {
+    /// The step would pass [`SimTime::MAX`].
+    Time(TimeOverflow),
+    /// A system failed (never expected; see [`WorldError`]).
+    World(WorldError),
+}
+
+impl fmt::Display for StepError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Time(e) => write!(f, "{e}"),
+            Self::World(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for StepError {}
+
+impl From<TimeOverflow> for StepError {
+    fn from(e: TimeOverflow) -> Self {
+        Self::Time(e)
+    }
+}
+
+impl From<WorldError> for StepError {
+    fn from(e: WorldError) -> Self {
+        Self::World(e)
+    }
 }
 
 /// The authoritative simulation state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct World {
     seed: u64,
     clock: Clock,
+    toy: ToyWorld,
 }
 
 impl World {
-    /// Creates a world at tick 0 and time `config.start`, with a
-    /// default [`Clock`] (100 ms base step, scale ×1).
-    #[must_use]
-    pub fn new(config: WorldConfig) -> Self {
-        Self {
-            seed: config.seed,
-            clock: Clock::with_defaults(config.start),
-        }
-    }
-
-    /// Advances the world by one tick: one base step of simulation time.
+    /// Creates a world at tick 0 and time `config.start`, with a default
+    /// [`Clock`] (100 ms base step, scale ×1) and the toy world generated
+    /// from `config.seed` and the built-in toy dataset.
     ///
     /// # Errors
     ///
-    /// [`TimeOverflow`] if the step would pass [`SimTime::MAX`] (about
-    /// AD 294,247); the world is then unchanged.
-    pub fn step(&mut self) -> Result<(), TimeOverflow> {
-        self.clock.step()
+    /// [`WorldError::Duplicate`] if two procedural IDs collide (a collision
+    /// is never resolved silently, ADR 0016).
+    pub fn new(config: WorldConfig) -> Result<Self, WorldError> {
+        let dataset = Dataset::toy()?;
+        Ok(Self {
+            seed: config.seed,
+            clock: Clock::with_defaults(config.start),
+            toy: ToyWorld::generate(
+                config.seed,
+                &dataset,
+                config.population,
+                WalkParams::DEFAULT,
+            )?,
+        })
+    }
+
+    /// Advances the world by one tick: one base step of simulation time,
+    /// then the movement system for that step.
+    ///
+    /// # Errors
+    ///
+    /// [`StepError::Time`] if the step would pass [`SimTime::MAX`] (about
+    /// AD 294,247), and [`StepError::World`] if movement fails; the world is
+    /// unchanged in both cases.
+    pub fn step(&mut self) -> Result<(), StepError> {
+        let mut clock = self.clock.clone();
+        clock.step()?;
+        self.toy.step(self.clock.base_step().step())?;
+        self.clock = clock;
+        Ok(())
     }
 
     /// Advances the world by the whole base steps that `host_elapsed_us`
     /// microseconds of host-measured real time amount to at the current
-    /// [`TimeScale`], and returns how many ticks were taken. See
+    /// [`TimeScale`], running the movement system once per step, and
+    /// returns how many ticks were taken. See
     /// [`Clock::advance_by_host_elapsed`] for the accumulator and the
     /// per-call cap.
     ///
-    /// The world has no per-tick systems yet, so this only advances the
-    /// clock; when the scheduler arrives (TP-007) each of these ticks runs
-    /// like [`World::step`].
-    ///
     /// # Errors
     ///
-    /// [`TimeOverflow`] if the steps would pass [`SimTime::MAX`]; the world
-    /// is then unchanged.
-    pub fn advance_by_host_elapsed(&mut self, host_elapsed_us: u64) -> Result<u32, TimeOverflow> {
-        self.clock.advance_by_host_elapsed(host_elapsed_us)
+    /// [`StepError::Time`] if the steps would pass [`SimTime::MAX`]; the
+    /// world is then unchanged. [`StepError::World`] if movement fails
+    /// (never expected); the ticks before the failing one stay applied, the
+    /// clock counts exactly those, and the pending remainder is unchanged.
+    pub fn advance_by_host_elapsed(&mut self, host_elapsed_us: u64) -> Result<u32, StepError> {
+        let mut advanced = self.clock.clone();
+        let steps = advanced.advance_by_host_elapsed(host_elapsed_us)?;
+        let dt = self.clock.base_step().step();
+        for done in 0..steps {
+            if let Err(e) = self.toy.step(dt) {
+                for _ in 0..done {
+                    self.clock.step()?;
+                }
+                return Err(e.into());
+            }
+        }
+        self.clock = advanced;
+        Ok(steps)
+    }
+
+    /// Hash of the canonical state: the seed, the tick, the time, and the
+    /// toy world's [`ToyWorld::state_hash`]. Tier 2: stable within one
+    /// build and platform; per-tick hashes are what replay tests compare.
+    #[must_use]
+    pub fn state_hash(&self) -> u64 {
+        ws_rng::hash(
+            0,
+            ws_rng::Purpose::new("ws-sim/state-hash").value(),
+            &[
+                self.seed,
+                self.clock.steps(),
+                self.clock.now().as_micros_since_epoch() as u64,
+                self.toy.state_hash(),
+            ],
+        )
+    }
+
+    /// The toy world.
+    #[must_use]
+    pub const fn toy(&self) -> &ToyWorld {
+        &self.toy
     }
 
     /// Sets the time scale (a plain call until TP-008 journals it).
@@ -117,10 +222,7 @@ mod tests {
     use super::*;
 
     fn world(seed: u64) -> World {
-        World::new(WorldConfig {
-            seed,
-            start: SimTime::EPOCH,
-        })
+        World::new(WorldConfig::new(seed, SimTime::EPOCH)).unwrap()
     }
 
     #[test]
@@ -178,7 +280,7 @@ mod tests {
     #[test]
     fn world_starts_at_the_configured_time() {
         let start = SimTime::from_micros_since_epoch(845_208_005_000_000); // 2026-10-14T00:00Z
-        let w = World::new(WorldConfig { seed: 1, start });
+        let w = World::new(WorldConfig::new(1, start)).unwrap();
         assert_eq!(w.now(), start);
         assert_eq!(w.clock().start(), start);
         assert_eq!(w.now().to_string(), "2026-10-14T00:00:00.000000Z");
@@ -208,7 +310,7 @@ mod tests {
     #[test]
     fn time_is_start_plus_ticks_times_step() {
         let start = SimTime::from_micros_since_epoch(-7);
-        let mut w = World::new(WorldConfig { seed: 3, start });
+        let mut w = World::new(WorldConfig::new(3, start)).unwrap();
         for host in [0, 33_333, 16_667, 250_000, 1, 99_999] {
             w.advance_by_host_elapsed(host).unwrap();
             w.step().unwrap();
@@ -220,8 +322,8 @@ mod tests {
     #[test]
     fn step_at_the_end_of_time_is_an_error_not_a_wrap() {
         let start = SimTime::MAX;
-        let mut w = World::new(WorldConfig { seed: 0, start });
-        assert_eq!(w.step(), Err(TimeOverflow));
+        let mut w = World::new(WorldConfig::new(0, start)).unwrap();
+        assert_eq!(w.step(), Err(StepError::Time(TimeOverflow)));
         assert_eq!(w.tick(), 0);
         assert_eq!(w.now(), start);
     }

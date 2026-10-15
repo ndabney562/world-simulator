@@ -1,0 +1,15 @@
+[package]
+name = "ws-rng"
+version = "0.1.0"
+description = "World Simulator deterministic randomness: SipHash-2-4 derivation of seeds and IDs, and counter-based random streams (Tier 1 safe)."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

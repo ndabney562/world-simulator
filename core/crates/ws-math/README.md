@@ -33,7 +33,7 @@ None.
 - **Tier 1** ([25-determinism-policy.md](../../../docs/architecture/25-determinism-policy.md)): cell IDs and cell membership are bit-identical on every platform. All trigonometry uses the pure-Rust `libm` crate, never the platform math library, and the rest uses only correctly rounded IEEE 754 operations (no fused multiply-add). Golden values in [`tests/golden/cell_ids.txt`](tests/golden/cell_ids.txt) are checked on Linux x86-64 and macOS arm64 CI. Updating them needs Product Owner approval ([testing-policy.md](../../../docs/process/testing-policy.md) §2).
 - The continuous conversions are Tier 3 by policy (tolerances, not hashes), although they use the same deterministic arithmetic.
 - `SurfacePos::reexpress` returns the input unchanged while the offset is inside its cell, and otherwise expresses it in the sector cell that contains the 64-bit ECEF point, preserving the position to within 0.1 mm.
-- Known limitation (ADR 0015, Consequences): within a fraction of a millimetre of a cell edge, rounding the new offset to `f32` can put the stored position back on the other side. The result's `cell` can then differ from its `occupied_cell`, and repeated `reexpress` calls can alternate between two cells. Results are deterministic, so this is not a Tier 1 violation, but re-expression is not guaranteed to be idempotent there. Movement systems (TP-006) decide the remedy, such as hysteresis.
+- Every position produced by `SurfacePos::reexpress` or `SurfacePos::from_ecef` lies in its own cell (`occupied_cell() == cell()`), including within a fraction of a millimetre of a cell edge ([ADR 0016](../../../docs/adr/0016-entity-identity-storage-and-randomness.md) §4). Where rounding the new offset to `f32` would put it back across the edge, the nearest `f32` neighbour (3 × 3, then 5 × 5 grid steps) that lies inside the target cell is chosen. Re-expression is therefore idempotent, and a position that does not move never changes cell. Before TP-006, about 1% of `f32` positions within 200 µm of an edge re-expressed outside their cell, and some alternated between two cells forever; `tests/cell_edges.rs` shows that failure in its own samples and that the rule prevents it. Results outside that band are bit-for-bit what they were before.
 - No `unsafe`, no allocation in the conversion paths, no wall clock (the benchmark alone reads it, to time itself).
 
 ## Accuracy
@@ -43,6 +43,7 @@ None.
 | Geodetic → ECEF → Geodetic, heights −100 km to +1000 km, whole globe | < 1 mm (property test) |
 | Geodetic → ECEF against PROJ 9.8.1 for benchmark points | < 2 µm |
 | ECEF → `SurfacePos` → ECEF, and `SurfacePos` → ECEF → `SurfacePos`, heights −500 m to +1000 m | < 0.1 mm (property test) |
+| `SurfacePos::reexpress` within ±200 µm of a cell edge (ADR 0016 rule) | < 0.1 mm (edge sweeps and property test; largest seen about 60 µm) |
 
 32-bit offsets lose precision with height above the ellipsoid (spacing about 0.5 mm at 8 km), so objects far above the surface belong in 64-bit ECEF.
 

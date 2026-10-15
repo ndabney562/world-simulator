@@ -34,11 +34,11 @@ LAYERS = {
     "ws-math": 0,
     "ws-time": 0,
     "ws-rng": 0,
+    "ws-ecs": 0,
     # World model and events
     "ws-world": 1,
     "ws-events": 1,
     # Domain crates
-    "ws-ecs": 2,
     "ws-data": 2,
     "ws-procgen": 2,
     "ws-agents": 2,
