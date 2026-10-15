@@ -1,0 +1,23 @@
+[package]
+name = "ws-math"
+version = "0.1.0"
+description = "World Simulator coordinate foundation: WGS84, ECEF, ENU frames, frame-tagged types, S2-style cell IDs, and surface positions."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Pure-Rust port of musl libm (MIT). Every transcendental function in this
+# crate comes from here, never from the platform math library, so cell IDs
+# and cell membership are bit-identical across platforms (Tier 1, ADR 0015).
+libm = "0.2.16"
+
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+
+[[bench]]
+name = "conversions"
+harness = false
+
+[lints]
+workspace = true
