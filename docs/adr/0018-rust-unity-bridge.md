@@ -1,8 +1,8 @@
 # ADR 0018: TP-003 Rust–Unity bridge contract (S-3)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-16
-- Decided by: Pending Noah's acceptance; proposed by Codex; independent review pending
+- Decided by: Noah, explicit approval in Codex on 2026-10-16; proposed by Codex
 - Issue: #35 (design phase of #4)
 - Supersedes: none
 
