@@ -36,7 +36,7 @@ Graphics must remain enabled for the rendering test. Restart after rebuilding a 
 
 Criterion, release build, Apple Silicon Mac, 20 samples, 1-second warm-up and 2-second measurement, preallocated output, tick zero. Only the snapshot fill is measured (no tick stepping or C# rendering):
 
-| Instances | Median estimate | Reported interval |
+| Instances | Central estimate | Reported interval |
 |---|---|---|
 | 1,000 | 1.0883 µs | 1.0872–1.0892 µs |
 | 10,000 | 10.690 µs | 10.638–10.756 µs |
