@@ -14,9 +14,24 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs 
 | Tier 1 golden tests | Linux (x86-64) and macOS 14 (arm64), inside the Rust core job's `cargo test` | `ws-math` cell IDs, sector membership, and re-expression against `core/crates/ws-math/tests/golden/cell_ids.txt`; `ws-rng` SipHash-2-4 reference vectors and derivation and draw values; `ws-world` procedural IDs, residents per building, and target choices against `core/crates/ws-world/tests/golden/toy_world.txt`. Any difference on either platform fails the build | Active (TP-005, TP-006) |
 | Tier 2 replay tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-sim` and `ws-world`: identical per-tick state hashes for 10,000 ticks with the same seed, with and without scripted LOD transitions, including a run in a separate process; insertion-order independence. Compared within one platform, never across | Active (TP-006, TP-007) |
 | Simulation LOD tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-world` `tests/lod.rs` and `src/lod_tests.rs` (ADR 0017 §14): zero-time round trips, conservation properties, L1/L2 equivalence over one simulated hour, the invariant checker against injected faults, and `lod_soak_short` (1,000 agents, 30 simulated minutes, about 3 minutes in a debug build) | Active (TP-007) |
-| Long-running LOD tests | Run by hand: `cargo test --release -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Not scheduled: no nightly workflow exists yet |
+| Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Configured in [nightly.yml](../../.github/workflows/nightly.yml); schedule activates after merge to `main`. First measured run pending |
 
 The repository is public, so GitHub-hosted Linux and macOS runners cost nothing (ADR 0007).
+
+## Nightly LOD workflow
+
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) runs the two existing ignored LOD tests in release mode on Linux. It uses the same pinned-toolchain installation and Cargo cache as PR CI, read-only contents permission, and no secrets. Failures fail the job; tests and PR checks are unchanged. The daily schedule is 07:23 UTC (03:23 New York during daylight saving time, 02:23 during standard time); GitHub may delay scheduled runs. Scheduled runs use `main`.
+
+The job has a **provisional 350-minute ceiling**, below six hours. This is not a measured timeout: #29 remains verification-incomplete until a hosted run records both test results and wall-clock duration. Set the final timeout from that run with headroom for installation, cold compilation, and runner variation. If the tests approach the hosted-runner limit, propose separate jobs rather than shortening them.
+
+GitHub [requires the workflow to exist on the default branch for manual dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow). This new file therefore cannot supply the issue's requested pre-merge dispatch evidence through the documented flow yet. Noah must resolve that acceptance-order constraint on #29 before merge; do not claim ordinary PR CI ran the ignored tests. Once the workflow is registered on `main`, a writer can select a branch in **Actions → Nightly LOD tests → Run workflow**, or run:
+
+```sh
+gh workflow run nightly.yml --repo ndabney562/world-simulator --ref codex/29-nightly-lod
+gh run list --repo ndabney562/world-simulator --workflow nightly.yml --branch codex/29-nightly-lod
+```
+
+Link the resulting run on the PR, record job duration and tested SHA, confirm `l2_matches_l1_over_eight_hours` and `lod_soak_long` both passed, and calibrate the timeout. No extra notification service is configured; GitHub's notification preferences apply.
 
 ## Running the checks locally
 
@@ -59,7 +74,7 @@ Each is added by the issue that introduces what it checks.
 | Save fixture compatibility tests | TP-009 |
 | Event and causality invariant tests | TP-008, TP-010 |
 | iOS Unity build (if feasible on free runners) | TP-011 |
-| Nightly: soak, Tier 3 drift report, benchmarks | When the first long-running scenario exists |
+| Nightly Tier 3 drift reports and benchmarks | Follow-up issues when wanted; LOD soak is configured separately above |
 
 ## Unity edit-mode tests and S-6
 
