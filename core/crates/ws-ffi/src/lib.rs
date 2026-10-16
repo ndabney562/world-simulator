@@ -292,17 +292,18 @@ pub unsafe extern "C" fn ws_fill_render_snapshot(
     cap: usize,
     written: *mut usize,
 ) -> WsStatus {
-    if written.is_null() {
-        thread_error("written is null");
-        return INVALID_ARGUMENT;
-    }
-    // SAFETY: caller provides writable aligned output storage, disjoint from all other inputs.
-    unsafe {
-        *written = 0;
+    if !written.is_null() {
+        // SAFETY: caller provides writable aligned output storage, disjoint from all other inputs.
+        unsafe {
+            *written = 0;
+        }
     }
     // SAFETY: caller upholds the handle/output contracts; no caller memory is retained.
     unsafe {
         operate(handle, |h| {
+            if written.is_null() {
+                return Err((INVALID_ARGUMENT, "written is null"));
+            }
             let required = HEADER_SIZE + h.markers as usize * RECORD_SIZE;
             if cap < required {
                 *written = required;

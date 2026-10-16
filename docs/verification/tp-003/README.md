@@ -47,3 +47,13 @@ cargo bench -p ws-ffi --bench snapshot -- --sample-size 20 --warm-up-time 1 --me
 ```
 
 These results do not establish the ≤2ms iPhone target. TP-011 must measure release device behavior, managed allocations with Profiler, memory and thermals, and replace debug marker IDs/coordinates with a reviewed real-entity snapshot contract.
+
+## Review follow-up: diagnostic routing and pending tool approval
+
+The null `written` error from `ws_fill_render_snapshot` now follows the same ownership rule as other operational failures: a usable live handle receives its own diagnostic; an unusable/null handle uses the thread-local slot. Non-null output storage is still reset to zero on a null-handle error. Regression `snapshot_output_errors_use_the_live_handle_diagnostic` first provokes an older error, verifies the new handle message replaces it, checks the thread-local sentinel stays untouched, then checks null-handle routing. It fails on the prior head and passes with the correction; all eight native boundary tests pass. The full normal workspace suite passes with 223 tests, zero failures and the two existing nightly-only LOD tests ignored; formatting, Clippy, all-target builds, header freshness, dependency direction, documentation/static checks and all 36 Python tests also pass. This changes no ABI, snapshot layout or successful-call behavior. Unity Editor tests were not rerun for this error-path-only correction.
+
+The licence review remains open. Pinned cbindgen 0.29.2 declares [MPL-2.0 in its upstream package metadata](https://raw.githubusercontent.com/mozilla/cbindgen/v0.29.2/Cargo.toml); ADR 0018 currently describes a permissively licensed generator. Earlier text treating the design approval as settling this licence condition was inaccurate.
+
+Recommendation for Noah: approve a narrowly scoped **build-tool-only exception for cbindgen 0.29.2**, used locally/in CI to generate and check the C header, with no cbindgen runtime dependency or linkage into the simulator. Approval should also explicitly authorize correcting ADR 0018's generator-licence statement; record it on #36/#42 before treating the condition as resolved. It would not authorize introducing other MPL tools, shipping cbindgen as part of the app, changing runtime dependencies or future tool upgrades automatically. This is a proposed project-policy exception, not a claim about legal obligations.
+
+If Noah declines, keep the PR blocked and propose a policy-compatible header generation/verification approach through the ADR process, retaining header freshness, layout and cross-language fixture checks. Do not remove a required check just to avoid the dependency. No exception is accepted or policy/accepted ADR changed by this follow-up.

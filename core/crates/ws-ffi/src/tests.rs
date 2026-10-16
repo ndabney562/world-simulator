@@ -214,3 +214,44 @@ fn snapshot_structs_match_byte_offsets() {
     assert_eq!(std::mem::offset_of!(WsInstance, heading), 24);
     assert_eq!(std::mem::offset_of!(WsInstance, reserved), 28);
 }
+
+#[test]
+fn snapshot_output_errors_use_the_live_handle_diagnostic() {
+    // SAFETY: live exclusively owned handle, deliberate supported null-output
+    // error paths, and disjoint writable diagnostic/output storage.
+    unsafe {
+        let h = ws_create(&config(0));
+        assert!(!h.is_null());
+        assert_eq!(ws_advance(h, 101), INVALID_ARGUMENT);
+        thread_error("thread sentinel");
+        assert_eq!(
+            ws_fill_render_snapshot(h, null_mut(), 0, null_mut()),
+            INVALID_ARGUMENT
+        );
+        let mut error = [0i8; 256];
+        assert_eq!(ws_last_error(h, error.as_mut_ptr(), error.len()), 16);
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error.as_ptr()).to_str().unwrap(),
+            "written is null"
+        );
+        // A usable handle must not route its error to the thread-local slot.
+        ws_last_error(null_mut(), error.as_mut_ptr(), error.len());
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error.as_ptr()).to_str().unwrap(),
+            "thread sentinel"
+        );
+        // No usable handle routes the failure to the current thread instead.
+        let mut written = 99;
+        assert_eq!(
+            ws_fill_render_snapshot(null_mut(), null_mut(), 0, &mut written),
+            INVALID_ARGUMENT
+        );
+        assert_eq!(written, 0);
+        ws_last_error(null_mut(), error.as_mut_ptr(), error.len());
+        assert_eq!(
+            std::ffi::CStr::from_ptr(error.as_ptr()).to_str().unwrap(),
+            "handle is null"
+        );
+        ws_destroy(h);
+    }
+}
