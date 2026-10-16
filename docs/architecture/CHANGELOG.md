@@ -1,8 +1,13 @@
 # Architecture Proposal Changelog
 
+## ADR 0018 generator-licence correction (2026-10-16)
+
+Noah explicitly approved the pinned cbindgen 0.29.2 MPL-2.0 build-tool exception and correction, recorded on PRs #36 and #42. Corrects the earlier permissive-licence description: local/CI header generation/checking only, no runtime linkage or app distribution of the tool, and no automatic exception for other tools or upgrades. The ABI, runtime dependencies and general licence policy are unchanged.
+
 ## ADR 0018 accepted; TP-003 implementation (2026-10-16)
 
 Noah explicitly accepted the bridge design in Codex (recorded on PR #36). TP-003 implements its synchronous native API, debug snapshots, managed ownership/decoding and Bootstrap renderer; real-entity switch-over remains TP-011. Updated pending proposal pointers. Implementation remains subject to independent PR review and Noah merge.
+
 
 ## ADR 0018: TP-003 Rust–Unity bridge (2026-10-16, Proposed)
 
