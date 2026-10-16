@@ -3,11 +3,11 @@
 ```
 Product Owner
   → GitHub Issue
-  → Claude implementation branch
+  → Assigned Codex or Claude implementation branch
   → Pull Request
   → automated CI
-  → ChatGPT review
-  → Claude fixes
+  → Different assistant reviews the diff
+  → Implementer fixes
   → CI
   → Product Owner approval (when required)
   → merge (Product Owner)
@@ -46,12 +46,12 @@ Product Owner
 
 ## 6. Review
 
-- ChatGPT reviews the **actual diff** on GitHub. Findings are recorded on the PR with a severity ([code-review.md](code-review.md)).
+- The assigned reviewer (a different assistant from the author) reviews the **actual diff** on GitHub. Findings are recorded on the PR with a severity ([code-review.md](code-review.md)).
 - Blocker and Major findings must be resolved before merge. Minor findings are fixed or turned into a follow-up issue linked from the PR. Nits are optional.
 
 ## 7. Fixes
 
-- Claude pushes fixes as new commits on the same branch (no force-push once a review has started), replies to each finding with what changed and in which commit, and drives CI back to green.
+- The implementer pushes fixes as new commits on the same branch (no force-push once a review has started), replies to each finding with what changed and in which commit, and drives CI back to green.
 - Review repeats until no Blocker or Major findings remain.
 
 ## 8. Approval and merge
@@ -63,3 +63,7 @@ Product Owner
 ## 9. Stop
 
 After opening the PR, the implementer stops and waits for review. It does not start the next issue until the Product Owner authorizes it.
+
+## Isolated work and handoffs
+
+Use the [shared development guide](shared-development.md) for task ownership, separate checkouts, phone/Mac responsibilities, and the handoff format. Assign implementation to one assistant and review to another; the Product Owner still authorizes work and performs every merge.

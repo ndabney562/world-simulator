@@ -1,6 +1,6 @@
 # Human Approval Gates
 
-These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to Claude and then recorded on the relevant issue or PR.
+These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to the assigned assistant and then recorded on the relevant issue or PR.
 
 | Gate | Examples |
 |---|---|
@@ -21,6 +21,6 @@ These decisions belong to the Product Owner alone. An AI collaborator may propos
 
 Reversible work inside an authorized issue: creating its branch, commits, a draft PR, tests, local experiments, documentation updates within scope, and replying to review findings.
 
-## How Claude asks
+## How an assistant asks
 
-When a gate is reached, Claude stops and says, in one place (the PR or issue, and the project thread): what decision is needed, the options, its recommendation, and exactly what the Product Owner needs to click or reply.
+When a gate is reached, the assistant stops and says, in one place (the PR or issue, and the project thread): what decision is needed, the options, its recommendation, and exactly what the Product Owner needs to click or reply.

@@ -36,3 +36,6 @@ Closes #<!-- issue number -->
 - [ ] No test or check weakened, skipped, or deleted (or justified below and approved)
 - [ ] Docs updated
 - [ ] Meets the [Definition of Done](https://github.com/ndabney562/world-simulator/blob/main/docs/process/definition-of-done.md)
+
+## Handoff
+<!-- Use docs/process/shared-development.md: objective/issue, owner/reviewer, branch/base/head SHA, changes, verification with tested SHA, blockers, next steps. Never include secrets. -->

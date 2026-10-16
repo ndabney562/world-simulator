@@ -1,6 +1,6 @@
 # AGENTS.md: conventions for AI collaborators
 
-This file is for Claude, ChatGPT, and any other AI collaborator working in this repository. Read it before doing anything else.
+This file is for Codex, Claude, ChatGPT, and any other AI collaborator working in this repository. Read it before doing anything else.
 
 ## Source of truth
 
@@ -9,8 +9,11 @@ GitHub is canonical. Specifications live in issues, decisions in ADRs (`docs/adr
 ## Roles
 
 - **Noah (Product Owner):** priorities, approvals, and every merge. See [human-approval-gates](docs/process/human-approval-gates.md).
-- **Claude:** primary implementation engineer.
-- **ChatGPT:** architecture and code-review partner; reviews actual GitHub diffs.
+- **Codex or Claude:** implementation engineer for the issue Noah assigns; one writer per branch.
+- **ChatGPT/Codex or Claude:** reviewer of the other assistant’s actual GitHub diff; an author’s self-review is not independent review.
+- Existing defaults remain Claude implementing and ChatGPT reviewing when Noah has not assigned different roles.
+
+Daily setup and handoffs: [shared-development](docs/process/shared-development.md).
 
 Details: [roles-and-responsibilities](docs/process/roles-and-responsibilities.md).
 

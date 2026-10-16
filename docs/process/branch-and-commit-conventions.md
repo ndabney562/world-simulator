@@ -9,7 +9,7 @@
   <author>/<issue-number>-<short-slug>
   ```
 
-  Examples: `claude/2-tp-001-core-skeleton`, `chatgpt/14-adr-ecs-choice`, `noah/20-bay-ridge-bounds`.
+  Examples: `claude/2-tp-001-core-skeleton`, `codex/32-shared-development`, `noah/20-bay-ridge-bounds`.
 - When a tool assigns the branch name (for example a Claude Code web session assigns `claude/<name>-<random>`), use the assigned branch and put the issue ID in the PR title and description instead.
 - Branches are deleted after merge.
 - Spike branches use `spike/<issue-number>-<slug>` when their code is not meant to merge.

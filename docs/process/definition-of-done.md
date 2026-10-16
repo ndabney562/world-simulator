@@ -37,7 +37,7 @@ An issue is done when **all** of the following are true. Issues may add items; t
 ## Review and merge
 
 - [ ] The PR template is filled in completely.
-- [ ] ChatGPT has reviewed the diff; no Blocker or Major findings remain open.
+- [ ] An assistant other than the author has reviewed the diff (ChatGPT by default for Claude-authored changes); no Blocker or Major findings remain open.
 - [ ] Minor findings are fixed or tracked in a linked follow-up issue.
 - [ ] The Product Owner has approved where required and merged.
 - [ ] The issue is closed and the Technical Prototype tracking issue is updated.
