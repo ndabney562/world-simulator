@@ -45,3 +45,9 @@ About 96 bytes per L1 agent in the columns (16 `Resident` + 24 `SurfacePos` + 32
 ## Dependencies
 
 `ws-ecs`, `ws-math`, `ws-rng`, `ws-time`.
+
+### Movement frame reuse (#31, 2026-10-16)
+
+On the same Apple M1 Pro Mac (arm64) with Rust 1.97.0, release `world_step/5000` measured **3.3330 ms before → 2.2909 ms after** (about 31% faster; after 95% interval 2.2826–2.3001 ms). `world_step/50` measured 35.443 → 23.904 µs. This reaches #31's approximate 2.4 ms desktop target. At ×10, an average 3.33 ticks per 30 fps frame costs about 7.64 ms; individual four-tick frames and device overhead still require measurement, so this is not an iPhone/frame-budget guarantee.
+
+The L1 planner reuses one exact frame per occupied cell per step for target projection and re-expression; the full cell lookup and ADR 0016 edge rule remain unchanged. The ordered cache is temporary derived data and adds no component/save/hash state. It allocates by distinct moving cells; the all-L2 path returns before using it. See the [verification report](../../../docs/verification/issue-31/README.md) for full LOD comparisons, reproducible commands and direct baseline replay evidence. Older numbers above describe their original machines/revisions.
