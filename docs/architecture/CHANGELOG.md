@@ -2,7 +2,7 @@
 
 ## ADR 0019: command journal and World Events (2026-10-16, Proposed)
 
-Design phase of #9, tracked by #43: proposes serialized command processing at boundaries (including paused flushes), journal outcomes, atomic event publication, deterministic sequential 64-bit event IDs, initial event schemas and queries, logical separate-process replay, and an explicit ABI-v2 migration after TP-003 review. Adds pointers in simulation architecture, event architecture, determinism policy and D-8. No code, accepted ADR, dependency, save format or CI behavior changes; implementation follows acceptance in a separate PR. ADR 0018 remains reserved by PR #36 and is not copied into this branch.
+Design phase of #9, tracked by #43: proposes serialized command processing at boundaries (including paused flushes), journal outcomes, atomic event publication, deterministic sequential 64-bit event IDs, initial event schemas and queries, logical separate-process replay, and an explicit ABI-v2 migration after TP-003 review. Adds pointers in simulation architecture, event architecture, determinism policy and D-8. Review corrections bound a full-size replay Submit record at 65,600 bytes (including framing/metadata) and specify explicit prefix/zero-commit fences for replaying environmental flush/tick stops without assuming allocator failures recur. No code, accepted ADR, dependency, save format or CI behavior changes; implementation follows acceptance in a separate PR. ADR 0018 remains reserved by PR #36 and is not copied into this branch.
 
 ## ADR 0017 accepted; implemented by TP-007 (2026-10-15)
 
