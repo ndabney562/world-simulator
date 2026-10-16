@@ -1,6 +1,8 @@
 name: Nightly LOD tests
 
 on:
+  push:
+    branches: [codex/29-nightly-validation]
   schedule:
     # Off the hour to avoid the busiest scheduled-workflow period (UTC).
     - cron: '23 7 * * *'
