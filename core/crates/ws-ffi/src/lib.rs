@@ -10,6 +10,8 @@ use ws_sim::{SimTime, World, WorldConfig};
 
 /// Exact native/managed contract version.
 pub const ABI_VERSION: u32 = 1;
+/// Fixed-width C status code; numeric values are stable for ABI v1.
+pub type WsStatus = u32;
 /// Successful operation.
 pub const OK: u32 = 0;
 /// Null pointer, invalid configuration or excessive step request.
@@ -241,7 +243,11 @@ fn validate_commands(bytes: &[u8]) -> Result<(), (u32, &'static str)> {
 /// # Safety
 /// Handle must be live/exclusive; positive len needs readable bytes for the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ws_submit(handle: *mut WsHandle, bytes: *const u8, len: usize) -> u32 {
+pub unsafe extern "C" fn ws_submit(
+    handle: *mut WsHandle,
+    bytes: *const u8,
+    len: usize,
+) -> WsStatus {
     // SAFETY: caller upholds handle and buffer lifetime; lengths checked before borrowing.
     unsafe {
         operate(handle, |_| {
@@ -260,7 +266,7 @@ pub unsafe extern "C" fn ws_submit(handle: *mut WsHandle, bytes: *const u8, len:
 /// # Safety
 /// Handle must be live and exclusively borrowed for this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ws_advance(handle: *mut WsHandle, steps: u32) -> u32 {
+pub unsafe extern "C" fn ws_advance(handle: *mut WsHandle, steps: u32) -> WsStatus {
     // SAFETY: caller upholds the handle contract.
     unsafe {
         operate(handle, |h| {
@@ -285,7 +291,7 @@ pub unsafe extern "C" fn ws_fill_render_snapshot(
     buf: *mut u8,
     cap: usize,
     written: *mut usize,
-) -> u32 {
+) -> WsStatus {
     if written.is_null() {
         thread_error("written is null");
         return INVALID_ARGUMENT;

@@ -90,6 +90,11 @@ typedef struct {
 } WsConfig;
 
 /**
+ * Fixed-width C status code; numeric values are stable for ABI v1.
+ */
+typedef uint32_t WsStatus;
+
+/**
  * Snapshot v1 header, serialized little-endian without alignment assumptions.
  */
 typedef struct {
@@ -173,14 +178,14 @@ void ws_destroy(WsHandle *handle);
  * # Safety
  * Handle must be live/exclusive; positive len needs readable bytes for the call.
  */
-uint32_t ws_submit(WsHandle *handle, const uint8_t *bytes, size_t len);
+WsStatus ws_submit(WsHandle *handle, const uint8_t *bytes, size_t len);
 
 /**
  * Advances whole base steps (0..100); stops at the first failed tick.
  * # Safety
  * Handle must be live and exclusively borrowed for this call.
  */
-uint32_t ws_advance(WsHandle *handle, uint32_t steps);
+WsStatus ws_advance(WsHandle *handle, uint32_t steps);
 
 /**
  * Fills a coherent snapshot; undersized buffers are untouched and written gives required bytes.
@@ -188,7 +193,7 @@ uint32_t ws_advance(WsHandle *handle, uint32_t steps);
  * Handle must be live/exclusive. Written must be aligned writable usize storage, disjoint
  * from buf/handle; non-null buf must be writable for cap bytes without other access.
  */
-uint32_t ws_fill_render_snapshot(WsHandle *handle, uint8_t *buf, size_t cap, size_t *written);
+WsStatus ws_fill_render_snapshot(WsHandle *handle, uint8_t *buf, size_t cap, size_t *written);
 
 /**
  * Copies bounded UTF-8 diagnostic; required length includes NUL. Null handle reads thread-local error.

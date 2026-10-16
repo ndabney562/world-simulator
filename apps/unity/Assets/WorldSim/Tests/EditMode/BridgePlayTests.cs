@@ -10,6 +10,11 @@ namespace WorldSim.Tests.EditMode
 {
     public sealed class BridgePlayTests
     {
+        [UnityTearDown]
+        public IEnumerator LeavePlayModeAfterAnyFailure()
+        {
+            if (Application.isPlaying) yield return new ExitPlayMode();
+        }
         [UnityTest]
         public IEnumerator BootstrapRendersAndAdvancesFromNativeSnapshots()
         {
