@@ -1,7 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/ws-cli",
     "crates/ws-ecs",
+    "crates/ws-events",
     "crates/ws-math",
     "crates/ws-rng",
     "crates/ws-sim",

@@ -51,8 +51,9 @@ LAYERS = {
     "ws-sim": 3,
     # Test support: may depend on anything up to ws-sim; used only as a dev-dependency.
     "ws-testkit": 4,
-    # The C ABI Unity links
+    # Host adapters: C ABI Unity links and headless CLI
     "ws-ffi": 5,
+    "ws-cli": 5,
 }
 
 # Crates that may only be dev-dependencies of other workspace crates.

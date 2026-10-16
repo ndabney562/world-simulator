@@ -74,6 +74,12 @@ jobs:
         run: cargo build --workspace --all-targets --locked
       - name: Test
         run: cargo test --workspace --locked
+      - name: CLI Tier 2 replay
+        shell: bash
+        run: |
+          journal="$RUNNER_TEMP/world-simulator-${{ matrix.os }}.wsjr"
+          cargo run --locked -p ws-cli -- run --seed 42 --ticks 10000 --journal "$journal" --hash-every 1000
+          cargo run --locked -p ws-cli -- replay --journal "$journal"
       - name: Dependency direction
         run: python3 ../scripts/check_core_deps.py
       - name: Dependency check script tests

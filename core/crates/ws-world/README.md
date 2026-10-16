@@ -23,7 +23,7 @@ State classes (ADR 0017 §10): node levels, the L1 `SurfacePos`, `target`, `arri
 
 ## Emitted event types
 
-None. Events arrive with TP-008.
+Domain plans expose actual `ArrivalFact`s (L1 completed boundary, L2 scheduled arrival time) and actual `LodChange`s. `ws-sim` translates them into history only after reserving publication storage. `prepare_tick` rolls back reconciliation on drop; `prepare_lod` changes nothing until commit. These plans have no dependency on `ws-events` and never read history. Low-level domain APIs remain available for domain tests; production `World` exposes only an immutable toy view.
 
 ## Invariants
 

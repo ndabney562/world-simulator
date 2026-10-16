@@ -98,8 +98,10 @@ proptest! {
         let config = WorldConfig { population: Population::exactly(0), ..WorldConfig::new(9, SimTime::EPOCH) };
         let mut a = World::new(config).unwrap();
         let mut b = a.clone();
-        a.set_time_scale(scale);
-        b.set_time_scale(scale);
+        a.submit(vec![ws_sim::commands::Command::new(ws_sim::commands::IssuedBy::Test,ws_sim::commands::Action::SetTimeScale(scale))]).unwrap();
+        b.submit(vec![ws_sim::commands::Command::new(ws_sim::commands::IssuedBy::Test,ws_sim::commands::Action::SetTimeScale(scale))]).unwrap();
+        a.flush_commands().unwrap();
+        b.flush_commands().unwrap();
         for &h in &inputs {
             prop_assert_eq!(a.advance_by_host_elapsed(h), b.advance_by_host_elapsed(h));
         }

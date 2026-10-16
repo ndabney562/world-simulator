@@ -16,6 +16,8 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs 
 | Simulation LOD tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-world` `tests/lod.rs` and `src/lod_tests.rs` (ADR 0017 §14): zero-time round trips, conservation properties, L1/L2 equivalence over one simulated hour, the invariant checker against injected faults, and `lod_soak_short` (1,000 agents, 30 simulated minutes, about 3 minutes in a debug build) | Active (TP-007) |
 | Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Configured in [nightly.yml](../../.github/workflows/nightly.yml); schedule activates after merge to `main`. First measured run pending |
 
+TP-008 adds `ws-events` fixed-seed ID/reference/query/reconstruction properties, `ws-sim` command/rollback/fault-injection checks, and `ws-cli` separate-process journal replay to the workspace suite. The explicit **CLI Tier 2 replay** CI step exercises a real record/replay pair on both operating systems, in addition to integration tests for mixed commands, maximum batches and corrupt/incomplete artifacts. The standard suite still runs every existing test; the two existing ignored long tests stay in nightly. [Tape codec](../technical-prototype/command-event-tape.md) documents strict framing and environmental prefix fences. No thread-count comparison is claimed while scheduling is single-threaded.
+
 The repository is public, so GitHub-hosted Linux and macOS runners cost nothing (ADR 0007).
 
 ## Nightly LOD workflow
@@ -58,7 +60,7 @@ python3 ../scripts/check_core_deps.py
 | 2 Domain | `ws-data`, `ws-procgen`, `ws-agents`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-persist`, `ws-snapshot` |
 | 3 Orchestration | `ws-sim` |
 | 4 Test support | `ws-testkit` (allowed only as a dev-dependency) |
-| 5 C ABI | `ws-ffi` |
+| 5 Adapters | `ws-ffi`, `ws-cli` |
 
 Domain crates do not depend on each other (same-layer edges fail); they share types through `ws-world` and `ws-events`. A workspace crate missing from the table fails the check, so each new crate gets a deliberate place. The script also fails on any dependency (of any kind) on Unity, rendering, windowing, platform-API, or visual-provider crates (`wgpu`, `bevy*`, `winit`, `objc*`, `cesium*`, `web-sys`, `windows*`, and others listed in the script). The table lives in the script and here; change both together.
 
@@ -70,9 +72,9 @@ Each is added by the issue that introduces what it checks.
 |---|---|
 | Unity edit-mode tests in CI, once the Product Owner adds the licence secrets (S-6, below) | Follow-up to TP-002 |
 | Native library build for `aarch64-apple-ios`; C header generation check (`cbindgen` output committed and up to date) | TP-003 |
-| Tier 2 replay tests with different thread counts, and journal replay | TP-008 |
+| Tier 2 replay tests with different thread counts (scheduler remains single-threaded) | When parallel scheduling exists |
 | Save fixture compatibility tests | TP-009 |
-| Event and causality invariant tests | TP-008, TP-010 |
+| Expanded provenance and intervention invariants | TP-010 |
 | iOS Unity build (if feasible on free runners) | TP-011 |
 | Nightly Tier 3 drift reports and benchmarks | Follow-up issues when wanted; LOD soak is configured separately above |
 

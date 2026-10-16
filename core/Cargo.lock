@@ -529,10 +529,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ws-cli"
+version = "0.1.0"
+dependencies = [
+ "ws-ecs",
+ "ws-events",
+ "ws-sim",
+]
+
+[[package]]
 name = "ws-ecs"
 version = "0.1.0"
 dependencies = [
  "proptest",
+]
+
+[[package]]
+name = "ws-events"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "ws-ecs",
+ "ws-math",
+ "ws-rng",
+ "ws-time",
 ]
 
 [[package]]
@@ -557,6 +577,7 @@ dependencies = [
  "criterion",
  "proptest",
  "ws-ecs",
+ "ws-events",
  "ws-rng",
  "ws-time",
  "ws-world",
