@@ -40,6 +40,22 @@ namespace WorldSim.Tests.EditMode
                 Assert.Throws<ArgumentException>(()=>SnapshotDecoder.Decode(bytes,bytes.Length-1,transforms,1));
             }
         }
+        [Test]
+        public void EnuAxesAndNorthHeadingConvertOnce()
+        {
+            var source=Fixture();
+            Array.Copy(BitConverter.GetBytes(1f),0,source,36,4);
+            Array.Copy(BitConverter.GetBytes(2f),0,source,40,4);
+            Array.Copy(BitConverter.GetBytes(3f),0,source,44,4);
+            Array.Copy(BitConverter.GetBytes(Mathf.PI/2),0,source,48,4);
+            using(var bytes=new NativeArray<byte>(source,Allocator.Temp))
+            {
+                var transforms=new Matrix4x4[1];
+                SnapshotDecoder.Decode(bytes,bytes.Length,transforms,1);
+                Assert.That(Vector3.Distance(transforms[0].GetColumn(3),new Vector3(1,3,2)),Is.LessThan(0.00001f));
+                Assert.That(Vector3.Distance(transforms[0].MultiplyVector(Vector3.forward),Vector3.forward),Is.LessThan(0.00001f));
+            }
+        }
         [TestCase(0,2)] // ABI mismatch
         [TestCase(4,1)] // header size
         [TestCase(16,2)] // count

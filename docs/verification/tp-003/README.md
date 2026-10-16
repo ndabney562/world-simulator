@@ -5,7 +5,7 @@ This records local implementation evidence, not iPhone performance or a stage-ex
 ## Unity 6000.3.26f1 on Apple Silicon macOS
 
 - Built the actual arm64 dylib with `scripts/build-native-macos.sh`.
-- All **22** Editor/integration tests passed, zero failed/skipped. [NUnit report](unity-results.xml).
+- All **23** Editor/integration tests passed, zero failed/skipped. [NUnit report](unity-results.xml).
 - `BootstrapRendersAndAdvancesFromNativeSnapshots` enters Play Mode in Bootstrap, checks native tick progress, renders to a 960×540 texture and verifies visible cyan geometry. [Rendered frame](bootstrap.png).
 - The warmed fill/decode allocation test performs 100 fills of 1,000 records after warm-up, with **0 managed bytes** measured by `GC.GetAllocatedBytesForCurrentThread` on the calling thread. This covers decoding/native fill, not the entire Unity engine or an on-device Profiler session.
 - Shared Rust/C# fixture, config layout, ABI rejection, malformed/truncated frames, nonfinite values, native create/advance/fill/dispose and idempotent managed disposal are exercised.

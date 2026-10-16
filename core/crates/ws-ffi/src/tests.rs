@@ -89,6 +89,15 @@ fn snapshot_and_noop_leave_canonical_state_unchanged() {
             assert_eq!(ws_submit(h, bad.as_ptr(), bad.len()), INVALID_COMMAND);
         }
         assert_eq!(ws_submit(h, null(), 9), INVALID_ARGUMENT);
+        assert_eq!(ws_submit(h, null(), 65_537), INVALID_ARGUMENT);
+        let mut future = noop.clone();
+        future[0] = 2;
+        assert_eq!(
+            ws_submit(h, future.as_ptr(), future.len()),
+            VERSION_MISMATCH
+        );
+        let empty = [1, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(ws_submit(h, empty.as_ptr(), empty.len()), OK);
         assert_eq!(ws_submit(h, null(), 0), INVALID_COMMAND);
         assert_eq!(
             validate_commands(&[2, 0, 0, 0, 0, 0, 0, 0]),
