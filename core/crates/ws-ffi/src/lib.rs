@@ -251,11 +251,11 @@ pub unsafe extern "C" fn ws_submit(
     // SAFETY: caller upholds handle and buffer lifetime; lengths checked before borrowing.
     unsafe {
         operate(handle, |_| {
+            if bytes.is_null() && len > 0 {
+                return Err((INVALID_ARGUMENT, "batch pointer is null"));
+            }
             if len > 65_536 || len == 0 {
                 return Err((INVALID_COMMAND, "invalid batch size"));
-            }
-            if bytes.is_null() {
-                return Err((INVALID_ARGUMENT, "batch pointer is null"));
             }
             validate_commands(slice::from_raw_parts(bytes, len))
         })
