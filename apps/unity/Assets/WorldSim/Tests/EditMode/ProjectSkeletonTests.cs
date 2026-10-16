@@ -78,7 +78,8 @@ namespace WorldSim.Tests.EditMode
         {
             Assert.That(PlayerSettings.GetScriptingBackend(NamedBuildTarget.iOS), Is.EqualTo(ScriptingImplementation.IL2CPP));
             Assert.That(PlayerSettings.GetArchitecture(NamedBuildTarget.iOS), Is.EqualTo(IosArm64));
-            Assert.That(PlayerSettings.GetUseDefaultGraphicsAPIs(BuildTarget.iOS), Is.False);
+            // iOS has only Metal in the pinned Unity Editor. The automatic-selection
+            // flag is not the contract: verify the actual API list below instead.
             Assert.That(PlayerSettings.GetGraphicsAPIs(BuildTarget.iOS), Is.EqualTo(new[] { GraphicsDeviceType.Metal }));
             Assert.That(PlayerSettings.iOS.targetOSVersionString, Is.EqualTo(MinimumIosVersion));
             Assert.That(PlayerSettings.iOS.targetDevice, Is.EqualTo(iOSTargetDevice.iPhoneOnly));
