@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0018 accepted; TP-003 implementation (2026-10-16)
+
+Noah explicitly accepted the bridge design in Codex (recorded on PR #36). TP-003 implements its synchronous native API, debug snapshots, managed ownership/decoding and Bootstrap renderer; real-entity switch-over remains TP-011. Updated pending proposal pointers. Implementation remains subject to independent PR review and Noah merge.
+
 ## ADR 0018: TP-003 Rust–Unity bridge (2026-10-16, Proposed)
 
 Proposes S-3: versioned hand-written C ABI and generated header, caller-owned snapshot bytes, serialized handle ownership, errors/panic containment, explicit debug-marker layout, and C# lifecycle. Adds pointers in the simulation API and S-3 decision table. This docs-only proposal does not accept the decision or implement #4.

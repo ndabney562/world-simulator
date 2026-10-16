@@ -79,3 +79,28 @@ jobs:
       - name: Dependency check script tests
         working-directory: .
         run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+  ffi:
+    name: Native bridge and header
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust and iOS target
+        working-directory: core
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel"
+          rustup toolchain install "$channel" --profile minimal
+          rustup target add --toolchain "$channel" aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Install pinned header generator
+        working-directory: core
+        run: cargo install cbindgen --version 0.29.2 --locked
+      - name: Check generated C header
+        run: scripts/check-ffi-header.sh
+      - name: Build iOS static library
+        working-directory: core
+        run: cargo build --release --locked -p ws-ffi --target aarch64-apple-ios

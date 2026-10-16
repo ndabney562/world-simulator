@@ -6,7 +6,8 @@
         "UnityEditor.TestRunner",
         "Unity.RenderPipelines.Universal.Runtime",
         "WorldSim.Bridge",
-        "WorldSim.Rendering"
+        "WorldSim.Rendering",
+        "Unity.Collections"
     ],
     "includePlatforms": [
         "Editor"

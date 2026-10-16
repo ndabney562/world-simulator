@@ -47,3 +47,7 @@ crashlytics-build.properties
 
 # macOS
 .DS_Store
+
+# Native plugin is rebuilt per Editor architecture.
+/Assets/Plugins/macOS/*.dylib
+/Assets/Plugins/macOS/*.dylib.meta
