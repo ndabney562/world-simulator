@@ -1,14 +1,14 @@
 # ADR 0019: TP-008 command journal and World Event contract (D-8)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-16
-- Decided by: Pending Noah acceptance; proposed by Codex at Noah's request
+- Decided by: Noah, explicit approval in Codex on 2026-10-16; proposed by Codex
 - Issue: #43 (design phase of #9)
 - Supersedes: none
 
 ## Context
 
-[TP-008 (#9)](https://github.com/ndabney562/world-simulator/issues/9) needs a command model before implementing its queue, journal, event store and headless replay runner. This is a proposal only: Noah must accept it before implementation merges. It details D-8 and the initial event subset under [ADR 0010](0010-tiered-determinism.md), [ADR 0011](0011-world-event-history-system.md), [ADR 0012](0012-causal-provenance.md), and [ADR 0017](0017-simulation-lod-l1-l2-round-trip.md).
+[TP-008 (#9)](https://github.com/ndabney562/world-simulator/issues/9) needs a command model before implementing its queue, journal, event store and headless replay runner. Noah explicitly accepted this contract in Codex on 2026-10-16; the approval and implementation assignment are recorded on #9 and PR #44. The docs PR must land before implementation merges. It details D-8 and the initial event subset under [ADR 0010](0010-tiered-determinism.md), [ADR 0011](0011-world-event-history-system.md), [ADR 0012](0012-causal-provenance.md), and [ADR 0017](0017-simulation-lod-l1-l2-round-trip.md).
 
 Current `ws-sim::World` has direct `set_time_scale` and `set_lod` methods, a fixed-step clock and a canonical state hash. `ws-world` has atomic movement/LOD planning and a discrete-event wake-up queue; these wake-ups are not history events. No journal, `ws-events`, or CLI exists on main. The hash currently excludes time scale. Host elapsed-time accumulation drops excess whole steps at its cap; this proposal does not change that policy.
 
