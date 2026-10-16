@@ -1,0 +1,141 @@
+# ADR 0019: TP-008 command journal and World Event contract (D-8)
+
+- Status: Proposed
+- Date: 2026-10-16
+- Decided by: Pending Noah acceptance; proposed by Codex at Noah's request
+- Issue: #43 (design phase of #9)
+- Supersedes: none
+
+## Context
+
+[TP-008 (#9)](https://github.com/ndabney562/world-simulator/issues/9) needs a command model before implementing its queue, journal, event store and headless replay runner. This is a proposal only: Noah must accept it before implementation merges. It details D-8 and the initial event subset under [ADR 0010](0010-tiered-determinism.md), [ADR 0011](0011-world-event-history-system.md), [ADR 0012](0012-causal-provenance.md), and [ADR 0017](0017-simulation-lod-l1-l2-round-trip.md).
+
+Current `ws-sim::World` has direct `set_time_scale` and `set_lod` methods, a fixed-step clock and a canonical state hash. `ws-world` has atomic movement/LOD planning and a discrete-event wake-up queue; these wake-ups are not history events. No journal, `ws-events`, or CLI exists on main. The hash currently excludes time scale. Host elapsed-time accumulation drops excess whole steps at its cap; this proposal does not change that policy.
+
+[PR #36](https://github.com/ndabney562/world-simulator/pull/36) reserves ADR 0018 and defines the approved bridge design; [PR #42](https://github.com/ndabney562/world-simulator/pull/42) implements ABI v1, accepting only transport-level NoOp commands. Both await review/merge. This ADR is numbered 0019 to avoid collision and branches from main without importing either PR. Its bridge section is contingent on their final accepted contract.
+
+## Options considered
+
+1. **Keep public setters and add logging at each caller.** Small change, but callers can bypass the journal; errors and replay ordering drift across CLI/Unity. Rejected.
+2. **Serialize commands through a boundary queue with outcome records.** One authority for validation, ordering, mutation and replay. Requires explicit pause, transport and failure rules. Selected.
+3. **Pack tick/system/sequence into fixed bit fields in the 64-bit EventId.** Cheap decomposition, but prematurely limits tick lifetime and burst size and complicates repeated commits while paused. Select a checked monotonically assigned ID in deterministic commit order instead; retain ordering metadata in the record.
+4. **Replay host frame durations.** Couples reproduction to host scheduling and pause UI. Select a logical operation schedule (submit, boundary flush, explicit step) instead. Host elapsed time remains an input to live scheduling, never a source of command order.
+
+## Proposed decision
+
+### 1. Ownership and dependency direction
+
+- `ws-sim` owns typed commands, the pending queue, command sequence allocation, journal, command application, and the event store. Only its constructor, submission, boundary processing and stepping can change a production World. Public direct mutators become private command handlers; `toy()` and `clock()` remain immutable views. Low-level `ws-world` APIs remain usable for domain tests, not as a mutable escape from `ws-sim`.
+- New `ws-events` owns event types, candidate validation, deterministic commit, append-only storage and read-only queries. It can depend on foundation crates `ws-ecs`, `ws-math`, `ws-time`; it never depends on `ws-world` or `ws-sim`.
+- `ws-world` returns typed domain outcome facts from successful movement/LOD transactions. `ws-sim` converts these into event candidates. No reverse dependency or callback into orchestration is introduced; scheduler wake-ups stay internal.
+- `ws-cli` is a workspace member under `core/crates/ws-cli`, an executable consumer at dependency-checker layer 5 (alongside, but not depending on, `ws-ffi`). It depends on `ws-sim` and foundation types, never on `ws-ffi`; the dependency checker and CI documentation must explicitly register it during implementation.
+- `ws-ffi` only decodes bounded bytes, submits typed commands and serializes errors/control state. C# owns presentation and elapsed-time measurement, not canonical command state.
+
+### 2. Command envelope, ingress and bounds
+
+A typed `CommandV1` has `schema_version: u32 = 1`, `issued_by: Player | Script | Test` (stable tags 0, 1, 2), and one payload:
+
+| Payload | Definition and validation |
+|---|---|
+| `NoOp` | No payload; accepted and journaled; no canonical state effect |
+| `SetTimeScale` | One of `Paused`, `X1`, `X10`, `X100` (wire tags 0, 1, 10, 100); no arbitrary float scale |
+| `SetNodeLod` | One atomic list of `(building EntityId, L1 or L2)`; at most 1,024 entries; duplicate buildings reject the command; validate every target before mutation |
+
+`issued_by` is provenance, not authentication. No free-form code, account information, prompts or secrets enter this envelope. The core assigns `sequence: u64` on successful enqueue, starting at 1; callers cannot choose it. Single-owner submission order is authoritative. A future multi-producer host must serialize submissions explicitly, not depend on a worker race.
+
+Ingress validates envelope shape/version, known tags, lengths and resource limits. The queue holds at most 1,024 commands and 64 KiB of canonical encoded command bytes in total. One incoming batch also has those caps. Checked arithmetic and pre-reservation happen before enqueue. A malformed or over-capacity batch is rejected in full, consumes no sequence numbers, and changes no queue/world state. Return a typed ingress error; the caller still owns that rejected request. An unparseable byte string is a transport failure, not a submitted simulation command, and is not copied into the command journal.
+
+Every successfully enqueued command receives exactly one journal outcome when processed, including unsupported command schema versions or semantic rejection if submitted through a typed diagnostic/test path. Production wire decoding rejects unknown versions before enqueue. These two error layers must be distinguishable in tests and documentation.
+
+### 3. Boundary processing and pause/resume
+
+A boundary is the current `(tick, SimTime)`, including tick 0. Submission only queues; it never applies a command. `flush_commands()` is an explicit serialized boundary operation, and `step()` flushes before attempting its one physical tick. Hosts call flush before deciding how many ticks to schedule, even when paused or no whole step is due. Commands arriving during an operation wait for the next flush; no mutation occurs mid-tick.
+
+At a flush, detach the pending prefix and process it in sequence order. Validate each command against the state left by preceding accepted commands. A semantic failure journals `Rejected(reason)` and continues; commands in one batch are independently applied after atomic transport acceptance. `SetNodeLod` is atomic within its command, using ADR 0017's sorted building-ID transaction. Repeating an already selected scale/LOD is `Applied` with an unchanged before/after summary, not an error; no `sim.lod_changed` event is produced for an unchanged building.
+
+Flush does not advance tick/time. Applying `SetTimeScale(Paused)` stops host-scheduled steps; applying `SetTimeScale(X1)` while paused succeeds at the same tick, so resume cannot deadlock. Explicit headless `step()` remains a request for exactly one tick regardless of scale, as it is today. Live `advance_by_host_elapsed` flushes first, then computes its budget with the new scale; all commands in that prefix apply before the budget is computed. Existing simulated sub-step remainder is retained across pause/scale changes. The actual executed steps, not frame durations, are recorded for logical replay.
+
+Each committed command is a separate transaction: its state change, journal entry, event candidates and sequence consumption publish together. A rejected command changes no simulation state but adds its outcome record. Infrastructure errors (capacity reservation, counter exhaustion, internal invariant failure) abort the current transaction without publishing it; that command and the untouched suffix remain pending, and processing stops with a typed error. Prior committed commands remain committed. This does not promise recovery from process abort or an operating-system out-of-memory kill.
+
+A physical tick after flush is its own atomic transaction: domain state, clock, domain events and event-ID allocation all commit or all roll back. A failed physical tick leaves the post-flush state intact, not the state before already committed commands. This refines the current `World::step` failure documentation and requires explicit regression coverage. A later retry must not apply or emit the committed commands again.
+
+### 4. Journal and replay schedule
+
+The in-memory journal is append-only. Each outcome contains:
+
+- journal schema version 1; core-assigned command sequence and full typed command;
+- application tick and integer simulation time;
+- `boundary_ordinal: u64`, allocated on the first committed outcome of each nonempty flush invocation, allowing multiple command prefixes at one paused tick; an invocation that partially commits then fails keeps that ordinal on its committed prefix, and retry allocates a new ordinal;
+- `Applied(summary)` or `Rejected(stable_reason_code)`; human-readable messages are diagnostic and not replay comparisons.
+
+Use stable reason codes for bad schema/payload, invalid scale, duplicate or unknown building, unsupported LOD, and domain transition failure. Enqueue success means pending, not applied. Read-only journal access is Rust/CLI-only for this issue; a public journal-query FFI and gameplay UI remain separate work.
+
+A replay artifact contains a versioned header (seed, aligned start, population configuration, base step, dataset/generator/rules versions, build identifier and target/platform identifier), input commands, and a logical operation tape:
+
+- `Submit(batch)` preserves batch boundaries and ingress outcomes, including structurally valid over-capacity attempts.
+- `Flush` preserves command processing with no tick, including paused work.
+- `Step` records one attempted physical tick after its explicit flush; expected typed failures are recorded too.
+
+The recorder expands `step()` and elapsed-host advancement into these primitive operations, with one explicit flush before each normal step and no duplicate implicit flush on replay. Replay calls the same internal handlers, never applies recorded outcomes directly. It verifies journal outcomes, event records and hashes against independently produced results. Malformed raw FFI memory/bytes are boundary tests, not a replay artifact input. Empty flushes may be omitted because they allocate no ordinal, emit nothing and change nothing.
+
+`ws-cli run --seed S --ticks N [--journal FILE] [--hash-every K]` creates a fresh toy world and executes exactly N physical ticks; it may read a typed command script that assigns commands to a tick/boundary ordinal before recording. `replay --journal FILE` creates a fresh world from the header and replays the tape in a separate process. It rejects incompatible artifact/build/platform/configuration versions before mutating a world. Same-build/platform comparison is Tier 2; cross-platform equality of evolving event histories is not promised.
+
+The artifact is a debug/replay file, not a save: use a standard-library-only little-endian length-delimited binary codec, magic `WSJR`, format version `u32=1`, bounded header and records, explicit enum tags and field lengths. Use the command encoding in §8 inside Submit records. The implementation must document every remaining header/tape/outcome byte offset and commit a small shared codec fixture before its PR is ready; no unversioned Rust memory dumps, native `usize`, floats for ordering, or new runtime serialization dependency. Cap individual records at 64 KiB; stream the tape with checked total counts and reject truncation, unknown tags/versions and trailing data. No persistence/save-format decision (S-2/D-14) is made here.
+
+### 5. Event record and deterministic identity
+
+`EventV1` has schema version 1, `EventId(u64)`, commit tick, integer occurrence time, system order, per-commit sequence, type plus typed versioned payload, origin, actors/roles, optional location (cell plus optional SurfacePos and semantic node path), effects summary, quantized importance, related links, LOD and individual/aggregate discriminator. World-scoped events may have no location or actors. The initial subset emits individual events only; no invented aggregate reconstruction.
+
+Importance uses `u16` 0..65535, representing [0,1]. Initial constants are 65535 for `sim.world_created`, 0 for `sim.command_applied`, 16384 for `sim.lod_changed`, and 4096 for `agent.arrived`; no player relevance, floating rarity calculation or retention occurs yet. Event payloads contain factual effects, not executable simulation instructions.
+
+Commit candidates in `(commit tick, commit ordinal, system order, local sequence)` order. `commit ordinal` is a checked per-world counter for every event-bearing transaction; it distinguishes creation, command transactions and physical ticks at the same tick. Within a command transaction emit its applied event before its effects. Stable system tags: creation=0, commands=10, LOD=20, L1 arrivals=30, L2 arrivals=40. Sort independent same-system arrivals by `(occurrence time, actor EntityId, per-actor leg counter)` before assigning local sequence; LOD effects sort by building ID. Never sort by worker arrival order or collection address.
+
+Allocate IDs 1, 2, ... in this total commit order, with checked overflow before publication. Store tick/system/sequence/ordinal separately; do not pack them into ID bits. This specifies the deterministic assignment described in architecture §24.3 without imposing finite bit partitions. Given the same candidate stream, ID assignment/order is Tier 1; continuous simulation can produce different candidate streams on different platforms under ADR 0010. ID 0 is invalid. Retention/clear never reuses IDs. Future save/load must persist the next ID and commit ordinal; TP-008 tests export/reconstruct these counters in memory but does not implement saves.
+
+A causal link has target EventId, relation (`caused_by`, `enabled_by`, `triggered_by`, `contributed_to`) and confidence (`direct`, `contributing`, `statistical`, `counterfactual`). TP-008 emits only direct links that the producer can prove. Link targets must already be committed or earlier candidates in the same transaction; resolve candidate-local references before publication. Require target ID < new ID and target occurrence time <= source occurrence time. This permits same-time causes while forbidding cycles and dangling/forward links. Validate the whole event transaction before publishing any index or ID.
+
+### 6. Initial event producers
+
+| Event | Payload, actors/location and origin |
+|---|---|
+| `sim.world_created` | Configuration/version summary; no actors/location; creation origin; once at tick 0/start |
+| `sim.command_applied` | Command sequence, payload kind and compact actual effect summary; command origin; one per Applied including NoOp; no event for semantic rejection |
+| `sim.lod_changed` | Building ID, before/after level, promoted/demoted counts; building is subject, location is its cell/position; command origin; direct `caused_by` the corresponding applied event |
+| `agent.arrived` | Resident ID, destination building ID and stable leg/target counter; resident subject, building object, destination location; movement-system origin with producing LOD; emitted only on actual walking-to-arrived transition |
+
+World creation does not emit arrivals for agents initially at home. Materialization and same-time L1/L2 conversion do not invent arrivals. Both L1 movement and L2 drain produce arrival facts from their existing transaction plans; do not infer them by comparing snapshots or logging every wake-up. The occurrence time is the completed fixed-step boundary for L1 and scheduled arrival time for L2, both grid-aligned; events publish with the physical tick ending at that boundary. LOD conversions alone are not arrival causes. Do not fabricate a causal chain from a NoOp, a scale change or arbitrary temporal proximity. Provenance propagation, aggregate attribution and counterfactuals remain later work, preserving ADR 0012's direction.
+
+### 7. Storage, queries, hashes and budgets
+
+Use an append-only owned event arena with stable IDs and rebuildable ordered indices: ID lookup, `(SimTime, EventId)` ordering, and actor -> ordered event IDs. Read-only queries cover ID, inclusive time range (optional actor filter), and backward causal traversal with explicit `max_depth` and `max_results`, a visited set and deterministic ID ordering. Return a truncation indicator rather than claiming a complete chain when bounded. Unknown IDs return not-found; actor queries may be empty. Event actors/locations must resolve in the toy world; entity deletion/legends are not implemented here.
+
+No simulation system reads the journal/event log in TP-008. Domain facts go one way into it. Disabling event recording in a test must leave domain evolution identical. Hash the simulation state including time scale, alongside the existing seed/tick/time/toy state; exclude derived indices, history, diagnostic counters, host pacing remainder and enqueue bookkeeping. A NoOp or rejection leaves that simulation hash unchanged. Separately compare a deterministic journal/event digest and pending-queue digest at operation checkpoints so logging or pending-work errors cannot hide behind a domain-only hash. The queue is future-driving state for a future save; its exclusion from the simulation hash does not permit dropping it at save time.
+
+Both logs are in memory and grow with the recorded run. Reserve reusable candidate buffers and index capacity; avoid avoidable per-event allocation by using fixed typed initial payloads and bounded small actor/link sets (at most 8 each), not per-event strings or boxed trait objects. Semantic node paths in this toy world have at most 8 IDs. Event arena exhaustion must return an explicit error before its associated state transaction commits; never silently discard history. Long-session retention and durable storage remain #10 and later retention work. Measure actual record/index capacity bytes per 1,000 events and actor/causal query latency; do not claim an unmeasured mobile memory budget.
+
+### 8. Bridge compatibility after TP-003 lands
+
+If PR #42 lands unchanged, journaled semantic acceptance is a behavior change to ABI v1. Implement ABI **v2** in the separate #9 implementation: bump native version, config version, snapshot header ABI field and C# version check together. Keep the 24-byte header/32-byte marker record geometry layout; no real-entity or geospatial snapshot switch-over. Old clients must refuse v2 rather than silently reinterpret NoOp as a journaled operation.
+
+Retain the v1 outer batch framing but require envelope version 2: little-endian `u32 version`, `u32 count`, followed by `u32 opcode`, `u32 payload_len`, payload. Opcodes 0=NoOp, 1=SetTimeScale, 2=SetNodeLod. Every payload starts with `u32 command_schema=1`, `u32 issued_by`; NoOp ends there, scale appends `u32 scale_tag`, LOD appends `u32 entry_count` then `(u64 building_id, u32 lod_tag)` entries (L1=1, L2=2). No padding/trailing bytes; all lengths are exact. Batch max 64 KiB/count 1,024 and pending caps in §2 still apply. Reject a batch before enqueue if any wire record is structurally invalid; unknown building/duplicate building remains a journaled semantic rejection. Native borrowed bytes are copied into owned typed commands before return.
+
+`ws_submit` success means enqueued. `ws_advance(handle, 0)` flushes at the current boundary, allowing paused resume; positive advances flush once before their requested steps and retain the existing 100-step cap. Bad handles/oversized advance fail before flush. Explicit advance counts remain independent of scale, like Rust `step`. Add one coarse read-only `ws_get_control_state(handle, out_state)` export: 16-byte fixed-width C struct (`u32 abi_version=2`, `u32 struct_size=16`, `u32 scale_tag`, `u32 reserved=0`). The caller initializes abi_version and struct_size and provides non-null aligned writable storage; validate handle, requested ABI and supported struct size before writing, and use existing status/error rules. Header/binding/layout tests cover the new export.
+
+The host flushes, reads committed scale and scales future elapsed-time accumulation once. C# must not multiply by a second independent scale, and pause must still call zero-step advance. Existing host catch-up debt policy remains unchanged; do not move it into the core as part of this issue. Rust host-elapsed scheduling uses the same authoritative scale. Future command/UI work must use this path rather than local-only state. No journal/event query export, worker, callback, per-entity crossing or save/load FFI is added. If the bridge review changes v1, reconcile this section explicitly before implementation instead of rebasing blindly.
+
+### 9. Required implementation evidence and sequencing
+
+1. Accept this docs-only ADR first; resolve the final TP-003 contract before touching its ABI. Implement core commands/events/CLI on a dedicated branch under #9, then adapt the merged bridge in that implementation scope. No planned implementation files are created by this PR.
+2. Test FIFO and conflicting commands, semantic rejection with no state mutation, whole-batch ingress rollback, capacity/sequence overflow, duplicate LOD entries, atomic LOD failure, and no public setter bypass. Every enqueued command has exactly one outcome.
+3. Test paused resume at the same tick, multiple flushes at one tick, mid-operation deferral, scale changes and pending remainder, explicit stepping while paused, failed tick after committed commands, infrastructure rollback and retry without duplicated events/outcomes.
+4. Test every initial event at L1/L2, no creation/conversion false arrivals, canonical candidate order, same-time causes, rejection of cycles/forward/dangling references, unique checked IDs and counter reconstruction. Property tests use fixed seeds and existing test policy; preserve all Tier 1 goldens unchanged.
+5. Test queries, inclusive time endpoints, multi-role actor deduplication, bounded causal traversal, index rebuild equivalence, and event recording not affecting simulation results.
+6. In separate CLI processes record and replay mixed valid/rejected commands, pauses/resume, repeated same-tick flushes, scale changes and LOD transitions. Compare per-tick simulation hashes and per-operation queue/journal/event digests. Negative tests alter one command, corrupt/truncate the artifact or change header versions and must fail clearly. Run normal CI on Linux and macOS; compare within each platform.
+7. If ABI migration applies, test wire fixtures/limits/errors, pending-vs-applied behavior, zero-step flush, new control state, old-client refusal, native header freshness, and C# integration with the actual dylib. Keep existing snapshot/rendering tests; no device signing required.
+8. Record command/tick overhead, allocations, bytes per 1,000 events and query costs at toy and 5,000-agent populations against existing budgets. Run existing LOD/replay suites without changing goldens or tolerances. No performance claim is established by this design.
+
+## Consequences and revisit triggers
+
+Commands, history and replay get one inspectable authority. Paused boundary commits and independent transaction boundaries are additional concepts, but avoid an unresumable paused queue or ambiguous failure recovery. Sequential IDs avoid fixed bit budgets; ordering metadata and counters must be preserved by persistence. An unbounded-duration in-memory session remains unsuitable for shipping until retention/persistence are implemented.
+
+This proposal adds no dependency or service and does not implement #9. #10 owns save schema/storage and reconstruction; #11 owns interventions and effect/provenance propagation; #12 owns real-entity rendering, iPhone linking and performance. Revisit before multithreaded producers, arbitrary payloads, aggregate events, event-log reads influencing rules, deletion/legends, durable retention or public history APIs. Acceptance belongs to Noah; independent review must assess pause semantics, replay completeness, atomic event publication, and the proposed ABI-v2 migration.
