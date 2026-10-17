@@ -63,3 +63,9 @@ Most of the step is the per-agent `SurfacePos::reexpress` (a cell lookup, about 
 - **Transitions.** A 3,000-agent transition takes 1.7 to 1.9 ms, inside the 4 ms (half of the 8 ms high-priority budget, 15 §16.3) that ADR 0017 §15 asks for. Per-agent cost rises by about 60% from 3,000 to 100,000 agents (cache misses in the larger columns), still within the ADR's 1 µs (demote) and 2 µs (promote) targets.
 - **L2 against L1.** About 14.8 events per agent per simulated hour, as ADR 0017 §15 predicts. An hour costs 0.84 µs per event at 3,000 agents and 1.5 µs at 100,000, step overhead included (target ≤ 2 µs). An all-L1 hour at 3,000 agents is 36,000 steps of 3.30 ms, about 119 s, so L2 is about 3,200 times cheaper (about 1,700 times at 100,000), against the target of at least 1,000.
 - A step with no event due costs a queue peek and a check of the (empty) unreconciled index: under 1 µs at 3,000 agents. Without that index the first measurement was 19 µs, because reconciliation scanned every agent.
+
+### Movement frame reuse (#31, 2026-10-16)
+
+On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 3.3330 to 2.2909 ms (about 31%). This meets the approximate 2.4 ms target on that Mac. Claude's independent Linux Xeon review measured 2.62–2.65 ms, so the target remains unmet on that reference machine; its average ×10 tick cost is about 8.8 ms per 30 fps frame before other work. Neither result establishes iPhone performance.
+
+See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.

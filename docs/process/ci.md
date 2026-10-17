@@ -9,12 +9,14 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs 
 | Job | Runs on | What it checks | Status |
 |---|---|---|---|
 | Docs consistency | Linux | `scripts/check_docs.py`: every relative Markdown link resolves; the ADR index lists every ADR exactly once with a matching status | Active |
-| Unity project (static) | Linux | `scripts/check_unity_project.py` on `apps/unity/` without the Unity Editor: Unity 6 editor version recorded consistently; only Unity-registry packages; every asset has a `.meta` and GUIDs are unique; scenes and settings are text-serialized; the assembly layout (`WorldSim.Bridge` ← `WorldSim.Rendering`; Editor-only tests); no code in `Providers/`; build scene and render pipeline references resolve; Unity's generated folders are ignored and untracked. Then the script's own tests | Active |
+| Unity project (static) | Linux | `scripts/check_unity_project.py` on `apps/unity/` without the Unity Editor: Unity 6 editor version recorded consistently; only Unity-registry packages; every asset has a `.meta` and GUIDs are unique; scenes and settings are text-serialized; the serialized iOS graphics API list is exactly Metal, independent of the automatic-selection flag; the assembly layout (`WorldSim.Bridge` ← `WorldSim.Rendering`; Editor-only tests); no code in `Providers/`; build scene and render pipeline references resolve; Unity's generated folders are ignored and untracked. Then the script's own tests | Active |
 | Rust core | Linux (x86-64) and macOS 14 (arm64) | In `core/`, with the toolchain pinned in `core/rust-toolchain.toml`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` (includes the no-wall-clock lint from `core/clippy.toml`), `cargo build --workspace --all-targets --locked`, `cargo test --workspace --locked`; then `scripts/check_core_deps.py` (crate dependency direction, below) and its tests (`python3 -m unittest discover -s scripts -p 'test_*.py'`) | Active. There is no skip path: a missing `core/` workspace fails the job |
 | Tier 1 golden tests | Linux (x86-64) and macOS 14 (arm64), inside the Rust core job's `cargo test` | `ws-math` cell IDs, sector membership, and re-expression against `core/crates/ws-math/tests/golden/cell_ids.txt`; `ws-rng` SipHash-2-4 reference vectors and derivation and draw values; `ws-world` procedural IDs, residents per building, and target choices against `core/crates/ws-world/tests/golden/toy_world.txt`. Any difference on either platform fails the build | Active (TP-005, TP-006) |
 | Tier 2 replay tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-sim` and `ws-world`: identical per-tick state hashes for 10,000 ticks with the same seed, with and without scripted LOD transitions, including a run in a separate process; insertion-order independence. Compared within one platform, never across | Active (TP-006, TP-007) |
 | Simulation LOD tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-world` `tests/lod.rs` and `src/lod_tests.rs` (ADR 0017 §14): zero-time round trips, conservation properties, L1/L2 equivalence over one simulated hour, the invariant checker against injected faults, and `lod_soak_short` (1,000 agents, 30 simulated minutes, about 3 minutes in a debug build) | Active (TP-007) |
-| Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Configured in [nightly.yml](../../.github/workflows/nightly.yml); schedule activates after merge to `main`. First measured run pending |
+| Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Active in [nightly.yml](../../.github/workflows/nightly.yml). Both tests passed in push validation, manual dispatch and the scheduled run; evidence below (#40) |
+
+The TP-003 **Native bridge and header** job runs on macOS 14. It installs the workspace-pinned Rust toolchain and `aarch64-apple-ios`, installs cbindgen 0.29.2 as a build-only tool, verifies `ws_ffi.h` matches regenerated output, and builds the iOS target with `--release --locked`. FFI unit/error/layout tests are included in both Rust matrix jobs. Unity Editor integration/rendering tests remain a local verification step; static checks do not substitute for them.
 
 The repository is public, so GitHub-hosted Linux and macOS runners cost nothing (ADR 0007).
 
@@ -22,16 +24,18 @@ The repository is public, so GitHub-hosted Linux and macOS runners cost nothing 
 
 [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) runs the two existing ignored LOD tests in release mode on Linux. It uses the same pinned-toolchain installation and Cargo cache as PR CI, read-only contents permission, and no secrets. Failures fail the job; tests and PR checks are unchanged. The daily schedule is 07:23 UTC (03:23 New York during daylight saving time, 02:23 during standard time); GitHub may delay scheduled runs. Scheduled runs use `main`.
 
-The job has a **provisional 350-minute ceiling**, below six hours. This is not a measured timeout: #29 remains verification-incomplete until a hosted run records both test results and wall-clock duration. Set the final timeout from that run with headroom for installation, cold compilation, and runner variation. If the tests approach the hosted-runner limit, propose separate jobs rather than shortening them.
+The job has a **120-minute timeout**, based on [validation run 38922438452](https://github.com/ndabney562/world-simulator/actions/runs/38922438452): both `l2_matches_l1_over_eight_hours` and `lod_soak_long` passed; tests took 3,029.04 seconds (50m29s), and the whole job took 50m57s. The limit is over twice the observed job duration, allowing for cold builds and runner variation. This was a push-triggered validation run, not evidence of manual dispatch. No tests were shortened. If runtime approaches the limit, investigate and adjust with evidence rather than weakening tests.
 
-GitHub [requires the workflow to exist on the default branch for manual dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow). This new file therefore cannot supply the issue's requested pre-merge dispatch evidence through the documented flow yet. Noah must resolve that acceptance-order constraint on #29 before merge; do not claim ordinary PR CI ran the ignored tests. Once the workflow is registered on `main`, a writer can select a branch in **Actions → Nightly LOD tests → Run workflow**, or run:
+The temporary branch-only push trigger used for measurement was merged in #39; it is removed here. Production triggers are the daily schedule and manual dispatch only.
+
+The workflow now exists on `main`, satisfying GitHub's [manual-dispatch registration requirement](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow). Select a branch in **Actions → Nightly LOD tests → Run workflow**, or run:
 
 ```sh
-gh workflow run nightly.yml --repo ndabney562/world-simulator --ref codex/29-nightly-lod
-gh run list --repo ndabney562/world-simulator --workflow nightly.yml --branch codex/29-nightly-lod
+gh workflow run nightly.yml --repo ndabney562/world-simulator --ref main
+gh run list --repo ndabney562/world-simulator --workflow nightly.yml --branch main
 ```
 
-Link the resulting run on the PR, record job duration and tested SHA, confirm `l2_matches_l1_over_eight_hours` and `lod_soak_long` both passed, and calibrate the timeout. No extra notification service is configured; GitHub's notification preferences apply.
+Manual dispatch is confirmed in [run 38930265659](https://github.com/ndabney562/world-simulator/actions/runs/38930265659), on `codex/29-measured-timeout` at `912a3827d8af623810d795c4050139f0da228235`: both `l2_matches_l1_over_eight_hours` and `lod_soak_long` passed (2 passed, 0 failed), with 3,095.55 seconds of tests and a 52m07s job. This is separate from the push validation above. The subsequent [scheduled run 39014956802](https://github.com/ndabney562/world-simulator/actions/runs/39014956802) on `main` at `de1a59eea49f2febfe65eec97213fa29ffab8526` also passed both tests: 2,916.30 seconds of tests, 49m04s for the job. These measurements complete the dispatch verification tracked in #40; retain run URLs, tested SHAs, test outcomes and job durations for future changes. Ordinary PR CI does not run ignored tests. No extra notification service is configured; GitHub's notification preferences apply.
 
 ## Running the checks locally
 
@@ -69,7 +73,6 @@ Each is added by the issue that introduces what it checks.
 | Check | Added by |
 |---|---|
 | Unity edit-mode tests in CI, once the Product Owner adds the licence secrets (S-6, below) | Follow-up to TP-002 |
-| Native library build for `aarch64-apple-ios`; C header generation check (`cbindgen` output committed and up to date) | TP-003 |
 | Tier 2 replay tests with different thread counts, and journal replay | TP-008 |
 | Save fixture compatibility tests | TP-009 |
 | Event and causality invariant tests | TP-008, TP-010 |
