@@ -4,7 +4,8 @@ How World Simulator is built from Architecture V1 onwards. GitHub is the canonic
 
 | Document | Covers |
 |---|---|
-| [roles-and-responsibilities.md](roles-and-responsibilities.md) | Product Owner, implementation engineer (Claude), architecture and code reviewer (ChatGPT) |
+| [shared-development.md](shared-development.md) | Daily workflow, isolated checkouts, handoffs, phone/Mac access, and first milestone |
+| [roles-and-responsibilities.md](roles-and-responsibilities.md) | Product Owner, assigned implementation engineer and independent assistant reviewer |
 | [ai-development-workflow.md](ai-development-workflow.md) | The issue → branch → PR → CI → review → fix → approval → merge loop |
 | [human-approval-gates.md](human-approval-gates.md) | What only the Product Owner can approve |
 | [definition-of-done.md](definition-of-done.md) | When an issue and its PR are finished |

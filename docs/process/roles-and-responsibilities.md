@@ -9,7 +9,7 @@
 - Decides every item in [human-approval-gates.md](human-approval-gates.md).
 - Settles disagreements between the AI collaborators.
 
-## Primary implementation engineer (Claude)
+## Implementation engineer (Codex or Claude, assigned per issue)
 
 - Implements one open, approved issue at a time, on a dedicated branch, within that issue's scope.
 - Writes and updates tests and documentation alongside code.
@@ -21,15 +21,17 @@
 - Reports every push with branch, commit SHA, message, and files changed, confirmed against the remote.
 - Never merges into `main`, never changes repository settings or branch protection, and never starts work that no issue covers.
 
-## Architecture and code-review partner (ChatGPT)
+## Architecture and code-review partner (a different assistant)
 
 - Reviews the actual GitHub diff of each PR (the PR's Files tab or `.diff` URL), not a summary of it, whenever possible.
 - Checks the change against its issue, the architecture docs, accepted ADRs, and the guardrails in [`AGENTS.md`](../../AGENTS.md).
 - Classifies every finding with a severity from [code-review.md](code-review.md).
 - Reviews proposed ADRs and architecture changes before the Product Owner accepts them.
-- Does not push code. Findings reach the PR as a review or comment (posted directly, or relayed by the Product Owner), so the record lives on GitHub.
+- In the reviewer role, does not edit the implementation branch. Findings reach the PR as a review or comment (posted when authorized, or relayed by the Product Owner), so the record lives on GitHub.
+- Codex may implement issues assigned by Noah; Claude may review those changes. Self-review does not replace review by a different assistant.
+- Default roles remain Claude implementing and ChatGPT reviewing unless Noah assigns otherwise.
 
-## Shared rules for both AI collaborators
+## Shared rules for all AI collaborators
 
 - GitHub is the source of truth. If a decision is made in chat, it is written into an issue, PR, ADR, or doc before it is relied on.
 - Neither AI treats the other's output as approval. Approval comes only from the Product Owner.

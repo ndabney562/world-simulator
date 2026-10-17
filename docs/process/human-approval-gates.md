@@ -1,10 +1,10 @@
 # Human Approval Gates
 
-These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to Claude and then recorded on the relevant issue or PR.
+These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to the assigned assistant and then recorded on the relevant issue or PR.
 
 | Gate | Examples |
 |---|---|
-| **Merging into `main`** | Every PR. AI collaborators never merge. |
+| **Merging into `main`** | Every PR. AI collaborators never merge unless the Product Owner has delegated merging for a named work stream and recorded that on the relevant issue or PR; a delegated merge still requires green CI and a clean review. |
 | **Starting an engineering run** | Beginning implementation of an issue, or of the next issue after a PR is opened. |
 | **Architecture changes** | Accepting, superseding, or deprecating an ADR; any change that contradicts an accepted ADR or the architecture guardrails. |
 | **Scope changes** | Adding, removing, or re-scoping a stage, or moving work between stages; changing an issue's acceptance criteria after work starts. |
@@ -21,6 +21,6 @@ These decisions belong to the Product Owner alone. An AI collaborator may propos
 
 Reversible work inside an authorized issue: creating its branch, commits, a draft PR, tests, local experiments, documentation updates within scope, and replying to review findings.
 
-## How Claude asks
+## How an assistant asks
 
-When a gate is reached, Claude stops and says, in one place (the PR or issue, and the project thread): what decision is needed, the options, its recommendation, and exactly what the Product Owner needs to click or reply.
+When a gate is reached, the assistant stops and says, in one place (the PR or issue, and the project thread): what decision is needed, the options, its recommendation, and exactly what the Product Owner needs to click or reply.
