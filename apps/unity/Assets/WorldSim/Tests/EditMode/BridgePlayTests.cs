@@ -10,6 +10,25 @@ namespace WorldSim.Tests.EditMode
 {
     public sealed class BridgePlayTests
     {
+        [Test]
+        public void LongStallDropsExcessWholeSteps()
+        {
+            double remainder=0;
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,60),Is.EqualTo(100));
+            Assert.That(remainder,Is.GreaterThanOrEqualTo(0).And.LessThan(0.1));
+            for(int frame=0;frame<10;frame++)
+                Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0),Is.Zero);
+        }
+        [Test]
+        public void CatchUpPreservesOnlySubStepRemainder()
+        {
+            double remainder=0;
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,60.025),Is.EqualTo(100));
+            Assert.That(remainder,Is.EqualTo(0.025).Within(0.000000001));
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0.08),Is.EqualTo(1));
+            Assert.That(remainder,Is.EqualTo(0.005).Within(0.000000001));
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0),Is.Zero);
+        }
         [UnityTearDown]
         public IEnumerator LeavePlayModeAfterAnyFailure()
         {

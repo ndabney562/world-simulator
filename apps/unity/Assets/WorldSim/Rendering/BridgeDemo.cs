@@ -37,15 +37,24 @@ namespace WorldSim.Rendering
         {
             try
             {
-                pending += Time.unscaledDeltaTime;
-                uint steps=(uint)Math.Min(100,Math.Floor(pending/0.1));
-                if (steps>0) { world.Advance(steps); pending-=steps*0.1; }
+                uint steps=ConsumeHostElapsed(ref pending,Time.unscaledDeltaTime);
+                if (steps>0) world.Advance(steps);
                 Tick=world.FillSnapshot(matrices);
                 var parameters=new RenderParams(material) { worldBounds=new Bounds(new Vector3(100,0,1000),new Vector3(500,50,2500)), shadowCastingMode=ShadowCastingMode.Off, receiveShadows=false };
                 for(int start=0; start<markerCount; start+=256)
                     Graphics.RenderMeshInstanced(parameters,mesh,0,matrices,Math.Min(256,markerCount-start),start);
             }
             catch (Exception error) { Debug.LogError($"Bridge demo stopped: {error.Message}",this); Release(); enabled=false; }
+        }
+        /// <summary>Take at most 100 ticks; discard excess whole steps and retain sub-step time.</summary>
+        public static uint ConsumeHostElapsed(ref double remainder,double elapsed)
+        {
+            if (double.IsNaN(elapsed) || double.IsInfinity(elapsed) || elapsed<0)
+                throw new ArgumentOutOfRangeException(nameof(elapsed));
+            double total=remainder+elapsed;
+            double whole=Math.Floor(total/0.1);
+            remainder=Math.Max(0,total-whole*0.1);
+            return (uint)Math.Min(100,whole);
         }
         void OnDisable() { Release(); }
         void OnDestroy() { Release(); }

@@ -6,7 +6,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
 };
-use ws_sim::{SimTime, World, WorldConfig};
+use ws_sim::{SimTime, StepError, World, WorldConfig};
 
 /// Exact native/managed contract version.
 pub const ABI_VERSION: u32 = 1;
@@ -274,7 +274,15 @@ pub unsafe extern "C" fn ws_advance(handle: *mut WsHandle, steps: u32) -> WsStat
                 return Err((INVALID_ARGUMENT, "at most 100 steps per call"));
             }
             for _ in 0..steps {
-                h.world.step().map_err(|_| (STEP_FAILED, "tick failed"))?;
+                h.world.step().map_err(|error| {
+                    (
+                        STEP_FAILED,
+                        match error {
+                            StepError::Time(_) => "tick failed: simulation time overflow",
+                            StepError::World(_) => "tick failed: world system error",
+                        },
+                    )
+                })?;
             }
             Ok(())
         })

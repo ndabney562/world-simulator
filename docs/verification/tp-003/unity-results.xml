@@ -168,7 +168,7 @@
                   <property name="retryIteration" value="0" />
                   <property name="repeatIteration" value="0" />
                 </properties>
-                <output><![CDATA[Saving results to: /Users/noahdabney/Library/Application Support/World Simulator/World Simulator/TestResults.xml
+                <output><![CDATA[Saving results to: [home]/Library/Application Support/World Simulator/World Simulator/TestResults.xml
 ]]></output>
               </test-case>
             </test-suite>

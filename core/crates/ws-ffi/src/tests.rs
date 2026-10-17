@@ -154,6 +154,14 @@ fn completed_ticks_survive_step_failure() {
         assert!(!h.is_null());
         assert_eq!(ws_advance(h, 2), STEP_FAILED);
         assert_eq!((*h).world.tick(), 1);
+        let mut diagnostic = [0i8; 128];
+        ws_last_error(h, diagnostic.as_mut_ptr(), diagnostic.len());
+        let bytes: Vec<_> = diagnostic
+            .iter()
+            .take_while(|b| **b != 0)
+            .map(|b| *b as u8)
+            .collect();
+        assert!(std::str::from_utf8(&bytes).unwrap().contains("overflow"));
         ws_destroy(h);
     }
 }

@@ -71,7 +71,6 @@ Each is added by the issue that introduces what it checks.
 | Check | Added by |
 |---|---|
 | Unity edit-mode tests in CI, once the Product Owner adds the licence secrets (S-6, below) | Follow-up to TP-002 |
-
 | Tier 2 replay tests with different thread counts, and journal replay | TP-008 |
 | Save fixture compatibility tests | TP-009 |
 | Event and causality invariant tests | TP-008, TP-010 |
