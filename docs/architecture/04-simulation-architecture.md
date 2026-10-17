@@ -1,5 +1,7 @@
 # 5. Simulation Architecture
 
+The proposed TP-008 boundary queue, pause/resume and transaction rules are detailed in [ADR 0019](../adr/0019-command-journal-and-world-events.md). It remains Proposed until Product Owner acceptance; current direct setters are replaced only by the later implementation.
+
 Covers point 5. Simulation LOD is in [05](05-simulation-lod.md), entities in [09](09-entities-and-agents.md), events and causality in [24](24-world-events-and-causality.md), and reproducibility in [25](25-determinism-policy.md).
 
 ## 5.1 Shape of the core

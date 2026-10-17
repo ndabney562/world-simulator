@@ -30,7 +30,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 | D-5 | Time representation | 64-bit integer microseconds from J2000; real UTC calendar; multi-rate ticks | Same reason |
 | D-6 | World-state model | Baseline (dataset version + seed + generator versions) + canonical deltas + journal + event log ([08](08-world-state.md)) | Defines saves, generation, and LOD |
 | D-7 | Entity identity | Tier 1 deterministic procedural IDs, persistent promotion, a separate namespace for spawned entities ([09](09-entities-and-agents.md); detailed in [ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)) | Changing it breaks saves and zoom consistency |
-| D-8 | Mutation model | Validated, journaled commands; interventions composed from an effect vocabulary ([13](13-god-interventions.md)) | Underpins saves, replay, undo, LLM integration, and testing |
+| D-8 | Mutation model | Validated, journaled commands; TP-008 contract proposed in [ADR 0019](../adr/0019-command-journal-and-world-events.md); interventions composed from an effect vocabulary ([13](13-god-interventions.md)) | Underpins saves, replay, undo, LLM integration, and testing |
 | D-10 | LOD contract | Each domain defines aggregation, disaggregation, invariants, and event roll-up per level ([05](05-simulation-lod.md); L1 ↔ L2 detailed in [ADR 0017](../adr/0017-simulation-lod-l1-l2-round-trip.md)) | The defining architectural rule |
 | D-14 | Versioning discipline | Save format, rules, generator, and dataset versions recorded from the first save; golden tests | Cannot be added to existing saves retroactively |
 | D-15 | Process | ADRs, cross-review between AI collaborators, Noah as approver, `main` always green | Needed before multiple contributors write code |

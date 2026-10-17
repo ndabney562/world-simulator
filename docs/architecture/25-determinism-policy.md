@@ -1,5 +1,7 @@
 # Determinism and Reproducibility Policy
 
+For TP-008, [ADR 0019](../adr/0019-command-journal-and-world-events.md) proposes the logical replay operation schedule, separate simulation/history/queue checks, and deterministic event commit order. It preserves Tier 2 same-build/platform replay; Tier 1 ID assignment does not promise identical evolving event streams across platforms.
+
 Revision 4 addition (ChatGPT review item 4). This document supersedes the stricter wording in earlier revisions of [04](04-simulation-architecture.md) and [01](01-hard-problems.md). See ADR 0010.
 
 ## 25.1 Position
