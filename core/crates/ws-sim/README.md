@@ -69,3 +69,16 @@ Most of the step is the per-agent `SurfacePos::reexpress` (a cell lookup, about 
 On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 3.3330 to 2.2909 ms (about 31%). This meets the approximate 2.4 ms target on that Mac. Claude's independent Linux Xeon review measured 2.62–2.65 ms, so the target remains unmet on that reference machine; its average ×10 tick cost is about 8.8 ms per 30 fps frame before other work. Neither result establishes iPhone performance.
 
 See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.
+
+### Inside-cell fast path (#48, 2026-10-17)
+
+The movement step now proves that most agents are still inside their cell without the full cell lookup (see the ws-math and ws-world READMEs), with bit-identical results. Same Linux Intel Xeon 2.1 GHz machine as the #31 review, Rust 1.97.0 release, `main` (`cb42e62`, after #31) and this change measured alternately, 30 samples each:
+
+| Benchmark | `main` | #48 |
+|---|---|---|
+| `world_step/50` | 27.0–27.3 µs | 4.8–5.5 µs |
+| `world_step/5000` | 2.65–2.79 ms | 0.35–0.38 ms |
+| `lod_step/l1/3000` | 1.61–1.69 ms | 0.22–0.23 ms |
+| `lod_step/l1/100000` | 54.9–57.6 ms | 7.6–8.4 ms |
+
+That meets #31's 2.4 ms target on this machine with room to spare: at ×10 (about 3.3 ticks per 30 fps frame) 5,000 agents cost about 1.3 ms of the 8 ms budget (15 §16.3). LOD transitions, the L2 step and the L2 hour stayed within run-to-run noise over two alternating runs (for example `lod_transition/promote/3000` 1.20–1.24 ms on `main`, 1.21–1.27 ms with #48). These are desktop numbers; iPhone measurements belong to TP-011.
