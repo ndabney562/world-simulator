@@ -1,8 +1,8 @@
 # ADR 0020: Save container, component serialization (S-2), and version header (D-14)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-17
-- Decided by: Product Owner (pending); proposal by Claude for TP-009, to be reviewed by ChatGPT
+- Decided by: Noah (accepted 2026-10-17 in the project thread); proposal by Claude for TP-009
 - Issue: #10 (TP-009; the ADR PR lands first, per its scope)
 - Supersedes: none
 
