@@ -46,7 +46,7 @@ Unless superseded by an accepted ADR:
 ## Code rules (Rust core)
 
 - Nothing under `core/` depends on Unity, rendering, platform APIs, or providers. It builds and tests on Linux.
-- Dependency direction: `ws-math`, `ws-time`, `ws-rng` → `ws-world`, `ws-events` → domain crates → `ws-sim` → `ws-ffi` ([17-repository-structure](docs/architecture/17-repository-structure.md) §18.2). Crates are created only when an issue needs them.
+- Dependency direction: `ws-math`, `ws-time`, `ws-rng` → `ws-world`, `ws-events` → domain crates → `ws-sim` → `ws-persist` → `ws-ffi` ([17-repository-structure](docs/architecture/17-repository-structure.md) §18.2). Crates are created only when an issue needs them.
 - `ws-ffi` is the only crate Unity links, and the only place `unsafe` is expected.
 - Simulation logic uses integer simulation time, never the wall clock; iteration order is canonical (no unordered hash-map iteration affecting results); randomness comes from counter-based streams keyed by stable IDs.
 - Each crate has a README stating its responsibility, owned state, emitted event types, and invariants.

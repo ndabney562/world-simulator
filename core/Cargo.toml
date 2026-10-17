@@ -6,6 +6,7 @@ members = [
     "crates/ws-ecs",
     "crates/ws-events",
     "crates/ws-math",
+    "crates/ws-persist",
     "crates/ws-rng",
     "crates/ws-sim",
     "crates/ws-time",

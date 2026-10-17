@@ -1,0 +1,19 @@
+[package]
+name = "ws-persist"
+version = "0.1.0"
+description = "World Simulator save and load: a versioned SQLite save file with a hand-written canonical codec (ADR 0020)."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+ws-ecs = { path = "../ws-ecs" }
+ws-events = { path = "../ws-events" }
+ws-math = { path = "../ws-math" }
+ws-sim = { path = "../ws-sim" }
+ws-time = { path = "../ws-time" }
+ws-world = { path = "../ws-world" }
+
+[lints]
+workspace = true

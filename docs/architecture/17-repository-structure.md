@@ -74,7 +74,7 @@ world-simulator/
 
 ## 18.2 Rules for the structure
 
-1. **Dependency direction is one-way:** `ws-math`, `ws-time`, `ws-rng`, `ws-ecs` → `ws-world` and `ws-events` → domain crates → `ws-sim` → `ws-ffi`. `ws-ecs` is a foundation crate so that `ws-world` and `ws-events` can use entity IDs ([ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)). Domain crates depend on each other only through `ws-world` and `ws-events` types.
+1. **Dependency direction is one-way:** `ws-math`, `ws-time`, `ws-rng`, `ws-ecs` → `ws-world` and `ws-events` → domain crates → `ws-sim` → `ws-persist` → `ws-ffi` and `ws-cli`. `ws-persist` sits above `ws-sim` because it builds and reads a `World` ([ADR 0020](../adr/0020-save-format-and-versioning.md)); `ws-ffi` does not depend on it. `ws-ecs` is a foundation crate so that `ws-world` and `ws-events` can use entity IDs ([ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)). Domain crates depend on each other only through `ws-world` and `ws-events` types.
 2. **Nothing in `core/` depends on Unity, rendering, platform APIs, or visual providers.** It builds and tests on Linux.
 3. **`ws-ffi` is the only boundary** Unity sees; its surface is reviewed carefully because it is expensive to change.
 4. **Google or other provider code lives only in `apps/unity/Assets/WorldSim/Providers/`**, never in `core/` or `tools/ws-datapipe/` ([23](23-visual-providers.md)).

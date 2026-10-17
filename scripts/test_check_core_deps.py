@@ -44,6 +44,14 @@ class CheckCoreDepsTest(unittest.TestCase):
         md = metadata(("ws-sim", [dep("ws-ffi")]), ("ws-ffi", []))
         self.assertEqual(len(check_core_deps.check(md)), 1)
 
+    def test_persist_sits_above_sim(self):
+        md = metadata(("ws-persist", [dep("ws-sim")]), ("ws-sim", []))
+        self.assertEqual(check_core_deps.check(md), [])
+        md = metadata(("ws-sim", [dep("ws-persist")]), ("ws-persist", []))
+        errors = check_core_deps.check(md)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("ws-sim (layer 3) -> ws-persist (layer 4)", errors[0])
+
     def test_same_layer_dependency_fails(self):
         md = metadata(("ws-agents", [dep("ws-lod")]), ("ws-lod", []))
         errors = check_core_deps.check(md)

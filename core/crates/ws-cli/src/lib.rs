@@ -420,7 +420,7 @@ pub fn replay(mut reader: impl Read) -> Result<World> {
 pub fn main_entry(args: Vec<String>) -> Result<()> {
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "ws-cli run --seed S --ticks N [--journal FILE] [--hash-every K] [--script FILE] [--batch FILE]\\nws-cli replay --journal FILE"
+            "ws-cli run --seed S --ticks N [--journal FILE] [--hash-every K] [--script FILE] [--batch FILE]\\nws-cli replay --journal FILE\\nws-cli save --seed S --ticks N --out FILE [run options]\\nws-cli load --file FILE [--ticks N] [--hash-every K]"
         );
         return Ok(());
     }
@@ -435,20 +435,38 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
     }
     require(
         opts.keys().all(|k| match mode.as_str() {
-            "run" => [
-                "--seed",
-                "--ticks",
-                "--journal",
-                "--hash-every",
-                "--script",
-                "--batch",
-            ]
-            .contains(k),
+            "run" | "save" => {
+                [
+                    "--seed",
+                    "--ticks",
+                    "--journal",
+                    "--hash-every",
+                    "--script",
+                    "--batch",
+                ]
+                .contains(k)
+                    || (mode == "save" && *k == "--out")
+            }
             "replay" => *k == "--journal",
+            "load" => ["--file", "--ticks", "--hash-every"].contains(k),
             _ => false,
         }),
         "unknown option/mode",
     )?;
+    if mode == "load" {
+        return load_and_continue(&opts);
+    }
+    let out = opts.get("--out").copied();
+    require(
+        (mode == "save") == out.is_some(),
+        "save requires --out, and only save accepts it",
+    )?;
+    if let Some(out) = out {
+        require(
+            !std::path::Path::new(out).exists(),
+            "the --out file already exists; a save is never silently overwritten",
+        )?;
+    }
     if mode == "replay" {
         let path = opts.get("--journal").ok_or("replay requires --journal")?;
         let w = replay(std::io::BufReader::new(std::fs::File::open(path)?))?;
@@ -461,7 +479,7 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
         );
         return Ok(());
     }
-    require(mode == "run", "unknown mode")?;
+    require(mode == "run" || mode == "save", "unknown mode")?;
     let seed = opts.get("--seed").ok_or("run requires --seed")?.parse()?;
     let ticks: u64 = opts.get("--ticks").ok_or("run requires --ticks")?.parse()?;
     let every: u64 = opts.get("--hash-every").unwrap_or(&"1").parse()?;
@@ -555,6 +573,37 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
         w.journal().len(),
         w.events().records().len()
     );
+    if let Some(out) = out {
+        ws_persist::save(&w, std::path::Path::new(out))?;
+        println!(
+            "saved {out} tick={} state={:016x}",
+            w.tick(),
+            w.state_hash()
+        );
+    }
+    Ok(())
+}
+/// `load`: restores a save, then optionally continues it for `--ticks` more.
+fn load_and_continue(opts: &std::collections::BTreeMap<&str, &str>) -> Result<()> {
+    let path = opts.get("--file").ok_or("load requires --file")?;
+    let more: u64 = opts.get("--ticks").unwrap_or(&"0").parse()?;
+    let every: u64 = opts.get("--hash-every").unwrap_or(&"1").parse()?;
+    require(every > 0, "hash interval must be positive")?;
+    let mut w = ws_persist::load(std::path::Path::new(path))?;
+    println!(
+        "loaded tick={} state={:016x} journal={} events={}",
+        w.tick(),
+        w.state_hash(),
+        w.journal().len(),
+        w.events().records().len()
+    );
+    let end = w.tick().checked_add(more).ok_or("tick budget overflows")?;
+    while w.tick() < end {
+        w.step()?;
+        if w.tick().is_multiple_of(every) {
+            println!("tick={} state={:016x}", w.tick(), w.state_hash());
+        }
+    }
     Ok(())
 }
 fn parse_lod(s: &str) -> Result<Lod> {

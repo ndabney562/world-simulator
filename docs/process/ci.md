@@ -61,10 +61,11 @@ python3 ../scripts/check_core_deps.py
 |---|---|
 | 0 Foundation | `ws-math`, `ws-time`, `ws-rng`, `ws-ecs` |
 | 1 World model and events | `ws-world`, `ws-events` |
-| 2 Domain | `ws-data`, `ws-procgen`, `ws-agents`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-persist`, `ws-snapshot` |
+| 2 Domain | `ws-data`, `ws-procgen`, `ws-agents`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-snapshot` |
 | 3 Orchestration | `ws-sim` |
-| 4 Test support | `ws-testkit` (allowed only as a dev-dependency) |
-| 5 Adapters | `ws-ffi`, `ws-cli` |
+| 4 Persistence | `ws-persist` (builds and reads a `ws-sim` `World`; ADR 0020) |
+| 5 Test support | `ws-testkit` (allowed only as a dev-dependency) |
+| 6 Adapters | `ws-ffi`, `ws-cli` |
 
 Domain crates do not depend on each other (same-layer edges fail); they share types through `ws-world` and `ws-events`. A workspace crate missing from the table fails the check, so each new crate gets a deliberate place. The script also fails on any dependency (of any kind) on Unity, rendering, windowing, platform-API, or visual-provider crates (`wgpu`, `bevy*`, `winit`, `objc*`, `cesium*`, `web-sys`, `windows*`, and others listed in the script). The table lives in the script and here; change both together.
 
@@ -76,7 +77,6 @@ Each is added by the issue that introduces what it checks.
 |---|---|
 | Unity edit-mode tests in CI, once the Product Owner adds the licence secrets (S-6, below) | Follow-up to TP-002 |
 | Tier 2 replay tests with different thread counts (scheduler remains single-threaded) | When parallel scheduling exists |
-| Save fixture compatibility tests | TP-009 |
 | Expanded provenance and intervention invariants | TP-010 |
 | iOS Unity build (if feasible on free runners) | TP-011 |
 | Nightly Tier 3 drift reports and benchmarks | Follow-up issues when wanted; LOD soak is configured separately above |

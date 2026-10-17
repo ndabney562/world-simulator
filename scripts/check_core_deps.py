@@ -8,7 +8,7 @@ Reads `cargo metadata` for the workspace in core/ and fails if:
 2. A workspace crate has a normal or build dependency on a workspace crate
    in the same or a later layer. Direction follows
    docs/architecture/17-repository-structure.md section 18.2:
-   foundation -> world/events -> domain -> ws-sim -> ws-ffi. Domain crates
+   foundation -> world/events -> domain -> ws-sim -> ws-persist -> ws-ffi. Domain crates
    do not depend on each other; they share ws-world and ws-events types.
 3. A workspace crate depends on ws-testkit other than as a dev-dependency.
 4. A workspace crate depends (of any kind) on a forbidden external crate:
@@ -45,15 +45,16 @@ LAYERS = {
     "ws-physics": 2,
     "ws-lod": 2,
     "ws-interventions": 2,
-    "ws-persist": 2,
     "ws-snapshot": 2,
     # Orchestration
     "ws-sim": 3,
-    # Test support: may depend on anything up to ws-sim; used only as a dev-dependency.
-    "ws-testkit": 4,
+    # Save and load: builds and reads a ws-sim World, so it sits above ws-sim (ADR 0020).
+    "ws-persist": 4,
+    # Test support: may depend on anything up to ws-persist; used only as a dev-dependency.
+    "ws-testkit": 5,
     # Host adapters: C ABI Unity links and headless CLI
-    "ws-ffi": 5,
-    "ws-cli": 5,
+    "ws-ffi": 6,
+    "ws-cli": 6,
 }
 
 # Crates that may only be dev-dependencies of other workspace crates.

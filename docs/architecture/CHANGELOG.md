@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## TP-009 implementation of ADR 0020 (2026-10-17)
+
+Implements #10: the `ws-persist` crate (SQLite save container, hand-written canonical codec, version header, load validation), restore support in `ws-world` (`ToyParts`), `ws-sim` (`WorldParts`, `Clock::from_parts`) and `ws-cli` (`save` and `load`), and the format-1 fixture under `tests/saves/`. As ADR 0020 decided, `ws-persist` moves to its own layer above `ws-sim`; the layer table in `scripts/check_core_deps.py` and `docs/process/ci.md`, and the dependency direction in [17 §18.2](17-repository-structure.md) and `AGENTS.md`, now read `ws-sim` → `ws-persist` → `ws-ffi`. Two clarifications of the ADR, both within its load-validation paragraph: the header also records journal and event digests (a lost causal link does not change the state hash), and `buildings` and `l1_state` are keyed by (cell, entity ID) while the other record tables are keyed by entity ID. No accepted decision is changed.
+
 ## ADR 0020: save format and version header (2026-10-17, Accepted)
 
 Design phase of TP-009 (#10), accepted by Noah on 2026-10-17: decides the SQLite save container, S-2 as a hand-written versioned canonical codec (compared with `serde`/`postcard`, FlatBuffers and Cap'n Proto), the D-14 version header, load-time validation, and `ws-persist` moving above `ws-sim` in the crate layers because it must construct a `World`. Adds pointers in persistence and the decisions table. No code, dependency, CI or layer-table change; those come with the implementation PR after acceptance.

@@ -90,3 +90,87 @@ fn mixed_commands_record_replay_and_corruption_fail_closed() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn save_then_load_in_separate_processes_agree_and_never_overwrite() {
+    let root = std::env::temp_dir().join(format!("ws-cli-save-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let script = root.join("commands.txt");
+    let save = root.join("world.wssave");
+    fs::write(
+        &script,
+        "scale 10\nflush\nlod all 2\nstep 300\nlod all 1\nflush\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| cli(args);
+    let out = run(&[
+        "save",
+        "--seed",
+        "23",
+        "--ticks",
+        "500",
+        "--hash-every",
+        "500",
+        "--script",
+        script.to_str().unwrap(),
+        "--out",
+        save.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let saved = String::from_utf8(out.stdout).unwrap();
+    let state = saved
+        .lines()
+        .find_map(|l| l.strip_prefix("saved "))
+        .and_then(|l| l.split("state=").nth(1))
+        .unwrap()
+        .trim()
+        .to_owned();
+
+    let out = run(&["load", "--file", save.to_str().unwrap(), "--ticks", "20"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let loaded = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        loaded.contains(&format!("loaded tick=500 state={state}")),
+        "{loaded}"
+    );
+    assert!(loaded.contains("tick=520 state="));
+
+    // A save is never silently replaced, and a flag from the wrong mode fails.
+    let again = run(&[
+        "save",
+        "--seed",
+        "23",
+        "--ticks",
+        "10",
+        "--out",
+        save.to_str().unwrap(),
+    ]);
+    assert!(!again.status.success());
+    assert!(
+        !run(&["run", "--seed", "1", "--ticks", "1", "--out", "x"])
+            .status
+            .success()
+    );
+    assert!(
+        !run(&["save", "--seed", "1", "--ticks", "1"])
+            .status
+            .success()
+    );
+    // A file that is not a save fails closed.
+    fs::write(root.join("junk"), b"not a save").unwrap();
+    assert!(
+        !run(&["load", "--file", root.join("junk").to_str().unwrap()])
+            .status
+            .success()
+    );
+    let _ = fs::remove_dir_all(&root);
+}
