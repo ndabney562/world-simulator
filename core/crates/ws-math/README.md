@@ -64,3 +64,9 @@ Snapshot building should build one `CellFrame` per visible cell and reuse it. iP
 
 - `libm` 0.2 (MIT): portable transcendental functions for Tier 1 paths.
 - `proptest` 1 (MIT OR Apache-2.0), dev-only, default features off.
+
+### Cached movement re-expression (#31, 2026-10-16)
+
+`SurfacePos::reexpress_with(&CellFrame)` reuses the source frame and keeps the full Tier 1 cell lookup and ADR 0016 edge-settling rule. A mismatched frame is an error; it never substitutes a geometric approximation. Global fixed-seed tests compare exact bits with `reexpress`, and ±200 µm edge sweeps check the same invariant and inside decisions.
+
+On an Apple M1 Pro Mac, Rust 1.97.0 release, the conversion benchmark's original and cached paths over identical 10,000 inputs took **4,986.2 → 3,931.2 µs** (498.6 → 393.1 ns per call; best of 50 passes). Reusing the frame also removes repeated source-frame construction for movement's goal projection. The full `world_step/5000` improves from 3.3330 to 2.2909 ms; see the [complete verification report](../../../docs/verification/issue-31/README.md) for LOD comparisons and correctness evidence. These are desktop measurements, not iPhone performance claims.
