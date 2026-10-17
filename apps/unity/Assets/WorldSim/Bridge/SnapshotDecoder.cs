@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace WorldSim.Bridge
 {
-    /// <summary>Alignment-independent little-endian ABI-v1 decoding; no managed allocation on success.</summary>
+    /// <summary>Alignment-independent little-endian ABI-v2 decoding; no managed allocation on success.</summary>
     public static class SnapshotDecoder
     {
         [StructLayout(LayoutKind.Explicit)]

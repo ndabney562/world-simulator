@@ -1,0 +1,14 @@
+# Exercise journal boundaries, paused flushes and both LODs in visible CI replay.
+noop
+scale paused
+flush
+noop
+flush
+scale 10
+flush
+lod all 2
+step 1000
+lod all 1
+flush
+scale 1
+flush

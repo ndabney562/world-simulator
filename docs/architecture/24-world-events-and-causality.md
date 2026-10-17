@@ -1,6 +1,6 @@
 # World Events, History, and Causal Provenance
 
-The initial TP-008 record subset, sequential 64-bit ID assignment in deterministic commit order, causal validation and in-memory query contract are proposed in [ADR 0019](../adr/0019-command-journal-and-world-events.md). This does not implement persistence, retention or provenance propagation.
+The initial TP-008 record subset, sequential 64-bit ID assignment in deterministic commit order, causal validation and in-memory query contract are accepted in [ADR 0019](../adr/0019-command-journal-and-world-events.md). This does not implement persistence, retention or provenance propagation.
 
 Revision 4 addition (ChatGPT review items 5 and 6). Related: [04](04-simulation-architecture.md), [08](08-world-state.md), [09](09-entities-and-agents.md), [13](13-god-interventions.md), [14](14-persistence.md), [16](16-ai-llm-npcs.md), ADRs 0011 and 0012.
 

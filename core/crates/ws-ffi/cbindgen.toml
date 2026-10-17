@@ -4,5 +4,5 @@ autogen_warning = "/* Generated with cbindgen 0.29.2; do not edit by hand. */"
 usize_is_size_t = true
 style = "type"
 [export]
-include = ["WsSnapshotHeader", "WsInstance"]
+include = ["WsSnapshotHeader", "WsInstance", "WsControlState"]
 exclude = ["HEADER_SIZE", "RECORD_SIZE"]

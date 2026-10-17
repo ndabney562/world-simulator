@@ -89,10 +89,18 @@ The static CI checker also requires the serialized `iOSSupport` API list to cont
 
 ## Running the native demo
 
-Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. A cyan grid of 1,000 moving cubes is rendered from ABI-v1 snapshots; motion is derived from Rust seed/tick, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
+Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. A cyan grid of 1,000 moving cubes is rendered from ABI-v2 snapshots; motion is derived from Rust seed/tick, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
 
 Bridge owns one persistent NativeArray and one SafeHandle; it serializes calls and disposal. Only Bridge enables unsafe C# to lend the buffer pointer for a synchronous call. Rendering uses safe decoded matrices in reusable storage and instanced draws. Fixed-step catch-up is capped at 100 ticks per frame; excess whole steps after a stall are dropped and only the sub-step remainder is retained, matching the Rust host clock. No per-entity native calls or callbacks occur. Disable/scene teardown disposes the world, buffer, material and mesh.
 
 The macOS plugin matches the running machine's architecture; a Rosetta Editor needs a matching x86-64 build. Generated dylibs and their metadata are ignored. Rust exports build as iOS static archives for future device linking, but this milestone does not configure signing or install to an iPhone.
 
-EditMode tests now include native load/version/create/advance/fill/dispose, shared byte-fixture decoding, invalid frames, and warmed fill/decode allocation measurement. A Unity coroutine test enters Play Mode, verifies tick progression and rendered marker pixels, and writes `worldsim-bridge-bootstrap.png` to the OS temporary directory. Run the full suite with graphics enabled; `-nographics` cannot verify rendering.
+EditMode tests now include native load/version/create/advance/fill/dispose, v1-client refusal, command flush/pause/resume, control-state layout, shared byte-fixture decoding, invalid frames, and warmed fill/decode allocation measurement. A Unity coroutine test enters Play Mode, verifies tick progression and rendered marker pixels, and writes `worldsim-bridge-bootstrap.png` to the OS temporary directory. Run the full suite with graphics enabled; `-nographics` cannot verify rendering.
+
+## Command boundaries (TP-008 / ABI v2)
+
+`NativeWorld.SubmitNoOp()`, `SubmitTimeScale(0|1|10|100)` and `SubmitCommands(byte[])` enqueue owned commands; they do not apply them. `CommittedScale` reads current native state without applying pending work. `FlushCommands()` invokes zero-step native advance and returns the committed scale even while paused. Positive `Advance(n)` flushes then requests exactly n ticks, independent of scale.
+
+The demo flushes every frame before choosing ticks and multiplies host elapsed time by that returned scale once. No local independent scale or second native multiplier is applied. Zero/paused frames still fill the render snapshot; catch-up keeps its existing 100-tick cap/drop policy. Inputs and disposal remain serialized by the same managed lock. Command helpers allocate only on submission; warmed per-frame flush/control read and snapshot decode tests check zero managed allocation on the calling thread.
+
+After switching branches, close Unity, rebuild the native plugin with `scripts/build-native-macos.sh`, and reopen with 6000.3.26f1. Run the full EditMode suite with graphics enabled, then open Bootstrap and press Play. A previously loaded ABI-v1 plugin must be replaced/reloaded: mismatched native/config/snapshot versions fail clearly. No device signing or real-entity rendering is added here.

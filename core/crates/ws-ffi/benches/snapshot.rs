@@ -6,7 +6,7 @@ fn snapshot(c: &mut Criterion) {
     let mut g = c.benchmark_group("snapshot_fill");
     for count in [1_000, 10_000] {
         let config = WsConfig {
-            abi_version: 1,
+            abi_version: ABI_VERSION,
             struct_size: 32,
             seed: 7,
             start_us: 0,

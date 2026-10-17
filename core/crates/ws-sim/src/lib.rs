@@ -4,9 +4,8 @@
 //! steps by its [`Clock`] (TP-004). Each step runs one toy-world tick
 //! ([`ToyWorld::tick`]): residency reconciliation, the L1 movement system
 //! (TP-006), and the L2 event drain (TP-007). Simulation-LOD transitions
-//! are requested with [`World::set_lod`] between steps ([ADR 0017]).
-//! Commands, the journal, and further systems arrive in later Technical
-//! Prototype issues.
+//! are requested with [`World::flush_commands`] between steps ([ADR 0017]).
+//! Commands and history follow ADR 0019; read-only logs never drive domain logic.
 //!
 //! The world never reads the wall clock, the environment, or the filesystem;
 //! its state is a pure function of its configuration and the sequence of
@@ -17,6 +16,12 @@
 //! [ADR 0017]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0017-simulation-lod-l1-l2-round-trip.md
 
 mod clock;
+pub mod commands;
+mod control;
+use commands::{Command, Outcome};
+pub use control::{ControlError, FlushReport};
+pub use ws_events;
+use ws_events::{EventError, EventStore};
 
 use core::fmt;
 
@@ -25,7 +30,8 @@ pub use ws_ecs::EntityId;
 pub use ws_time::{SimTime, TimeOverflow};
 use ws_world::{Dataset, WalkParams};
 pub use ws_world::{
-    Lod, LodError, LodViolation, Population, ToyWorld, TransitionReport, WorldError,
+    Lod, LodError, LodViolation, Population, TOY_DATASET_VERSION, ToyWorld, TransitionReport,
+    WorldError,
 };
 
 /// Parameters a [`World`] is created from.
@@ -69,6 +75,8 @@ pub enum CreateError {
     UnalignedStart(SimTime),
     /// Generating the toy world failed.
     World(WorldError),
+    /// History reservation or record validation failed.
+    History(EventError),
 }
 
 impl fmt::Display for CreateError {
@@ -76,6 +84,7 @@ impl fmt::Display for CreateError {
         match self {
             Self::UnalignedStart(t) => write!(f, "start {t} is not a base-step boundary"),
             Self::World(e) => write!(f, "{e}"),
+            Self::History(e) => write!(f, "{e}"),
         }
     }
 }
@@ -95,6 +104,10 @@ pub enum StepError {
     Time(TimeOverflow),
     /// A system failed (never expected; see [`WorldError`]).
     World(WorldError),
+    /// Boundary command processing failed.
+    Control(ControlError),
+    /// Tick history could not be committed.
+    History(EventError),
 }
 
 impl fmt::Display for StepError {
@@ -102,6 +115,8 @@ impl fmt::Display for StepError {
         match self {
             Self::Time(e) => write!(f, "{e}"),
             Self::World(e) => write!(f, "{e}"),
+            Self::Control(e) => write!(f, "{e}"),
+            Self::History(e) => write!(f, "{e}"),
         }
     }
 }
@@ -120,12 +135,33 @@ impl From<WorldError> for StepError {
     }
 }
 
-/// The authoritative simulation state.
+/// The authoritative simulation state. Hosts have no direct mutation escape.
+///
+/// ```compile_fail
+/// use ws_sim::{World,WorldConfig,SimTime,TimeScale};
+/// let mut world=World::new(WorldConfig::new(1,SimTime::EPOCH)).unwrap();
+/// world.set_time_scale(TimeScale::Paused);
+/// ```
+/// ```compile_fail
+/// use ws_sim::{World,WorldConfig,SimTime,Lod};
+/// let world=World::new(WorldConfig::new(1,SimTime::EPOCH)).unwrap();
+/// world.toy().set_lod(world.now(),world.clock().base_step(),&[]);
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct World {
     seed: u64,
     clock: Clock,
     toy: ToyWorld,
+    events: EventStore,
+    pending: std::collections::VecDeque<(u64, Command)>,
+    pending_bytes: usize,
+    next_sequence: u64,
+    boundary: u64,
+    journal: Vec<Outcome>,
+    #[cfg(test)]
+    fail_after: Option<usize>,
+    #[cfg(test)]
+    fail_history: bool,
 }
 
 impl World {
@@ -146,15 +182,52 @@ impl World {
             return Err(CreateError::UnalignedStart(config.start));
         }
         let dataset = Dataset::toy().map_err(WorldError::from)?;
+        let toy = ToyWorld::generate(
+            config.seed,
+            &dataset,
+            config.population,
+            WalkParams::DEFAULT,
+        )?;
+        let known = toy
+            .buildings()
+            .ids()
+            .iter()
+            .chain(toy.residents().ids())
+            .copied()
+            .collect();
+        let mut events = EventStore::new(known);
+        let created = ws_events::Candidate::new(
+            config.start,
+            0,
+            0,
+            ws_events::Payload::WorldCreated {
+                seed: config.seed,
+                dataset: toy.dataset_version(),
+                generator: 1,
+                rules: 1,
+                min: config.population.min_per_building,
+                max: config.population.max_per_building,
+            },
+            ws_events::Origin::System(0),
+        );
+        events
+            .prepare(0, &[created])
+            .map_err(CreateError::History)?
+            .commit();
         Ok(Self {
             seed: config.seed,
             clock,
-            toy: ToyWorld::generate(
-                config.seed,
-                &dataset,
-                config.population,
-                WalkParams::DEFAULT,
-            )?,
+            toy,
+            events,
+            pending: Default::default(),
+            pending_bytes: 0,
+            next_sequence: 1,
+            boundary: 0,
+            journal: Vec::new(),
+            #[cfg(test)]
+            fail_after: None,
+            #[cfg(test)]
+            fail_history: false,
         })
     }
 
@@ -166,34 +239,16 @@ impl World {
     /// # Errors
     ///
     /// [`StepError::Time`] if the step would pass [`SimTime::MAX`] (about
-    /// AD 294,247), and [`StepError::World`] if the tick fails; the world is
-    /// unchanged in both cases.
+    /// AD 294,247), and [`StepError::World`] if the tick fails; the physical tick is
+    /// unchanged. Commands committed by the preceding flush remain applied.
     pub fn step(&mut self) -> Result<(), StepError> {
-        let mut clock = self.clock.clone();
-        clock.step()?;
-        self.toy.tick(self.clock.now(), self.clock.base_step())?;
-        self.clock = clock;
-        Ok(())
-    }
-
-    /// Applies a simulation-LOD transition request at the current tick
-    /// boundary as one transaction ([`ToyWorld::set_lod`], ADR 0017 §2):
-    /// the listed buildings get the given levels, and every agent whose
-    /// residency then differs from its governing building's level is
-    /// demoted or promoted. Several calls at one boundary apply in call
-    /// order. A plain call until TP-008 journals it.
-    ///
-    /// # Errors
-    ///
-    /// As [`ToyWorld::set_lod`]; the world is then unchanged.
-    pub fn set_lod(&mut self, request: &[(EntityId, Lod)]) -> Result<TransitionReport, LodError> {
-        self.toy
-            .set_lod(self.clock.now(), self.clock.base_step(), request)
+        self.flush_commands().map_err(StepError::Control)?;
+        self.physical_step()
     }
 
     /// Checks every LOD invariant of the toy world at the current boundary
     /// ([`ToyWorld::check_lod_invariants`]). Residency is checked only when
-    /// `reconciled` (directly after [`World::set_lod`]).
+    /// `reconciled` (directly after [`World::flush_commands`]).
     ///
     /// # Errors
     ///
@@ -213,16 +268,15 @@ impl World {
     /// # Errors
     ///
     /// [`StepError::Time`] if the steps would pass [`SimTime::MAX`]; the
-    /// world is then unchanged. [`StepError::World`] if a tick fails
+    /// physical tick is unchanged; committed boundary commands remain applied. [`StepError::World`] if a tick fails
     /// (never expected); the ticks before the failing one stay applied, the
     /// clock counts exactly those, and the pending remainder is unchanged.
     pub fn advance_by_host_elapsed(&mut self, host_elapsed_us: u64) -> Result<u32, StepError> {
+        self.flush_commands().map_err(StepError::Control)?;
         let mut advanced = self.clock.clone();
         let steps = advanced.advance_by_host_elapsed(host_elapsed_us)?;
         for _ in 0..steps {
-            self.toy.tick(self.clock.now(), self.clock.base_step())?;
-            // `advanced` reached the same time, so this cannot overflow.
-            self.clock.step()?;
+            self.physical_step()?;
         }
         self.clock = advanced;
         Ok(steps)
@@ -241,6 +295,7 @@ impl World {
                 self.clock.steps(),
                 self.clock.now().as_micros_since_epoch() as u64,
                 self.toy.state_hash(),
+                self.clock.scale().multiplier() as u64,
             ],
         )
     }
@@ -249,11 +304,6 @@ impl World {
     #[must_use]
     pub const fn toy(&self) -> &ToyWorld {
         &self.toy
-    }
-
-    /// Sets the time scale (a plain call until TP-008 journals it).
-    pub fn set_time_scale(&mut self, scale: TimeScale) {
-        self.clock.set_scale(scale);
     }
 
     /// Number of ticks taken since the world was created.
@@ -379,9 +429,17 @@ mod tests {
         assert_eq!(w.advance_by_host_elapsed(250_000), Ok(2));
         assert_eq!(w.tick(), 2);
         assert_eq!(w.now().as_micros_since_epoch(), 200_000);
-        w.set_time_scale(TimeScale::Paused);
+        w.submit(vec![Command::new(
+            commands::IssuedBy::Test,
+            commands::Action::SetTimeScale(TimeScale::Paused),
+        )])
+        .unwrap();
         assert_eq!(w.advance_by_host_elapsed(1_000_000), Ok(0));
-        w.set_time_scale(TimeScale::X10);
+        w.submit(vec![Command::new(
+            commands::IssuedBy::Test,
+            commands::Action::SetTimeScale(TimeScale::X10),
+        )])
+        .unwrap();
         assert_eq!(w.advance_by_host_elapsed(1_000_000), Ok(100));
         assert_eq!(w.tick(), 102);
     }
@@ -445,3 +503,6 @@ mod tests {
         assert_eq!(w.now(), start);
     }
 }
+
+#[cfg(test)]
+mod control_tests;

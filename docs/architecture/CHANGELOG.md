@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## TP-008 repository layout correction (2026-10-17)
+
+The repository tree now places the headless host at `core/crates/ws-cli/`, as accepted ADR 0019 §1 specifies; `tools/` remains for the inspector and data pipeline. No dependency direction or architecture decision changed.
+
 ## ADR 0019 accepted (2026-10-16)
 
 Noah explicitly approved ADR 0019 and assigned #9 implementation in Codex; approval is recorded on #9 and PR #44. Status/index now say Accepted. Implementation follows on a separate branch; no PR merge was performed.
@@ -86,3 +90,8 @@ Noah's decisions: real Earth, realistic visuals, single-player, iPhone 15 Pro mi
 ## Revision 1 (2026-10-14)
 
 Initial proposal covering the 22 points of the brief.
+
+
+## TP-008 implementation (2026-10-16)
+
+Implements accepted ADR 0019's typed bounded command queue, boundary journal, meaningful event subset and same-build/platform headless replay. Adds `ws-events` at layer 1 and `ws-cli` as a layer-5 host adapter, without runtime external dependencies. Domain plans expose actual arrivals/LOD changes one way for atomic publication. No architecture guardrail, Unity ABI, save format, multithreaded scheduler, retention or provenance propagation is changed. The conditional bridge adaptation awaits TP-003's final merged contract; see the Rust workspace README and tape codec.

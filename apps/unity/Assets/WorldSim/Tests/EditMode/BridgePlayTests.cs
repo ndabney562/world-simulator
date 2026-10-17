@@ -29,6 +29,18 @@ namespace WorldSim.Tests.EditMode
             Assert.That(remainder,Is.EqualTo(0.005).Within(0.000000001));
             Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0),Is.Zero);
         }
+        [Test]
+        public void HostUsesCommittedScaleOnceAndRetainsPausedFraction()
+        {
+            double remainder=0.025;
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,60,0),Is.Zero);
+            Assert.That(remainder,Is.EqualTo(0.025).Within(0.000000001));
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0.01,10),Is.EqualTo(1));
+            Assert.That(remainder,Is.EqualTo(0.025).Within(0.000000001));
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0.01,100),Is.EqualTo(10));
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,60,10),Is.EqualTo(100));
+            Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0,1),Is.Zero);
+        }
         [UnityTearDown]
         public IEnumerator LeavePlayModeAfterAnyFailure()
         {

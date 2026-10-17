@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 1
+#define ABI_VERSION 2
 
 /**
  * Successful operation.
@@ -40,7 +40,7 @@
 #define INVALID_COMMAND 4
 
 /**
- * A tick failed; earlier successful ticks remain applied.
+ * Boundary processing or a tick failed; earlier committed work remains applied.
  */
 #define STEP_FAILED 5
 
@@ -64,7 +64,7 @@ typedef struct WsHandle WsHandle;
  */
 typedef struct {
   /**
-   * Must equal 1.
+   * Must equal 2.
    */
   uint32_t abi_version;
   /**
@@ -90,12 +90,34 @@ typedef struct {
 } WsConfig;
 
 /**
- * Fixed-width C status code; numeric values are stable for ABI v1.
+ * Fixed-width C status code; numeric values retain their ABI-v1 meanings.
  */
 typedef uint32_t WsStatus;
 
 /**
- * Snapshot v1 header, serialized little-endian without alignment assumptions.
+ * Coarse committed control state; 16 bytes, aligned to 4. Input: version and size only.
+ */
+typedef struct {
+  /**
+   * Caller requests ABI 2; returned as 2 on success.
+   */
+  uint32_t abi_version;
+  /**
+   * Caller provides 16 bytes; returned as 16 on success.
+   */
+  uint32_t struct_size;
+  /**
+   * Authoritative committed scale: 0, 1, 10 or 100.
+   */
+  uint32_t scale_tag;
+  /**
+   * Returned as zero.
+   */
+  uint32_t reserved;
+} WsControlState;
+
+/**
+ * Snapshot v2 header, serialized little-endian without alignment assumptions.
  */
 typedef struct {
   /**
@@ -174,18 +196,28 @@ WsHandle *ws_create(const WsConfig *config);
 void ws_destroy(WsHandle *handle);
 
 /**
- * Validates an ABI-v1 batch of NoOps; copies/retains no bytes and changes no state.
+ * Atomically copies a bounded v2 batch into the journaled queue; success means pending.
  * # Safety
  * Handle must be live/exclusive; positive len needs readable bytes for the call.
  */
 WsStatus ws_submit(WsHandle *handle, const uint8_t *bytes, size_t len);
 
 /**
- * Advances whole base steps (0..100); stops at the first failed tick.
+ * Flushes once, then advances explicit whole steps (0..100), independent of scale.
+ * Zero steps flush even while paused. Invalid step counts fail before flushing.
  * # Safety
  * Handle must be live and exclusively borrowed for this call.
  */
 WsStatus ws_advance(WsHandle *handle, uint32_t steps);
+
+/**
+ * Reads committed control state without flushing, stepping or publishing events.
+ * Errors leave the destination unchanged and use the handle diagnostic when usable.
+ * # Safety
+ * Handle must be live/exclusive. A non-null out_state must be aligned writable
+ * storage for 16 bytes, disjoint from handle; its first two u32 fields must be initialized.
+ */
+WsStatus ws_get_control_state(WsHandle *handle, WsControlState *out_state);
 
 /**
  * Fills a coherent snapshot; undersized buffers are untouched and written gives required bytes.

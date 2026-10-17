@@ -11,6 +11,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 | D-1 | **Stack:** Rust simulation core → Unity 6 / URP front end → Cesium for Unity where useful → iPhone | 0005 |
 | D-2 | **Core/front-end separation:** headless core; commands in, snapshots and query results out; a coarse-grained C ABI | 0005 |
 | D-3 | **Reproducibility policy:** tiered. Exact for identity and structure everywhere; replay-exact on the same build and platform; bounded differences elsewhere ([25](25-determinism-policy.md)) | 0010 |
+| D-8 | **Mutation model:** serialized, validated, journaled commands and typed factual history. Intervention effect vocabulary remains TP-010 | [0019](../adr/0019-command-journal-and-world-events.md) |
 | D-9 | **Minimum device:** iPhone 15 Pro (8 GB), current and previous iOS | 0004 |
 | D-11 | **Real Earth:** open data for simulation, synthetic people | 0001 |
 | D-12 | **Realistic visuals** within iPhone limits | 0002 |
@@ -30,7 +31,6 @@ The test for "decide now": **would changing this later force a rewrite of large 
 | D-5 | Time representation | 64-bit integer microseconds from J2000; real UTC calendar; multi-rate ticks | Same reason |
 | D-6 | World-state model | Baseline (dataset version + seed + generator versions) + canonical deltas + journal + event log ([08](08-world-state.md)) | Defines saves, generation, and LOD |
 | D-7 | Entity identity | Tier 1 deterministic procedural IDs, persistent promotion, a separate namespace for spawned entities ([09](09-entities-and-agents.md); detailed in [ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)) | Changing it breaks saves and zoom consistency |
-| D-8 | Mutation model | Validated, journaled commands; TP-008 contract proposed in [ADR 0019](../adr/0019-command-journal-and-world-events.md); interventions composed from an effect vocabulary ([13](13-god-interventions.md)) | Underpins saves, replay, undo, LLM integration, and testing |
 | D-10 | LOD contract | Each domain defines aggregation, disaggregation, invariants, and event roll-up per level ([05](05-simulation-lod.md); L1 ↔ L2 detailed in [ADR 0017](../adr/0017-simulation-lod-l1-l2-round-trip.md)) | The defining architectural rule |
 | D-14 | Versioning discipline | Save format, rules, generator, and dataset versions recorded from the first save; golden tests | Cannot be added to existing saves retroactively |
 | D-15 | Process | ADRs, cross-review between AI collaborators, Noah as approver, `main` always green | Needed before multiple contributors write code |
