@@ -15,6 +15,12 @@ namespace WorldSim.Bridge
         internal uint Count, Reserved;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeControlState
+    {
+        internal uint Version, Size, Scale, Reserved;
+    }
+
     internal sealed class WorldHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
         internal WorldHandle(IntPtr pointer) : base(true) { SetHandle(pointer); }
@@ -38,6 +44,8 @@ namespace WorldSim.Bridge
         internal static extern void Destroy(IntPtr handle);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_advance")]
         internal static extern uint Advance(WorldHandle handle, uint steps);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_get_control_state")]
+        internal static extern uint ControlState(WorldHandle handle, ref NativeControlState state);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_submit")]
         internal static extern uint Submit(WorldHandle handle, byte[] bytes, UIntPtr length);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_fill_render_snapshot")]
@@ -49,7 +57,7 @@ namespace WorldSim.Bridge
     /// <summary>Owns one serialized native world and a persistent caller-owned snapshot buffer.</summary>
     public sealed class NativeWorld : IDisposable
     {
-        public const uint AbiVersion = 1;
+        public const uint AbiVersion = 2;
         readonly object gate = new object();
         WorldHandle handle;
         NativeArray<byte> bytes;
@@ -88,11 +96,47 @@ namespace WorldSim.Bridge
         {
             lock (gate) { RequireLive(); Check(NativeMethods.Advance(handle, steps)); }
         }
-        public void SubmitNoOp()
+        static bool ValidScale(uint scale) => scale==0 || scale==1 || scale==10 || scale==100;
+        uint ReadControlState()
         {
-            // Control path allocation only; never submitted from the frame loop.
-            byte[] batch = {1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0};
-            lock (gate) { RequireLive(); Check(NativeMethods.Submit(handle, batch, (UIntPtr)batch.Length)); }
+            var state=new NativeControlState { Version=AbiVersion, Size=16 };
+            Check(NativeMethods.ControlState(handle,ref state));
+            RequireVersion(state.Version);
+            if(state.Size!=16 || state.Reserved!=0 || !ValidScale(state.Scale))
+                throw new InvalidOperationException("Invalid native control state.");
+            return state.Scale;
+        }
+        /// <summary>Committed native scale; reading does not flush pending commands.</summary>
+        public uint CommittedScale { get { lock(gate) { RequireLive(); return ReadControlState(); } } }
+        /// <summary>Flush queued commands even while paused; return the committed scale without ticking.</summary>
+        public uint FlushCommands()
+        {
+            lock(gate) { RequireLive(); Check(NativeMethods.Advance(handle,0)); return ReadControlState(); }
+        }
+        /// <summary>Copy a canonical v2 command batch into the native queue; success means pending.</summary>
+        public void SubmitCommands(byte[] batch)
+        {
+            if(batch==null) throw new ArgumentNullException(nameof(batch));
+            lock(gate) { RequireLive(); Check(NativeMethods.Submit(handle,batch,(UIntPtr)batch.Length)); }
+        }
+        static void WriteU32(byte[] bytes,int offset,uint value)
+        {
+            for(int i=0;i<4;i++) bytes[offset+i]=(byte)(value>>(i*8));
+        }
+        static byte[] CommandBatch(uint opcode,int payloadSize)
+        {
+            // Control-path allocation only; no batch is created by the frame loop.
+            var batch=new byte[16+payloadSize];
+            WriteU32(batch,0,2); WriteU32(batch,4,1);
+            WriteU32(batch,8,opcode); WriteU32(batch,12,(uint)payloadSize);
+            WriteU32(batch,16,1); WriteU32(batch,20,0); // schema 1, Player provenance
+            return batch;
+        }
+        public void SubmitNoOp() { SubmitCommands(CommandBatch(0,8)); }
+        public void SubmitTimeScale(uint scale)
+        {
+            if(!ValidScale(scale)) throw new ArgumentOutOfRangeException(nameof(scale));
+            var batch=CommandBatch(1,12); WriteU32(batch,24,scale); SubmitCommands(batch);
         }
         /// <summary>One native fill, then complete decode into the reusable destination. No pointers escape.</summary>
         public unsafe ulong FillSnapshot(UnityEngine.Matrix4x4[] destination)

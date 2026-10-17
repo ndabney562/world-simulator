@@ -91,3 +91,5 @@ Reproduce from `core/`: `cargo bench --locked -p ws-sim --bench history -- flush
 On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 3.3330 to 2.2909 ms (about 31%). This meets the approximate 2.4 ms target on that Mac. Claude's independent Linux Xeon review measured 2.62–2.65 ms, so the target remains unmet on that reference machine; its average ×10 tick cost is about 8.8 ms per 30 fps frame before other work. Neither result establishes iPhone performance.
 
 See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.
+
+The merged TP-003 bridge now follows ADR 0019 §8 as ABI v2: commands submitted through `ws_submit` use this same queue/journal, zero-step advance flushes, and a 16-byte committed-control-state read supplies host pacing. The native and C# adapters do not expose a direct mutation escape or multiply scale twice. See the [bridge contract](../ws-ffi/README.md).

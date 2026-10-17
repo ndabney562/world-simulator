@@ -37,7 +37,8 @@ namespace WorldSim.Rendering
         {
             try
             {
-                uint steps=ConsumeHostElapsed(ref pending,Time.unscaledDeltaTime);
+                uint scale=world.FlushCommands(); // Always flush, including paused/no-tick frames.
+                uint steps=ConsumeHostElapsed(ref pending,Time.unscaledDeltaTime,scale);
                 if (steps>0) world.Advance(steps);
                 Tick=world.FillSnapshot(matrices);
                 var parameters=new RenderParams(material) { worldBounds=new Bounds(new Vector3(100,0,1000),new Vector3(500,50,2500)), shadowCastingMode=ShadowCastingMode.Off, receiveShadows=false };
@@ -47,11 +48,13 @@ namespace WorldSim.Rendering
             catch (Exception error) { Debug.LogError($"Bridge demo stopped: {error.Message}",this); Release(); enabled=false; }
         }
         /// <summary>Take at most 100 ticks; discard excess whole steps and retain sub-step time.</summary>
-        public static uint ConsumeHostElapsed(ref double remainder,double elapsed)
+        public static uint ConsumeHostElapsed(ref double remainder,double elapsed,uint scale=1)
         {
             if (double.IsNaN(elapsed) || double.IsInfinity(elapsed) || elapsed<0)
                 throw new ArgumentOutOfRangeException(nameof(elapsed));
-            double total=remainder+elapsed;
+            if(scale!=0 && scale!=1 && scale!=10 && scale!=100)
+                throw new ArgumentOutOfRangeException(nameof(scale));
+            double total=remainder+elapsed*scale;
             double whole=Math.Floor(total/0.1);
             remainder=Math.Max(0,total-whole*0.1);
             return (uint)Math.Min(100,whole);

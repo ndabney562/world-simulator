@@ -2,7 +2,7 @@ use super::*;
 use std::ptr::{null, null_mut};
 fn config(n: u32) -> WsConfig {
     WsConfig {
-        abi_version: 1,
+        abi_version: 2,
         struct_size: 32,
         seed: 7,
         start_us: 0,
@@ -23,12 +23,12 @@ fn layout() {
 fn invalid_arguments_and_config() {
     // SAFETY: documented null paths and live stack configurations; no dangling pointers.
     unsafe {
-        assert_eq!(ws_abi_version(), 1);
+        assert_eq!(ws_abi_version(), 2);
         assert!(ws_create(null()).is_null());
         assert!(ws_last_error(null_mut(), null_mut(), 0) > 1);
         for bad in [
             WsConfig {
-                abi_version: 2,
+                abi_version: 1,
                 ..config(1)
             },
             WsConfig {
@@ -66,21 +66,23 @@ fn snapshot_and_noop_leave_canonical_state_unchanged() {
         assert!(!h.is_null());
         let hash = (*h).world.state_hash();
         let noop = [
-            1u32.to_le_bytes(),
+            2u32.to_le_bytes(),
             1u32.to_le_bytes(),
             0u32.to_le_bytes(),
-            0u32.to_le_bytes(),
+            8u32.to_le_bytes(),
+            1u32.to_le_bytes(),
+            2u32.to_le_bytes(),
         ]
         .concat();
         assert_eq!(ws_submit(h, noop.as_ptr(), noop.len()), OK);
         for bad in [
             vec![],
             vec![0; 7],
-            [1u32.to_le_bytes(), 1025u32.to_le_bytes()].concat(),
+            [2u32.to_le_bytes(), 1025u32.to_le_bytes()].concat(),
             [
+                2u32.to_le_bytes(),
                 1u32.to_le_bytes(),
-                1u32.to_le_bytes(),
-                1u32.to_le_bytes(),
+                99u32.to_le_bytes(),
                 0u32.to_le_bytes(),
             ]
             .concat(),
@@ -91,17 +93,17 @@ fn snapshot_and_noop_leave_canonical_state_unchanged() {
         assert_eq!(ws_submit(h, null(), 9), INVALID_ARGUMENT);
         assert_eq!(ws_submit(h, null(), 65_537), INVALID_ARGUMENT);
         let mut future = noop.clone();
-        future[0] = 2;
+        future[0] = 3;
         assert_eq!(
             ws_submit(h, future.as_ptr(), future.len()),
             VERSION_MISMATCH
         );
-        let empty = [1, 0, 0, 0, 0, 0, 0, 0];
+        let empty = [2, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(ws_submit(h, empty.as_ptr(), empty.len()), OK);
         assert_eq!(ws_submit(h, null(), 0), INVALID_COMMAND);
         assert_eq!(
-            validate_commands(&[2, 0, 0, 0, 0, 0, 0, 0]),
-            Err((VERSION_MISMATCH, "command version mismatch"))
+            ws_submit(h, [1, 0, 0, 0, 0, 0, 0, 0].as_ptr(), 8),
+            VERSION_MISMATCH
         );
         let mut n = 9;
         assert_eq!(
@@ -129,13 +131,14 @@ fn snapshot_and_noop_leave_canonical_state_unchanged() {
             OK
         );
         assert_eq!(&buf[88..], &[0xa5; 12]);
-        assert_eq!(&buf[..8], &[1, 0, 0, 0, 24, 0, 0, 0]);
+        assert_eq!(&buf[..8], &[2, 0, 0, 0, 24, 0, 0, 0]);
         assert_eq!(&buf[16..24], &[2, 0, 0, 0, 32, 0, 0, 0]);
         assert_eq!(&buf[24..32], &1u64.to_le_bytes());
         assert_eq!(&buf[36..40], &0.14f32.to_le_bytes());
         assert_eq!((*h).world.state_hash(), hash);
         assert_eq!(ws_advance(h, 101), INVALID_ARGUMENT);
         assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!((*h).world.state_hash(), hash);
         assert_eq!(ws_advance(h, 2), OK);
         assert_eq!(ws_fill_render_snapshot(h, buf.as_mut_ptr(), 88, &mut n), OK);
         assert_eq!(&buf[8..16], &2u64.to_le_bytes());
@@ -152,7 +155,11 @@ fn completed_ticks_survive_step_failure() {
             ..config(0)
         });
         assert!(!h.is_null());
+        let input = batch(vec![ws_sim::commands::Action::NoOp]);
+        assert_eq!(ws_submit(h, input.as_ptr(), input.len()), OK);
         assert_eq!(ws_advance(h, 2), STEP_FAILED);
+        assert_eq!((*h).world.journal().len(), 1);
+        assert_eq!((*h).world.pending().count(), 0);
         assert_eq!((*h).world.tick(), 1);
         let mut diagnostic = [0i8; 128];
         ws_last_error(h, diagnostic.as_mut_ptr(), diagnostic.len());
@@ -184,7 +191,7 @@ fn panic_poison_and_utf8_diagnostics() {
 
 #[test]
 fn shared_managed_fixture_matches_native_bytes() {
-    let hex = include_str!("../tests/fixtures/snapshot-v1.hex").trim();
+    let hex = include_str!("../tests/fixtures/snapshot-v2.hex").trim();
     let expected: Vec<u8> = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
@@ -260,6 +267,238 @@ fn snapshot_output_errors_use_the_live_handle_diagnostic() {
             std::ffi::CStr::from_ptr(error.as_ptr()).to_str().unwrap(),
             "handle is null"
         );
+        ws_destroy(h);
+    }
+}
+
+fn batch(actions: Vec<ws_sim::commands::Action>) -> Vec<u8> {
+    use ws_sim::commands::{Command, IssuedBy, encode_batch};
+    encode_batch(
+        &actions
+            .into_iter()
+            .map(|a| Command::new(IssuedBy::Test, a))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
+}
+fn control_request() -> WsControlState {
+    WsControlState {
+        abi_version: 2,
+        struct_size: 16,
+        scale_tag: 999,
+        reserved: 999,
+    }
+}
+#[test]
+fn v2_noop_is_owned_pending_then_journaled_at_zero_step_flush() {
+    // SAFETY: live exclusive handle and disjoint initialized buffers.
+    unsafe {
+        let h = ws_create(&config(0));
+        let hash = (*h).world.state_hash();
+        let mut input = batch(vec![ws_sim::commands::Action::NoOp]);
+        assert_eq!(ws_submit(h, input.as_ptr(), input.len()), OK);
+        input.fill(0); // FFI must own the typed copy after return.
+        assert_eq!((*h).world.pending().count(), 1);
+        assert!((*h).world.journal().is_empty());
+        assert_eq!((*h).world.events().records().len(), 1);
+        let mut control = control_request();
+        assert_eq!(ws_get_control_state(h, &mut control), OK);
+        assert!((*h).world.journal().is_empty()); // read never flushes
+        assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!((*h).world.journal().len(), 1);
+        let outcome = &(*h).world.journal()[0];
+        assert_eq!(outcome.sequence, 1);
+        assert_eq!(outcome.command.action, ws_sim::commands::Action::NoOp);
+        assert_eq!(outcome.result, Ok(()));
+        assert_eq!((*h).world.events().records().len(), 2);
+        assert_eq!((*h).world.pending().count(), 0);
+        assert_eq!((*h).world.state_hash(), hash);
+        assert_eq!((*h).world.tick(), 0);
+        assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!((*h).world.journal().len(), 1);
+        ws_destroy(h);
+    }
+}
+#[test]
+fn v1_clients_and_batches_are_refused_without_enqueue() {
+    // SAFETY: initialized configurations, valid borrowed inputs and owned handle.
+    unsafe {
+        assert_ne!(ws_abi_version(), 1);
+        assert!(
+            ws_create(&WsConfig {
+                abi_version: 1,
+                ..config(0)
+            })
+            .is_null()
+        );
+        let h = ws_create(&config(0));
+        let before = (*h).world.checkpoint();
+        let old = [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(ws_submit(h, old.as_ptr(), old.len()), VERSION_MISMATCH);
+        assert_eq!((*h).world.checkpoint(), before);
+        ws_destroy(h);
+    }
+}
+#[test]
+fn control_state_layout_validation_and_uninitialized_output_fields() {
+    assert_eq!(size_of::<WsControlState>(), 16);
+    assert_eq!(align_of::<WsControlState>(), 4);
+    assert_eq!(std::mem::offset_of!(WsControlState, abi_version), 0);
+    assert_eq!(std::mem::offset_of!(WsControlState, struct_size), 4);
+    assert_eq!(std::mem::offset_of!(WsControlState, scale_tag), 8);
+    assert_eq!(std::mem::offset_of!(WsControlState, reserved), 12);
+    // SAFETY: exclusive handle and correctly aligned/disjoint stack storage.
+    // Only the first two request fields are initialized until success writes all fields.
+    unsafe {
+        let h = ws_create(&config(0));
+        let mut out = std::mem::MaybeUninit::<WsControlState>::uninit();
+        let ptr = out.as_mut_ptr();
+        std::ptr::addr_of_mut!((*ptr).abi_version).write(2);
+        std::ptr::addr_of_mut!((*ptr).struct_size).write(16);
+        let before = (*h).world.checkpoint();
+        assert_eq!(ws_get_control_state(h, ptr), OK);
+        assert_eq!(
+            out.assume_init(),
+            WsControlState {
+                abi_version: 2,
+                struct_size: 16,
+                scale_tag: 1,
+                reserved: 0
+            }
+        );
+        assert_eq!((*h).world.checkpoint(), before);
+        for (version, size, status) in [
+            (1, 16, VERSION_MISMATCH),
+            (2, 0, INVALID_ARGUMENT),
+            (2, 20, INVALID_ARGUMENT),
+        ] {
+            let mut state = WsControlState {
+                abi_version: version,
+                struct_size: size,
+                ..control_request()
+            };
+            let original = state;
+            assert_eq!(ws_get_control_state(h, &mut state), status);
+            assert_eq!(state, original);
+        }
+        let mut state = control_request();
+        let original = state;
+        assert_eq!(
+            ws_get_control_state(null_mut(), &mut state),
+            INVALID_ARGUMENT
+        );
+        assert_eq!(state, original);
+        assert_eq!(ws_get_control_state(h, null_mut()), INVALID_ARGUMENT);
+        let mut storage = [0xa5a5a5a5u32; 5];
+        let unaligned = storage
+            .as_mut_ptr()
+            .cast::<u8>()
+            .add(1)
+            .cast::<WsControlState>();
+        assert_eq!(ws_get_control_state(h, unaligned), INVALID_ARGUMENT);
+        assert_eq!(storage, [0xa5a5a5a5; 5]);
+        assert_eq!(operate(h, |_| panic!("injected")), PANIC);
+        assert_eq!(ws_get_control_state(h, &mut state), POISONED);
+        assert_eq!(state, original);
+        ws_destroy(h);
+    }
+}
+#[test]
+fn scale_pause_resume_explicit_steps_and_invalid_advance_before_flush() {
+    use ws_sim::{TimeScale, commands::Action};
+    // SAFETY: owned handle and valid disjoint command/control buffers.
+    unsafe {
+        let h = ws_create(&config(0));
+        let pause = batch(vec![Action::SetTimeScale(TimeScale::Paused)]);
+        assert_eq!(ws_submit(h, pause.as_ptr(), pause.len()), OK);
+        assert_eq!(ws_advance(h, 101), INVALID_ARGUMENT);
+        assert!((*h).world.journal().is_empty());
+        let mut control = control_request();
+        assert_eq!(ws_get_control_state(h, &mut control), OK);
+        assert_eq!(control.scale_tag, 1);
+        assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!(ws_get_control_state(h, &mut control), OK);
+        assert_eq!(control.scale_tag, 0);
+        assert_eq!((*h).world.tick(), 0);
+        assert_eq!(ws_advance(h, 2), OK); // explicit steps ignore paused pacing
+        assert_eq!((*h).world.tick(), 2);
+        let resume = batch(vec![Action::SetTimeScale(TimeScale::X10)]);
+        assert_eq!(ws_submit(h, resume.as_ptr(), resume.len()), OK);
+        assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!(ws_get_control_state(h, &mut control), OK);
+        assert_eq!(control.scale_tag, 10);
+        assert_eq!((*h).world.journal().len(), 2);
+        assert_eq!((*h).world.tick(), 2);
+        ws_destroy(h);
+    }
+}
+#[test]
+fn native_ingress_caps_are_atomic_and_semantic_lod_errors_are_journaled() {
+    use ws_sim::{EntityId, Lod, commands::Action};
+    // SAFETY: live handle and valid borrowed byte arrays; no overlapping output.
+    unsafe {
+        let h = ws_create(&config(0));
+        let full = batch(vec![Action::NoOp; 1024]);
+        assert_eq!(ws_submit(h, full.as_ptr(), full.len()), OK);
+        let before = (*h).world.checkpoint();
+        let extra = batch(vec![Action::NoOp]);
+        assert_eq!(ws_submit(h, extra.as_ptr(), extra.len()), INVALID_COMMAND);
+        assert_eq!((*h).world.checkpoint(), before);
+        assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!((*h).world.journal().len(), 1024);
+        let id = (*h).world.toy().buildings().ids()[0];
+        let input = batch(vec![
+            Action::SetNodeLod(vec![(id, Lod::L2)]),
+            Action::SetNodeLod(vec![(EntityId::spawned(1).unwrap(), Lod::L2)]),
+        ]);
+        assert_eq!(ws_submit(h, input.as_ptr(), input.len()), OK);
+        assert_eq!((*h).world.journal().len(), 1024);
+        assert_eq!(ws_advance(h, 1), OK);
+        assert_eq!((*h).world.journal()[1024].result, Ok(()));
+        assert!((*h).world.journal()[1025].result.is_err());
+        assert_eq!((*h).world.tick(), 1);
+        ws_destroy(h);
+    }
+}
+
+#[test]
+fn exact_maximum_wire_batch_and_malformed_inputs_are_atomic_at_native_boundary() {
+    use ws_sim::{Lod, TimeScale, commands::Action};
+    // SAFETY: valid exclusively owned handle and real byte arrays covering all supplied lengths.
+    unsafe {
+        let h = ws_create(&config(0));
+        let id = (*h).world.toy().buildings().ids()[0];
+        let mut actions = vec![Action::SetNodeLod(vec![(id, Lod::L2); 1024]); 5];
+        actions.push(Action::SetTimeScale(TimeScale::X1));
+        actions.extend(vec![Action::NoOp; 248]);
+        let maximum = batch(actions);
+        assert_eq!(maximum.len(), 65_536);
+        let before = (*h).world.checkpoint();
+        for bad in [
+            maximum[..maximum.len() - 1].to_vec(),
+            [maximum.clone(), vec![0]].concat(),
+        ] {
+            assert_eq!(ws_submit(h, bad.as_ptr(), bad.len()), INVALID_COMMAND);
+            assert_eq!((*h).world.checkpoint(), before);
+        }
+        let mut schema = batch(vec![Action::NoOp]);
+        schema[16] = 99;
+        assert_eq!(
+            ws_submit(h, schema.as_ptr(), schema.len()),
+            VERSION_MISMATCH
+        );
+        assert_eq!((*h).world.checkpoint(), before);
+        assert_eq!(ws_submit(h, maximum.as_ptr(), maximum.len()), OK);
+        assert_eq!((*h).world.pending().count(), 254);
+        let queued = (*h).world.checkpoint();
+        let extra = batch(vec![Action::NoOp]);
+        assert_eq!(ws_submit(h, extra.as_ptr(), extra.len()), INVALID_COMMAND);
+        assert_eq!((*h).world.checkpoint(), queued);
+        assert_eq!(ws_advance(h, 0), OK);
+        assert_eq!((*h).world.journal().len(), 254);
+        assert!((*h).world.journal()[..5].iter().all(|o| o.result.is_err()));
+        assert!((*h).world.journal()[5..].iter().all(|o| o.result.is_ok()));
+        assert_eq!((*h).world.tick(), 0);
         ws_destroy(h);
     }
 }

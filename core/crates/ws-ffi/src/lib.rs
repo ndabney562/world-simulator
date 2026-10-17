@@ -1,4 +1,4 @@
-//! Synchronous C ABI v1; see ADR 0018 and this crate's README for ownership.
+//! Synchronous C ABI v2; see ADRs 0018/0019 and this crate's README for ownership.
 #![allow(unsafe_code)] // The only native-pointer boundary in the workspace.
 
 use std::{
@@ -6,11 +6,11 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
 };
-use ws_sim::{SimTime, StepError, World, WorldConfig};
+use ws_sim::{SimTime, StepError, World, WorldConfig, commands::IngressError};
 
 /// Exact native/managed contract version.
-pub const ABI_VERSION: u32 = 1;
-/// Fixed-width C status code; numeric values are stable for ABI v1.
+pub const ABI_VERSION: u32 = 2;
+/// Fixed-width C status code; numeric values retain their ABI-v1 meanings.
 pub type WsStatus = u32;
 /// Successful operation.
 pub const OK: u32 = 0;
@@ -22,7 +22,7 @@ pub const VERSION_MISMATCH: u32 = 2;
 pub const BUFFER_TOO_SMALL: u32 = 3;
 /// Malformed or unsupported command batch.
 pub const INVALID_COMMAND: u32 = 4;
-/// A tick failed; earlier successful ticks remain applied.
+/// Boundary processing or a tick failed; earlier committed work remains applied.
 pub const STEP_FAILED: u32 = 5;
 /// Caught native unwind; handle is poisoned.
 pub const PANIC: u32 = 6;
@@ -37,7 +37,7 @@ pub const RECORD_SIZE: usize = 32;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct WsConfig {
-    /// Must equal 1.
+    /// Must equal 2.
     pub abi_version: u32,
     /// Must equal 32.
     pub struct_size: u32,
@@ -51,7 +51,21 @@ pub struct WsConfig {
     pub reserved: u32,
 }
 
-/// Snapshot v1 header, serialized little-endian without alignment assumptions.
+/// Coarse committed control state; 16 bytes, aligned to 4. Input: version and size only.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WsControlState {
+    /// Caller requests ABI 2; returned as 2 on success.
+    pub abi_version: u32,
+    /// Caller provides 16 bytes; returned as 16 on success.
+    pub struct_size: u32,
+    /// Authoritative committed scale: 0, 1, 10 or 100.
+    pub scale_tag: u32,
+    /// Returned as zero.
+    pub reserved: u32,
+}
+
+/// Snapshot v2 header, serialized little-endian without alignment assumptions.
 #[repr(C)]
 pub struct WsSnapshotHeader {
     /// ABI version.
@@ -217,29 +231,19 @@ unsafe fn operate(
     }
 }
 
-fn validate_commands(bytes: &[u8]) -> Result<(), (u32, &'static str)> {
-    let invalid = (INVALID_COMMAND, "invalid NoOp batch");
-    if bytes.len() < 8 || bytes.len() > 65_536 {
-        return Err(invalid);
+fn ingress_error(error: IngressError) -> (u32, &'static str) {
+    match error {
+        IngressError::Version => (VERSION_MISMATCH, "command version mismatch"),
+        IngressError::Malformed => (INVALID_COMMAND, "malformed command batch"),
+        IngressError::Capacity => (
+            INVALID_COMMAND,
+            "command batch or pending queue capacity exceeded",
+        ),
+        IngressError::Resource => (STEP_FAILED, "command queue reservation failed"),
     }
-    let read = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
-    if read(0) != 1 {
-        return Err((VERSION_MISMATCH, "command version mismatch"));
-    }
-    let count = read(4) as usize;
-    if count > 1_024 || bytes.len() != 8 + count * 8 {
-        return Err(invalid);
-    }
-    for index in 0..count {
-        let offset = 8 + index * 8;
-        if read(offset) != 0 || read(offset + 4) != 0 {
-            return Err(invalid);
-        }
-    }
-    Ok(())
 }
 
-/// Validates an ABI-v1 batch of NoOps; copies/retains no bytes and changes no state.
+/// Atomically copies a bounded v2 batch into the journaled queue; success means pending.
 /// # Safety
 /// Handle must be live/exclusive; positive len needs readable bytes for the call.
 #[unsafe(no_mangle)]
@@ -250,19 +254,23 @@ pub unsafe extern "C" fn ws_submit(
 ) -> WsStatus {
     // SAFETY: caller upholds handle and buffer lifetime; lengths checked before borrowing.
     unsafe {
-        operate(handle, |_| {
+        operate(handle, |h| {
             if bytes.is_null() && len > 0 {
                 return Err((INVALID_ARGUMENT, "batch pointer is null"));
             }
-            if len > 65_536 || len == 0 {
+            if !(8..=65_536).contains(&len) {
                 return Err((INVALID_COMMAND, "invalid batch size"));
             }
-            validate_commands(slice::from_raw_parts(bytes, len))
+            h.world
+                .submit_bytes(slice::from_raw_parts(bytes, len))
+                .map(|_| ())
+                .map_err(ingress_error)
         })
     }
 }
 
-/// Advances whole base steps (0..100); stops at the first failed tick.
+/// Flushes once, then advances explicit whole steps (0..100), independent of scale.
+/// Zero steps flush even while paused. Invalid step counts fail before flushing.
 /// # Safety
 /// Handle must be live and exclusively borrowed for this call.
 #[unsafe(no_mangle)]
@@ -273,17 +281,59 @@ pub unsafe extern "C" fn ws_advance(handle: *mut WsHandle, steps: u32) -> WsStat
             if steps > 100 {
                 return Err((INVALID_ARGUMENT, "at most 100 steps per call"));
             }
+            h.world
+                .flush_commands()
+                .map_err(|_| (STEP_FAILED, "command boundary processing failed"))?;
             for _ in 0..steps {
-                h.world.step().map_err(|error| {
+                h.world.physical_step().map_err(|error| {
                     (
                         STEP_FAILED,
                         match error {
                             StepError::Time(_) => "tick failed: simulation time overflow",
                             StepError::World(_) => "tick failed: world system error",
+                            StepError::Control(_) => "tick failed: command processing error",
+                            StepError::History(_) => "tick failed: history publication error",
                         },
                     )
                 })?;
             }
+            Ok(())
+        })
+    }
+}
+
+/// Reads committed control state without flushing, stepping or publishing events.
+/// Errors leave the destination unchanged and use the handle diagnostic when usable.
+/// # Safety
+/// Handle must be live/exclusive. A non-null out_state must be aligned writable
+/// storage for 16 bytes, disjoint from handle; its first two u32 fields must be initialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_get_control_state(
+    handle: *mut WsHandle,
+    out_state: *mut WsControlState,
+) -> WsStatus {
+    // SAFETY: caller guarantees handle and output storage; validate before any write.
+    unsafe {
+        operate(handle, |h| {
+            if out_state.is_null() || !out_state.is_aligned() {
+                return Err((
+                    INVALID_ARGUMENT,
+                    "control-state output is null or unaligned",
+                ));
+            }
+            // Read only the initialized request fields, not the output-only fields.
+            if std::ptr::addr_of!((*out_state).abi_version).read() != ABI_VERSION {
+                return Err((VERSION_MISMATCH, "control-state ABI version mismatch"));
+            }
+            if std::ptr::addr_of!((*out_state).struct_size).read() != 16 {
+                return Err((INVALID_ARGUMENT, "control-state size must be 16"));
+            }
+            out_state.write(WsControlState {
+                abi_version: ABI_VERSION,
+                struct_size: 16,
+                scale_tag: h.world.clock().scale().multiplier(),
+                reserved: 0,
+            });
             Ok(())
         })
     }
