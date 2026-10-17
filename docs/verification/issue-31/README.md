@@ -31,14 +31,14 @@ The conversion benchmark runs original and cached re-expression over identical i
 
 ## Independent baseline/candidate replay probe
 
-[replay-probe.rs](replay-probe.rs) is a verification artifact, not a runtime tool. Compile it against each revision's release libraries, run the two resulting executables and compare their outputs. It prints canonical state hash plus a digest of every derived L1 velocity's f32 bits after each tick. Four seeds, 100 agents, 10,000 ticks, with all L1 and with alternating mixed LOD requests every 137 ticks, give 80,000 comparisons. Compare within the same platform/build settings; it is Tier 2 evidence, not a new cross-platform golden.
+[replay-probe.rs](replay-probe.rs) and [l2-regression-bench.rs](l2-regression-bench.rs) are historical verification artifacts for baseline `de1a59eea49f2febfe65eec97213fa29ffab8526` and candidate `1f612862dd2447b30f3525f8b4bb15e5ad40dc10`. They are not compiled by CI or maintained as current-API tools. Compile it against each revision's release libraries, run the two resulting executables and compare their outputs. It prints canonical state hash plus a digest of every derived L1 velocity's f32 bits after each tick. Four seeds, 100 agents, 10,000 ticks, with all L1 and with alternating mixed LOD requests every 137 ticks, give 80,000 comparisons. Compare within the same platform/build settings; it is Tier 2 evidence, not a new cross-platform golden.
 
 From `core/`, after building each revision separately:
 
 ```sh
 cargo build --release --locked -p ws-sim
 # Use the rlib from this build; use a separate target directory per revision
-# if stale artifacts from other feature/build configurations are present.
+# to avoid selecting artifacts from other feature/build configurations.
 rustc --edition=2024 -O ../docs/verification/issue-31/replay-probe.rs \
   -L dependency=target/release/deps \
   --extern ws_sim="$(find target/release/deps -name 'libws_sim-*.rlib' -print -quit)" \
@@ -69,13 +69,27 @@ The probe file is added by this branch; copy it outside the candidate checkout t
 | `lod_l2_hour/3000` | 17.675 ms 18.541 ms 20.802 ms | 18.007 ms 18.602 ms 19.794 ms |
 | `lod_l2_hour/100000` | 665.98 ms 672.66 ms 679.38 ms | 689.37 ms 715.48 ms 752.39 ms |
 
-The 5,000-agent L1 result meets the issue's approximate 2.4 ms target on this desktop. All transition and L1 results improved or were within the noise threshold. Smaller L2 changes are not attributed to frame reuse: that path does not enter the cache. The initial 100,000-agent L2-hour run flagged +6.37% (change interval +2.29% to +12.04%, p=0.01), so it required a focused investigation rather than a blanket no-regression claim.
+The 5,000-agent L1 result meets the issue's approximate 2.4 ms target on the M1 Pro, but not on the independent Xeon reference below. All transition and L1 results improved or were within the noise threshold. Smaller L2 changes are not attributed to frame reuse: that path does not enter the cache. The initial 100,000-agent L2-hour run flagged +6.37% (change interval +2.29% to +12.04%, p=0.01), so it required a focused investigation rather than a blanket no-regression claim.
 
 The [focused benchmark](l2-regression-bench.rs) repeats exactly the same seed, population, 600 L1 warm-up ticks, all-L2 transition and 36,000-tick measured span, with 30 samples and a 20-second target (Criterion extends it to fit the samples). It excludes unrelated benchmark setup. Compile it with `rustc --edition=2024 -O`, `-L dependency=target/release/deps`, and `--extern ws_sim=... --extern criterion=...` pointing to that revision's release rlibs (Criterion is the existing dev dependency). Run the main executable with `--bench --save-baseline main31-isolated`, then the candidate with `--bench --baseline main31-isolated` in the same directory. Preserve distinct executable names; rebuild main in a detached checkout, not by editing the candidate source.
 
 An initial focused pair found no significant change (694.99 → 709.61 ms, change interval −2.82% to +7.88%, p=0.45), but overlapped the debug soak test and is excluded from the final isolated comparison. The isolated pair ran only after the workspace tests finished. No tests or performance budgets were changed to address the original flag.
 
 The isolated 30-sample comparison, after all test work finished, measured main 681.78 ms (95% interval 680.14–683.48) and candidate 669.64 ms (668.22–671.01), a change interval of −2.10% to −1.47% (point −1.78%, p<0.05). The original slowdown was not reproduced; no L2 regression was observed in this controlled repeat. This is desktop timing evidence rather than proof of identical performance in every environment.
+
+## Independent Linux review (2026-10-17)
+
+Claude reported these measurements in its [PR #45 review](https://github.com/ndabney562/world-simulator/pull/45), using an Intel Xeon at 2.1 GHz, Rust 1.97.0, alternating baseline/candidate twice with 30 samples. These are reviewer measurements, not a new local benchmark run.
+
+| Benchmark | Baseline runs | Candidate runs |
+|---|---|---|
+| `world_step/5000` | 3.93 / 3.83 ms | 2.65 / 2.62 ms |
+| `world_step/50` | 38.7 / 38.4 µs | 28.2 / 27.3 µs |
+| Re-expression microbenchmark | 559 ns | 434 ns |
+
+The optimization improves both machines, but the Xeon result misses the approximate 2.4 ms target. At roughly 2.63 ms per tick and 3.33 ticks per frame, the average ×10 cost is about 8.8 ms, above the 8 ms high-priority budget before other work. Cached re-expression still accounts for roughly 434 ns of 525 ns per agent: the unchanged full cell lookup remains the main cost. Further membership optimization is future assigned work, not part of this change; desktop results do not establish the iPhone budget.
+
+For independent baseline/candidate builds, use a distinct `CARGO_TARGET_DIR` per revision and point each probe's library paths at that directory. Preserve distinct executables and compare outputs on the same platform. The sequential Criterion measurements above retain their original methodology.
 
 ## Correctness verification
 
