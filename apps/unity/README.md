@@ -66,6 +66,12 @@ python3 scripts/check_unity_project.py
 
 How Unity tests relate to CI is in [ci.md](../../docs/process/ci.md) (S-6).
 
+## Input and overview visibility
+
+The demo uses Unity's built-in Input Manager (`UnityEngine.Input`) for mouse/touch orbit, pinch/wheel zoom, and HUD pointer coordinates. **Player → Other Settings → Active Input Handling** is explicitly **Input Manager (Old)** (`activeInputHandler: 0`); no Input System package or Both-mode requirement is introduced. Static CI rejects an unset or incompatible backend, and the Editor suite checks the effective legacy input define and API calls. Restart the Editor after changing this setting.
+
+The overview fits the bounds of all five building boxes to the camera's field of view and current aspect ratio, including portrait. Its far clip plane follows the overview/zoom distance and scene radius rather than cutting the kilometre-wide world off at 1,000 m. Resizing the Game view reframes the overview. Drag outside the HUD to orbit and scroll/pinch to move the camera closer; Unity's Game-view **Scale** slider only magnifies the preview and is not camera zoom. Buildings are metres wide and residents about 1.7 m tall, so residents remain small in the full-world overview.
+
 ## Merging scene and asset files
 
 `.gitattributes` routes `.unity`, `.prefab`, `.asset`, and `.meta` files through Unity's Smart Merge. To enable it locally, add this to your git config (path for a Hub install on macOS):

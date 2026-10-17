@@ -5,12 +5,13 @@ namespace WorldSim.Rendering
     /// <summary>Orbit/zoom camera around a target: one-finger drag or left mouse orbits; pinch or wheel zooms.</summary>
     public sealed class OrbitCamera
     {
-        readonly Transform camera;
+        readonly Camera camera;
+        float sceneRadius, maxDistance = 1500f;
         public Vector3 Target;
         public float Distance = 220f, Yaw = 30f, Pitch = 35f;
         Vector2 lastPointer;
         bool dragging;
-        public OrbitCamera(Transform camera, Vector3 target) { this.camera = camera; Target = target; Apply(); }
+        public OrbitCamera(Camera camera, Vector3 target) { this.camera = camera; Target = target; Apply(); }
         /// <summary>Called every frame; <paramref name="blocked"/> is true while the pointer is over HUD controls.</summary>
         public void Update(bool blocked)
         {
@@ -35,9 +36,32 @@ namespace WorldSim.Rendering
                 float wheel = Input.mouseScrollDelta.y;
                 if (wheel != 0 && !blocked) Distance *= Mathf.Pow(0.9f, wheel);
             }
-            Distance = Mathf.Clamp(Distance, 20f, 1500f);
+            Distance = Mathf.Clamp(Distance, 20f, maxDistance);
             Apply();
         }
+        /// <summary>Fit every bounds corner inside the perspective view, including portrait aspect ratios.</summary>
+        public void FrameBounds(Bounds bounds)
+        {
+            Target = bounds.center;
+            sceneRadius = bounds.extents.magnitude;
+            var inverse = Quaternion.Inverse(Quaternion.Euler(Pitch, Yaw, 0));
+            float tanY = Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * 0.5f) * 0.9f;
+            float tanX = tanY * Mathf.Max(camera.aspect, 0.01f);
+            float distance = 20f;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                var offset = new Vector3((corner & 1) == 0 ? -bounds.extents.x : bounds.extents.x,
+                    (corner & 2) == 0 ? -bounds.extents.y : bounds.extents.y,
+                    (corner & 4) == 0 ? -bounds.extents.z : bounds.extents.z);
+                var local = inverse * offset;
+                distance = Mathf.Max(distance, Mathf.Max(Mathf.Abs(local.x) / tanX - local.z,
+                    Mathf.Abs(local.y) / tanY - local.z));
+            }
+            Distance = distance + 1f;
+            maxDistance = Mathf.Max(1500f, Distance * 2f);
+            Apply();
+        }
+
         void Rotate(Vector2 delta)
         {
             Yaw += delta.x * 0.3f;
@@ -46,8 +70,10 @@ namespace WorldSim.Rendering
         void Apply()
         {
             var rotation = Quaternion.Euler(Pitch, Yaw, 0);
-            camera.position = Target + rotation * new Vector3(0, 0, -Distance);
-            camera.rotation = rotation;
+            camera.transform.position = Target + rotation * new Vector3(0, 0, -Distance);
+            camera.transform.rotation = rotation;
+            // The toy world spans about 1 km: overview/zoom-out distances exceed the scene's old 1 km far plane.
+            camera.farClipPlane = Mathf.Max(1000f, Distance + sceneRadius + 100f);
         }
     }
 }

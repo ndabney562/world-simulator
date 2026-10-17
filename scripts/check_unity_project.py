@@ -100,6 +100,13 @@ def check_ios_graphics_api(project, errors):
         errors.append("ProjectSettings.asset iOSSupport graphics APIs must be exactly Metal (m_APIs: 10000000)")
 
 
+def check_input_backend(project, errors):
+    """The orbit camera and HUD use UnityEngine.Input, including on iOS."""
+    settings = project / "ProjectSettings" / "ProjectSettings.asset"
+    if settings.is_file() and re.findall(r"^  activeInputHandler:[ \t]*(-?\d+)[ \t]*$", read(settings), re.M) != ["0"]:
+        errors.append("ProjectSettings.asset activeInputHandler must be 0 (Input Manager) for the demo's UnityEngine.Input calls")
+
+
 def check_manifest(project, errors):
     manifest_file = project / "Packages" / "manifest.json"
     if not manifest_file.is_file():
@@ -271,6 +278,7 @@ def check(project, tracked=None):
     check_editor_version(project, errors)
     check_manifest(project, errors)
     check_ios_graphics_api(project, errors)
+    check_input_backend(project, errors)
     guids = asset_guids(project, errors)
     check_text_serialization(project, errors)
     check_assemblies(project, errors)
