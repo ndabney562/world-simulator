@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0020: save format and version header (2026-10-17, Proposed)
+
+Design phase of TP-009 (#10): proposes the SQLite save container, S-2 as a hand-written versioned canonical codec (compared with `serde`/`postcard`, FlatBuffers and Cap'n Proto), the D-14 version header, load-time validation, and `ws-persist` moving above `ws-sim` in the crate layers because it must construct a `World`. Adds pointers in persistence and the decisions table. No code, dependency, CI or layer-table change; those come with the implementation PR after acceptance.
+
 ## TP-008 repository layout correction (2026-10-17)
 
 The repository tree now places the headless host at `core/crates/ws-cli/`, as accepted ADR 0019 §1 specifies; `tools/` remains for the inspector and data pipeline. No dependency direction or architecture decision changed.

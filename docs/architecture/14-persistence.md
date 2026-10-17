@@ -21,7 +21,7 @@ A save does **not** contain: the baseline (simulation tiles and procedural conte
 
 - **SQLite** as the container on device (transactional, crash-safe, queryable for inspector and history queries, partial loading by key), accessed from Rust with `rusqlite`.
 - Tables per kind of record (nodes, entities, deltas, events, causal links, journal, snapshots), keyed by IDs and by **Hilbert-ordered cell IDs**, so spatially close data is close on disk and region queries are range scans.
-- Bulk component data stored as compressed binary blobs per node, in a versioned, schema-evolving format (the exact format is chosen in a Technical Prototype spike). Every record carries a schema version.
+- Bulk component data stored as compressed binary blobs per node, in a versioned, schema-evolving format (the exact format is chosen in a Technical Prototype spike; proposed in [ADR 0020](../adr/0020-save-format-and-versioning.md)). Every record carries a schema version.
 - One SQLite file per save slot.
 
 ## 15.3 Saving
