@@ -1,0 +1,72 @@
+using System;
+using UnityEngine;
+using UnityEngine.Rendering;
+using WorldSim.Bridge;
+
+namespace WorldSim.Rendering
+{
+    /// <summary>TP-003 synchronous debug-marker demo; real entity rendering arrives in TP-011.</summary>
+    public sealed class BridgeDemo : MonoBehaviour
+    {
+        [SerializeField, Range(0,100000)] int markerCount = 1000;
+        NativeWorld world;
+        Matrix4x4[] matrices;
+        Mesh mesh;
+        Material material;
+        double pending;
+        public ulong Tick { get; private set; }
+        public bool Running => world != null;
+        void OnEnable()
+        {
+            try
+            {
+                world=new NativeWorld(7,markerCount);
+                matrices=new Matrix4x4[markerCount];
+                var primitive=GameObject.CreatePrimitive(PrimitiveType.Cube);
+                mesh=Instantiate(primitive.GetComponent<MeshFilter>().sharedMesh);
+                DestroyImmediate(primitive);
+                var shader=Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null) throw new InvalidOperationException("URP Unlit shader missing.");
+                material=new Material(shader) { enableInstancing=true };
+                material.SetColor("_BaseColor",new Color(0.15f,0.8f,0.9f));
+                Tick=world.FillSnapshot(matrices);
+            }
+            catch (Exception error) { Debug.LogError($"Bridge demo stopped: {error.Message}",this); Release(); enabled=false; }
+        }
+        void Update()
+        {
+            try
+            {
+                uint scale=world.FlushCommands(); // Always flush, including paused/no-tick frames.
+                uint steps=ConsumeHostElapsed(ref pending,Time.unscaledDeltaTime,scale);
+                if (steps>0) world.Advance(steps);
+                Tick=world.FillSnapshot(matrices);
+                var parameters=new RenderParams(material) { worldBounds=new Bounds(new Vector3(100,0,1000),new Vector3(500,50,2500)), shadowCastingMode=ShadowCastingMode.Off, receiveShadows=false };
+                for(int start=0; start<markerCount; start+=256)
+                    Graphics.RenderMeshInstanced(parameters,mesh,0,matrices,Math.Min(256,markerCount-start),start);
+            }
+            catch (Exception error) { Debug.LogError($"Bridge demo stopped: {error.Message}",this); Release(); enabled=false; }
+        }
+        /// <summary>Take at most 100 ticks; discard excess whole steps and retain sub-step time.</summary>
+        public static uint ConsumeHostElapsed(ref double remainder,double elapsed,uint scale=1)
+        {
+            if (double.IsNaN(elapsed) || double.IsInfinity(elapsed) || elapsed<0)
+                throw new ArgumentOutOfRangeException(nameof(elapsed));
+            if(scale!=0 && scale!=1 && scale!=10 && scale!=100)
+                throw new ArgumentOutOfRangeException(nameof(scale));
+            double total=remainder+elapsed*scale;
+            double whole=Math.Floor(total/0.1);
+            remainder=Math.Max(0,total-whole*0.1);
+            return (uint)Math.Min(100,whole);
+        }
+        void OnDisable() { Release(); }
+        void OnDestroy() { Release(); }
+        void Release()
+        {
+            world?.Dispose(); world=null;
+            if (mesh!=null) DestroyImmediate(mesh);
+            if (material!=null) DestroyImmediate(material);
+            mesh=null; material=null; pending=0;
+        }
+    }
+}

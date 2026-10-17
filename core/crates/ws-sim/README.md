@@ -2,39 +2,30 @@
 
 ## Responsibility
 
-Owns the `World`: the authoritative simulation state and the loop that advances it. In the architecture it grows into the scheduler, command queue, journal, and system registry ([04-simulation-architecture.md](../../../docs/architecture/04-simulation-architecture.md) §5.1). As of TP-006 it holds a world created from a seed and a start time, advanced in fixed base steps by its `Clock` ([ADR 0014](../../../docs/adr/0014-time-representation.md)), and the toy world from `ws-world`, whose movement system runs once per base step ([ADR 0016](../../../docs/adr/0016-entity-identity-storage-and-randomness.md)). Since TP-007 its residents run at L1 or L2 per building, changed by `World::set_lod` ([ADR 0017](../../../docs/adr/0017-simulation-lod-l1-l2-round-trip.md)).
+Owns authoritative `World`, boundary command application, journal and meaningful event publication under [ADR 0019](../../../docs/adr/0019-command-journal-and-world-events.md). Rust owns domain state; hosts submit owned commands and schedule explicit physical ticks or host-elapsed advances.
 
 ## Owned state
 
-- `seed: u64`, the root seed from `WorldConfig`, fixed for the life of the world.
-- `clock: Clock` (`src/clock.rs`):
-  - `start` and `now: SimTime`; `now` starts at `WorldConfig::start`, which the host supplies.
-  - `base_step: Rate`, fixed; default 100 ms (`Clock::DEFAULT_BASE_STEP`).
-  - `steps: u64`, base steps taken since creation; this is the world's tick.
-  - `scale: TimeScale` (`Paused`, `X1`, `X10`, `X100`); default `X1`. Changed by a plain method call until TP-008 journals it.
-  - `max_steps_per_call`, default 100 (`Clock::DEFAULT_MAX_STEPS_PER_CALL`), and `pending_us`, the sub-step remainder of scaled host time.
-- `toy: ToyWorld` (`ws-world`), generated from the seed, the built-in toy dataset, and `WorldConfig::population` (`Population::TOY` by default: 4 to 12 residents per building).
+Seed, fixed-step `Clock`, `ToyWorld`, bounded pending queue and enqueue allocator, append-only outcomes, boundary ordinal, and `ws-events::EventStore`. `WorldConfig` supplies seed, aligned start and population. The clock uses 100 ms steps and authoritative Paused/×1/×10/×100 scale. Immutable `clock()` and `toy()` views have no mutation escape.
 
-## Emitted event types
+## Commands and emitted event types
 
-None yet. The world event system arrives with TP-008.
+Use `commands::Command::new(IssuedBy::Player, Action::SetTimeScale(TimeScale::Paused))`, `World::submit(vec![command])`, then `flush_commands()`. `SetNodeLod(Vec<(EntityId,Lod)>)` requests the existing atomic domain transaction. `NoOp` creates a journal outcome without changing simulation state. `submit_bytes` decodes the explicit version-2 batch codec. Success means queued, never already applied. There are no direct World scale/LOD setters.
+
+Emits `sim.world_created`, one `sim.command_applied` for every Applied outcome including idempotent commands, one `sim.lod_changed` per actual changed building (directly caused by its applied-command event), and `agent.arrived` from successful L1/L2 domain plans. Rejections have journal outcomes but no applied events. Initial materialization, conversion and scheduler wakeups do not fabricate arrivals. Event/journal read access is immutable and Rust-only.
 
 ## Invariants
 
-- `World::new` starts at tick 0 at `WorldConfig::start`; each `World::step` increases the tick by exactly one and the time by exactly one base step.
-- `now == start + tick * base_step` at all times.
-- `WorldConfig::start` must lie on the base-step grid (a whole number of base steps from the epoch, ADR 0017 §8): `World::new` returns `CreateError::UnalignedStart` otherwise and never rounds. So every clock step falls on a `ws_time::Rate` boundary of the base step.
-- `World::advance_by_host_elapsed(host_elapsed_us)` multiplies host time by the scale, adds the pending remainder, and takes every whole base step up to the per-call cap. Whole steps beyond the cap are dropped; the sub-step remainder is kept, including across pauses and scale changes. `Paused` takes zero steps.
-- Integer arithmetic only, so the same sequence of host inputs gives the same steps and state, and splitting the same host time differently across calls gives the same result when no call reaches the cap.
-- Time never wraps: a step past `SimTime::MAX` returns `TimeOverflow` and leaves the world unchanged.
-- The seed never changes after creation.
-- The state depends only on the configuration and the sequence of calls (Tier 2, [25-determinism-policy.md](../../../docs/architecture/25-determinism-policy.md)); time arithmetic itself is Tier 1.
-- `World::step` runs the toy world's tick for the step from `now` (reconcile residency with the building levels, L1 movement, the L2 event drain up to the end of the step), then advances the clock by one base step; `advance_by_host_elapsed` does the same for every step it takes. A failed step (time overflow, an exhausted target counter, or a violated invariant) leaves the world unchanged.
-- `World::set_lod(request)` applies a set of `(building, level)` pairs as one atomic transaction at the current boundary and returns the numbers demoted and promoted, or a `LodError` with the world unchanged. `World::check_lod_invariants` runs the `ws-world` checker at the current time.
-- `World::state_hash` hashes the seed, the tick, the time, and the toy world's canonical state (Tier 2). `tests/replay.rs` checks identical per-tick hashes for 10,000 ticks with the same seed, with and without scripted LOD requests, different hashes for a different seed, the same hashes from a separate process, and that `advance_by_host_elapsed` matches `step` with transitions between calls.
-- `World::new` fails, rather than renumbering anything, if two procedural IDs collide.
-- The world never reads the wall clock, the environment, or the filesystem; elapsed host time and the start time are inputs.
-- No `unsafe` code. Runtime dependencies: `ws-ecs` (for `EntityId` in `set_lod`, re-exported), `ws-rng`, `ws-time`, `ws-world`.
+- Batches/queue have 1024-command and 65536-byte caps, including one canonical 8-byte batch header. Invalid ingress is atomic and consumes no sequences. Typed diagnostic schema/LOD errors are journaled semantic rejections; wire structural/version errors fail before enqueue.
+- Commands apply in enqueue order at serialized boundaries. Each command's state, outcome, events and queue removal commit together. Fixed semantic rejection changes no simulation state and continues; infrastructure failure leaves the current command/suffix pending and preserves earlier commits.
+- Each nonempty flush allocates one boundary ordinal on its first committed outcome. Empty/zero-prefix flushes allocate none. Multiple paused flushes are distinct boundaries without advancing time.
+- `step()` flushes once then attempts one physical tick regardless of scale. Physical domain/clock/history commit atomically; failure leaves the **post-flush** state intact. `physical_step()` is the recorder/host primitive without implicit flush. `flush_prefix` and `validate_physical_step` support bounded environmental replay fences, never arbitrary mutation.
+- Host-elapsed advance flushes before budgeting with committed scale. Its existing cap is 100 ticks, excess whole steps are dropped, and the sub-step remainder survives pause/scale changes. Time overflow is checked before physical work; partial tick success counts exactly committed ticks.
+- `now == start + tick * base_step`, the seed never changes, and time never wraps. Domain decisions retain canonical ordering/counter-based randomness. History/index state never feeds domain evolution.
+- Simulation hash includes scale, seed, tick, time and canonical toy state; excludes history, indices, host pacing and pending inputs. Queue/journal/event digests are compared separately at every replay operation. Event IDs/ordering are Tier 1 for the same candidate stream; evolving trajectories/history are Tier 2 within one build/platform.
+- All actors resolve to stable toy identities. History is append-only for the session; no saves, retention or pruning here. No unsafe code, runtime external dependencies, filesystem/environment or wall-clock reads.
+
+Run `cargo test -p ws-sim` for ingress/FIFO/completeness, pause, no-op/rejections, actual LOD causes and arrivals, rollback/fault injection, non-feedback, and existing clock/replay properties. [ws-cli](../ws-cli/README.md) verifies full journal/events/checkpoints in another process. [Codec](../../../docs/technical-prototype/command-event-tape.md) documents the bounded diagnostic artifact.
 
 ## Performance
 
@@ -64,11 +55,44 @@ Most of the step is the per-agent `SurfacePos::reexpress` (a cell lookup, about 
 - **L2 against L1.** About 14.8 events per agent per simulated hour, as ADR 0017 §15 predicts. An hour costs 0.84 µs per event at 3,000 agents and 1.5 µs at 100,000, step overhead included (target ≤ 2 µs). An all-L1 hour at 3,000 agents is 36,000 steps of 3.30 ms, about 119 s, so L2 is about 3,200 times cheaper (about 1,700 times at 100,000), against the target of at least 1,000.
 - A step with no event due costs a queue peek and a check of the (empty) unreconciled index: under 1 µs at 3,000 agents. Without that index the first measurement was 19 µs, because reconciliation scanned every agent.
 
+
+### TP-008 history measurement (Mac, 2026-10-16)
+
+`cargo bench --locked -p ws-sim --bench history -- --warm-up-time 1 --measurement-time 2`, Apple M1 Pro, Rust 1.97.0 release (overflow checks retained):
+
+| Measurement | Result |
+|---|---|
+| 1,000 two-actor events, exact batch reservation | 808,000 bytes arena + time/actor indices (808 bytes/event; inline record 760 bytes) |
+| Actor query, 10 matches among 10,000 records | 170.16–170.95 ns (mean estimate 170.54 ns) |
+| 5,000 L1 agents, 500 ticks after 3,000 warm-up ticks, World with history | 1.5996–1.6227 s (3.223 ms/tick at estimate) |
+| Same state/ticks, domain + clock without publication | 1.5882–1.6312 s (3.206 ms/tick at estimate) |
+
+The estimated incremental orchestration/publication difference is about 0.5%, with overlapping intervals; this does not establish a precise overhead percentage. Both paths include domain fact collection; the comparison does not isolate that collection's cost against pre-TP-008 code. Bounded 500-tick clones keep the benchmark from silently timing different growing histories. These are desktop observations, not iPhone acceptance evidence. At ×10 a few 3.2 ms ticks per frame can exceed the 8 ms high-priority budget; use L2 and measure on device in TP-011.
+
+The 100–150 MB world-tree/aggregate/index budget in architecture §16.4 is shared, not all available for history. At the measured minimum capacity, 100,000 such records alone would use 80.8 MB. Registry IDs, query buffers, domain state, allocator overhead, spare geometric capacity and process RSS are excluded. Long sessions exceed this budget without future retention/persistence. Sorted vector index insertion can move prior entries; short toy measurements do not prove long-history write scaling. No per-event heap payload is used; batch buffers and query results allocate separately. CLI per-operation journal hashing/serialization is debug work, outside the domain tick timing.
+
+Per-command journal outcomes store application metadata and effects, not before/after full-world hashes. The debug host still verifies simulation, queue, journal and event checkpoints at operation boundaries. The `history` Criterion benchmark includes maximum-batch NoOp flushes at toy and 5,000-agent populations; setup/submission/destruction are outside the timed flush. Actor-index write scaling is tracked separately in GitHub issue #49; no retention or index redesign is included here.
+
+### Command flush review measurement (2026-10-17)
+
+Same Apple M1 Pro, Rust 1.97.0 release, after all local suites finished; Criterion 10 samples, 1 s warm-up and 2 s requested measurement (extended for slow baseline). Same new benchmark source was compiled against baseline `041d891` and correction `2fa55ba`; isolated binaries ran sequentially.
+
+| 1,024 NoOps | Baseline 95% interval / estimate | Corrected 95% interval / estimate |
+|---|---|---|
+| Toy population, seed 1 | 6.8172–6.8832 ms / 6.8411 ms | 262.35–263.01 µs / 262.64 µs |
+| 5,000 agents | 794.67–795.48 ms / 795.06 ms | 269.90–272.25 µs / 271.27 µs |
+
+The maximum-batch flush is about 0.271 ms at 5,000 agents after removing the two full-world hashes per outcome. Setup, submission and destruction are outside timing; outcome/event publication remains inside. Per-operation checkpoint hashing and tape serialization remain separate debug-host work. This meets the requested few-ms desktop flush check, not a total frame or iPhone budget claim. Existing tick-overhead measurements above remain historical evidence; no physical-tick algorithm changed here.
+
+Reproduce from `core/`: `cargo bench --locked -p ws-sim --bench history -- flush_1024 --warm-up-time 1 --measurement-time 2`. For before/after comparison, copy this benchmark source into an isolated baseline checkout and preserve separate executables/target directories; do not run other local suites during timing. An earlier concurrent measurement is excluded; the table uses only the isolated runs.
+
 ### Movement frame reuse (#31, 2026-10-16)
 
 On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 3.3330 to 2.2909 ms (about 31%). This meets the approximate 2.4 ms target on that Mac. Claude's independent Linux Xeon review measured 2.62–2.65 ms, so the target remains unmet on that reference machine; its average ×10 tick cost is about 8.8 ms per 30 fps frame before other work. Neither result establishes iPhone performance.
 
 See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.
+
+The merged TP-003 bridge now follows ADR 0019 §8 as ABI v2: commands submitted through `ws_submit` use this same queue/journal, zero-step advance flushes, and a 16-byte committed-control-state read supplies host pacing. The native and C# adapters do not expose a direct mutation escape or multiply scale twice. See the [bridge contract](../ws-ffi/README.md).
 
 ### Inside-cell fast path (#48, 2026-10-17)
 

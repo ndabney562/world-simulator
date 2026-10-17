@@ -2,7 +2,7 @@
 
 The Unity 6 / URP application shell. Unity owns rendering, presentation, input, and platform integration; it never owns simulation state, which stays in the Rust core (`core/`). See [03-rendering-architecture.md](../../docs/architecture/03-rendering-architecture.md) §4.1.
 
-This is the TP-002 skeleton: folders, assemblies, one scene, iOS player settings, and a mobile URP asset. It has no simulation integration (TP-003), no providers (TP-012), and no UI.
+The TP-003 Bootstrap demo now loads the Rust native bridge and draws deterministic debug markers from one snapshot per frame. The scene is intentionally synthetic; real toy-world entity rendering and iPhone performance are TP-011. Providers and gameplay UI are not implemented.
 
 ## Editor version
 
@@ -19,7 +19,7 @@ Changing the editor version is a deliberate change: update `ProjectVersion.txt` 
 | `Assets/WorldSim/Providers/` | none yet | Visual backdrop providers; the only place provider code may live ([17-repository-structure.md](../../docs/architecture/17-repository-structure.md) §18.2 rule 4). Empty until TP-012. |
 | `Assets/WorldSim/UI/` | none yet | UI Toolkit views. Empty placeholder. |
 | `Assets/WorldSim/Tests/EditMode/` | `WorldSim.Tests.EditMode` (Editor only) | Edit-mode tests. |
-| `Assets/WorldSim/Scenes/Bootstrap.unity` | | The only scene: a camera and a directional light. |
+| `Assets/WorldSim/Scenes/Bootstrap.unity` | | The only scene: camera, directional light, and native bridge debug-marker demo. |
 
 ## Settings
 
@@ -40,7 +40,7 @@ Changing the editor version is a deliberate change: update `ProjectVersion.txt` 
 ## Opening the project
 
 1. In Unity Hub choose **Add → Add project from disk** and select `apps/unity/`.
-2. Open it with 6000.3.26f1. The first import creates `Library/` and fills in the rest of `ProjectSettings/` and `Packages/packages-lock.json`; those regenerated files are committed (only `Library/`, `Temp/`, `Logs/`, `UserSettings/`, `obj/`, and builds are ignored).
+2. Run `scripts/build-native-macos.sh` from the repository root first (the pinned Rust toolchain must be installed), then open it with 6000.3.26f1. The first import creates `Library/` and fills in the rest of `ProjectSettings/` and `Packages/packages-lock.json`; those regenerated files are committed (only `Library/`, `Temp/`, `Logs/`, `UserSettings/`, `obj/`, and builds are ignored).
 3. Open `Assets/WorldSim/Scenes/Bootstrap.unity`.
 
 ## Running the tests
@@ -86,3 +86,21 @@ Unity 6000.3.26f1 can report automatic iOS graphics selection while the API list
 The original skeleton test also required the automatic-selection flag to be false, causing a fresh import to fail despite selecting Metal. That assertion was corrected in the fix for issue #37; no other Player requirement was relaxed. If the API-list assertion fails, record the reported list and Editor version on the bug issue.
 
 The static CI checker also requires the serialized `iOSSupport` API list to contain exactly Metal (`m_APIs: 10000000`, the little-endian encoding of graphics API value 16). It deliberately does not constrain `m_Automatic`; both 0 and 1 pass when Metal is the only API. This catches API-list drift without needing the Unity Editor in CI. The Editor test still verifies the effective imported API list.
+
+## Running the native demo
+
+Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. A cyan grid of 1,000 moving cubes is rendered from ABI-v2 snapshots; motion is derived from Rust seed/tick, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
+
+Bridge owns one persistent NativeArray and one SafeHandle; it serializes calls and disposal. Only Bridge enables unsafe C# to lend the buffer pointer for a synchronous call. Rendering uses safe decoded matrices in reusable storage and instanced draws. Fixed-step catch-up is capped at 100 ticks per frame; excess whole steps after a stall are dropped and only the sub-step remainder is retained, matching the Rust host clock. No per-entity native calls or callbacks occur. Disable/scene teardown disposes the world, buffer, material and mesh.
+
+The macOS plugin matches the running machine's architecture; a Rosetta Editor needs a matching x86-64 build. Generated dylibs and their metadata are ignored. Rust exports build as iOS static archives for future device linking, but this milestone does not configure signing or install to an iPhone.
+
+EditMode tests now include native load/version/create/advance/fill/dispose, v1-client refusal, command flush/pause/resume, control-state layout, shared byte-fixture decoding, invalid frames, and warmed fill/decode allocation measurement. A Unity coroutine test enters Play Mode, verifies tick progression and rendered marker pixels, and writes `worldsim-bridge-bootstrap.png` to the OS temporary directory. Run the full suite with graphics enabled; `-nographics` cannot verify rendering.
+
+## Command boundaries (TP-008 / ABI v2)
+
+`NativeWorld.SubmitNoOp()`, `SubmitTimeScale(0|1|10|100)` and `SubmitCommands(byte[])` enqueue owned commands; they do not apply them. `CommittedScale` reads current native state without applying pending work. `FlushCommands()` invokes zero-step native advance and returns the committed scale even while paused. Positive `Advance(n)` flushes then requests exactly n ticks, independent of scale.
+
+The demo flushes every frame before choosing ticks and multiplies host elapsed time by that returned scale once. No local independent scale or second native multiplier is applied. Zero/paused frames still fill the render snapshot; catch-up keeps its existing 100-tick cap/drop policy. Inputs and disposal remain serialized by the same managed lock. Command helpers allocate only on submission; warmed per-frame flush/control read and snapshot decode tests check zero managed allocation on the calling thread.
+
+After switching branches, close Unity, rebuild the native plugin with `scripts/build-native-macos.sh`, and reopen with 6000.3.26f1. Run the full EditMode suite with graphics enabled, then open Bootstrap and press Play. A previously loaded ABI-v1 plugin must be replaced/reloaded: mismatched native/config/snapshot versions fail clearly. No device signing or real-entity rendering is added here.

@@ -1,0 +1,15 @@
+[package]
+name = "ws-events"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[dependencies]
+ws-ecs = { path = "../ws-ecs" }
+ws-math = { path = "../ws-math" }
+ws-time = { path = "../ws-time" }
+ws-rng = { path = "../ws-rng" }
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+[lints]
+workspace = true

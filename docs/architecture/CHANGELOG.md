@@ -1,5 +1,30 @@
 # Architecture Proposal Changelog
 
+## TP-008 repository layout correction (2026-10-17)
+
+The repository tree now places the headless host at `core/crates/ws-cli/`, as accepted ADR 0019 §1 specifies; `tools/` remains for the inspector and data pipeline. No dependency direction or architecture decision changed.
+
+## ADR 0019 accepted (2026-10-16)
+
+Noah explicitly approved ADR 0019 and assigned #9 implementation in Codex; approval is recorded on #9 and PR #44. Status/index now say Accepted. Implementation follows on a separate branch; no PR merge was performed.
+
+## ADR 0019: command journal and World Events (2026-10-16, Proposed)
+
+Design phase of #9, tracked by #43: proposes serialized command processing at boundaries (including paused flushes), journal outcomes, atomic event publication, deterministic sequential 64-bit event IDs, initial event schemas and queries, logical separate-process replay, and an explicit ABI-v2 migration after TP-003 review. Adds pointers in simulation architecture, event architecture, determinism policy and D-8. Review corrections bound a full-size replay Submit record at 65,600 bytes (including framing/metadata) and specify explicit prefix/zero-commit fences for replaying environmental flush/tick stops without assuming allocator failures recur. No code, accepted ADR, dependency, save format or CI behavior changes; implementation follows acceptance in a separate PR. ADR 0018 remains reserved by PR #36 and is not copied into this branch.
+
+## ADR 0018 generator-licence correction (2026-10-16)
+
+Noah explicitly approved the pinned cbindgen 0.29.2 MPL-2.0 build-tool exception and correction, recorded on PRs #36 and #42. Corrects the earlier permissive-licence description: local/CI header generation/checking only, no runtime linkage or app distribution of the tool, and no automatic exception for other tools or upgrades. The ABI, runtime dependencies and general licence policy are unchanged.
+
+## ADR 0018 accepted; TP-003 implementation (2026-10-16)
+
+Noah explicitly accepted the bridge design in Codex (recorded on PR #36). TP-003 implements its synchronous native API, debug snapshots, managed ownership/decoding and Bootstrap renderer; real-entity switch-over remains TP-011. Updated pending proposal pointers. Implementation remains subject to independent PR review and Noah merge.
+
+
+## ADR 0018: TP-003 Rust–Unity bridge (2026-10-16, Proposed)
+
+Proposes S-3: versioned hand-written C ABI and generated header, caller-owned snapshot bytes, serialized handle ownership, errors/panic containment, explicit debug-marker layout, and C# lifecycle. Adds pointers in the simulation API and S-3 decision table. This docs-only proposal does not accept the decision or implement #4.
+
 ## ADR 0017 accepted; implemented by TP-007 (2026-10-15)
 
 The Product Owner accepted ADR 0017 by merging PR #26 after ChatGPT's review, and confirmed the acceptance on 2026-10-15; its status line and the ADR index now say Accepted (in the TP-007 implementation PR for issue #8). The decision is unchanged. The implementation adds the L1 ↔ L2 round trip to `ws-world` (`lod` module: `Background`, node levels, the `set_lod` transaction, the L2 event drain, the invariant checker) and the canonical tick order and start alignment to `ws-sim`. Besides the event queue, it keeps one more derived index of the kind §10 allows (the agents awaiting reconciliation), so a tick does not scan every agent; it is rebuildable, checked, and not hashed.
@@ -65,3 +90,8 @@ Noah's decisions: real Earth, realistic visuals, single-player, iPhone 15 Pro mi
 ## Revision 1 (2026-10-14)
 
 Initial proposal covering the 22 points of the brief.
+
+
+## TP-008 implementation (2026-10-16)
+
+Implements accepted ADR 0019's typed bounded command queue, boundary journal, meaningful event subset and same-build/platform headless replay. Adds `ws-events` at layer 1 and `ws-cli` as a layer-5 host adapter, without runtime external dependencies. Domain plans expose actual arrivals/LOD changes one way for atomic publication. No architecture guardrail, Unity ABI, save format, multithreaded scheduler, retention or provenance propagation is changed. The conditional bridge adaptation awaits TP-003's final merged contract; see the Rust workspace README and tape codec.
