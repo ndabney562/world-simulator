@@ -79,3 +79,5 @@ Most of the world is in the background most of the time. Background agents with 
 | `save(target)` | Incremental or full save |
 
 This list is conceptual and will be finalised as an ADR in the Technical Prototype. It is shown here because its shape (commands in, snapshots and query results out) is a decision made now.
+
+The TP-003 synchronous prototype subset is specified in [Proposed ADR 0018](../adr/0018-rust-unity-bridge.md), pending Product Owner acceptance; the conceptual API above remains the long-term shape.

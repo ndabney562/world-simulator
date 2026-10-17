@@ -21,3 +21,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0015](0015-coordinate-representation.md) | Coordinate representation (D-4) and default sector level | Accepted |
 | [0016](0016-entity-identity-storage-and-randomness.md) | Entity identity, component storage, and counter-based randomness (D-7, S-1) | Accepted |
 | [0017](0017-simulation-lod-l1-l2-round-trip.md) | Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007) | Accepted |
+| [0018](0018-rust-unity-bridge.md) | TP-003 Rust–Unity bridge contract (S-3) | Accepted |
