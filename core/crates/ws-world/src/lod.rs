@@ -28,7 +28,7 @@ use ws_ecs::{EntityId, Namespace, join};
 use ws_math::{CellFrame, CellId, CoordError, Ecef, Position, SurfacePos};
 use ws_time::{Rate, SimDuration, SimTime, TimeOverflow};
 
-use crate::{ToyWorld, Walk, WorldError, ids};
+use crate::{ArrivalFact, Movement, ToyWorld, Walk, WorldError, ids};
 
 /// A simulation level (05 §6.2). Only [`Lod::L1`] and [`Lod::L2`] are
 /// executable in TP-007; the others exist so the stored value and the
@@ -466,6 +466,7 @@ pub(crate) struct Undo {
 /// The planned result of draining L2 events to a horizon.
 #[derive(Debug, Default)]
 pub(crate) struct Drain {
+    arrivals: Vec<ArrivalFact>,
     /// Queue entries to remove (each touched agent's entry before the
     /// drain).
     stale: Vec<(SimTime, EntityId)>,
@@ -922,6 +923,16 @@ impl ToyWorld {
         step: Rate,
         request: &[(EntityId, Lod)],
     ) -> Result<TransitionReport, LodError> {
+        Ok(self.prepare_lod(now, step, request)?.commit())
+    }
+
+    /// Plans an atomic LOD transaction and typed per-building changes.
+    pub fn prepare_lod(
+        &mut self,
+        now: SimTime,
+        step: Rate,
+        request: &[(EntityId, Lod)],
+    ) -> Result<PreparedLod<'_>, LodError> {
         Self::check_grid(now, step)?;
         let mut req = request.to_vec();
         req.sort_unstable_by_key(|(id, _)| *id);
@@ -942,32 +953,38 @@ impl ToyWorld {
         };
         let moves = self.plan_reconcile(now, step, level_of)?;
 
-        #[cfg(debug_assertions)]
-        let before = self.conservation_summary();
-
-        let report = TransitionReport {
-            demoted: moves.to_l2.len(),
-            promoted: moves.to_l1.len(),
-        };
-        for (b, level) in req {
-            *self
-                .node_lod
-                .get_mut(b)
-                .expect("LOD commit: every building has a level") = level;
-        }
-        self.commit_moves(moves);
-        // Every agent now matches its governing building's level.
-        self.unreconciled.clear();
-
-        #[cfg(debug_assertions)]
-        {
-            let mut v = before.compare_transaction(&self.conservation_summary());
-            if let Err(more) = self.check_lod_invariants(now, step, true) {
-                v.extend(more);
+        let mut changes = Vec::new();
+        for (building, after) in &req {
+            let before = self.node_lod(*building).expect("validated building");
+            if before != *after {
+                changes.push(LodChange {
+                    building: *building,
+                    before,
+                    after: *after,
+                    demoted: moves
+                        .to_l2
+                        .iter()
+                        .filter(|(_, bg)| bg.governing() == *building)
+                        .count(),
+                    promoted: moves
+                        .to_l1
+                        .iter()
+                        .filter(|(_, _, w)| w.target == *building)
+                        .count(),
+                    position: self.buildings.get(*building).expect("validated").pos,
+                });
             }
-            assert!(v.is_empty(), "LOD invariants violated by set_lod: {v:?}");
         }
-        Ok(report)
+        Ok(PreparedLod {
+            world: self,
+            req,
+            moves,
+            changes,
+            #[cfg(debug_assertions)]
+            now,
+            #[cfg(debug_assertions)]
+            step,
+        })
     }
 
     /// Plans the L2 events with times up to and including `to`, in
@@ -998,6 +1015,16 @@ impl ToyWorld {
                 return Err(LodError::Invariant(LodViolation::QueueMismatch(id)));
             }
             let next = self.process_event(id, bg, step)?;
+            if let Activity::Walking { dest, arrive, .. } = bg.activity {
+                drain.arrivals.push(ArrivalFact {
+                    resident: id,
+                    destination: dest,
+                    leg: bg.targets_drawn,
+                    time: Some(arrive),
+                    lod: Lod::L2,
+                    position: self.centre(id, dest)?,
+                });
+            }
             if next.next_event() <= to {
                 pending.insert((next.next_event(), id));
             }
@@ -1091,18 +1118,23 @@ impl ToyWorld {
     ///
     /// [ADR 0017]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0017-simulation-lod-l1-l2-round-trip.md
     pub fn tick(&mut self, now: SimTime, step: Rate) -> Result<(), WorldError> {
+        self.prepare_tick(now, step)?.commit();
+        Ok(())
+    }
+
+    /// Prepares a tick and its arrival facts; dropping it rolls back reconciliation.
+    /// Reserve external history storage before committing this plan.
+    pub fn prepare_tick(
+        &mut self,
+        now: SimTime,
+        step: Rate,
+    ) -> Result<PreparedTick<'_>, WorldError> {
         Self::check_grid(now, step)?;
         let to = now.checked_add(step.step()).map_err(LodError::Time)?;
-        if self.residents.is_empty() {
-            return Ok(());
-        }
-
         #[cfg(debug_assertions)]
         let before = self.conservation_summary();
-
         let moves = self.plan_reconcile_pending(now, step)?;
         let undo = self.commit_moves(moves);
-        // Every pending agent now matches its governing building's level.
         let pending = core::mem::take(&mut self.unreconciled);
         let movement = match self.plan_movement(step.step()) {
             Ok(m) => m,
@@ -1120,18 +1152,19 @@ impl ToyWorld {
                 return Err(e.into());
             }
         };
-        self.commit_movement(movement);
-        self.commit_drain(drain);
-
-        #[cfg(debug_assertions)]
-        {
-            let mut v = before.compare_tick(&self.conservation_summary());
-            if let Err(more) = self.check_lod_invariants(to, step, false) {
-                v.extend(more);
-            }
-            assert!(v.is_empty(), "LOD invariants violated by a tick: {v:?}");
-        }
-        Ok(())
+        Ok(PreparedTick {
+            world: self,
+            movement: Some(movement),
+            drain: Some(drain),
+            undo: Some(undo),
+            pending: Some(pending),
+            #[cfg(debug_assertions)]
+            to,
+            #[cfg(debug_assertions)]
+            step,
+            #[cfg(debug_assertions)]
+            before,
+        })
     }
 
     /// The conserved quantities, for comparing before and after a
@@ -1405,3 +1438,115 @@ impl ToyWorld {
 #[cfg(test)]
 #[path = "lod_tests.rs"]
 mod tests;
+
+/// A prepared tick, exclusively borrowing its world until commit or rollback.
+pub struct PreparedTick<'a> {
+    world: &'a mut ToyWorld,
+    movement: Option<Movement>,
+    drain: Option<Drain>,
+    undo: Option<Undo>,
+    pending: Option<BTreeSet<EntityId>>,
+    #[cfg(debug_assertions)]
+    to: SimTime,
+    #[cfg(debug_assertions)]
+    step: Rate,
+    #[cfg(debug_assertions)]
+    before: ConservationSummary,
+}
+impl PreparedTick<'_> {
+    /// Facts generated directly by the L1 and L2 domain plans.
+    pub fn arrivals(&self) -> impl Iterator<Item = &ArrivalFact> {
+        self.movement
+            .as_ref()
+            .expect("live plan")
+            .1
+            .iter()
+            .chain(self.drain.as_ref().expect("live plan").arrivals.iter())
+    }
+    /// Commits the already validated domain plans, with no fallible history work.
+    pub fn commit(mut self) {
+        self.world
+            .commit_movement(self.movement.take().expect("live plan"));
+        self.world
+            .commit_drain(self.drain.take().expect("live plan"));
+        self.undo = None;
+        self.pending = None;
+        #[cfg(debug_assertions)]
+        {
+            let mut v = self.before.compare_tick(&self.world.conservation_summary());
+            // The ending time is aligned; the original checker uses this grid.
+            if let Err(more) = self.world.check_lod_invariants(self.to, self.step, false) {
+                v.extend(more);
+            }
+            assert!(v.is_empty(), "LOD invariants violated by a tick: {v:?}");
+        }
+    }
+}
+impl Drop for PreparedTick<'_> {
+    fn drop(&mut self) {
+        if let Some(undo) = self.undo.take() {
+            self.world.undo_moves(undo);
+            self.world.unreconciled = self.pending.take().expect("rollback pending");
+        }
+    }
+}
+/// One building's actual level change, with exact affected-resident counts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LodChange {
+    /// Building identity.
+    pub building: EntityId,
+    /// Previous level.
+    pub before: Lod,
+    /// Requested new level.
+    pub after: Lod,
+    /// Agents demoted at this building.
+    pub demoted: usize,
+    /// Agents promoted at this building.
+    pub promoted: usize,
+    /// Building position.
+    pub position: SurfacePos,
+}
+/// A validated LOD transaction with no mutation before commit.
+pub struct PreparedLod<'a> {
+    world: &'a mut ToyWorld,
+    req: Vec<(EntityId, Lod)>,
+    moves: Moves,
+    changes: Vec<LodChange>,
+    #[cfg(debug_assertions)]
+    now: SimTime,
+    #[cfg(debug_assertions)]
+    step: Rate,
+}
+impl PreparedLod<'_> {
+    /// Actual changes, sorted by building ID; unchanged requests emit nothing.
+    pub fn changes(&self) -> &[LodChange] {
+        &self.changes
+    }
+    /// Counts the planned demotions and promotions.
+    pub fn report(&self) -> TransitionReport {
+        TransitionReport {
+            demoted: self.moves.to_l2.len(),
+            promoted: self.moves.to_l1.len(),
+        }
+    }
+    /// Commits the validated transition.
+    pub fn commit(self) -> TransitionReport {
+        #[cfg(debug_assertions)]
+        let before = self.world.conservation_summary();
+        let report = self.report();
+        for (b, level) in self.req {
+            *self.world.node_lod.get_mut(b).expect("validated") = level;
+        }
+        self.world.commit_moves(self.moves);
+        self.world.unreconciled.clear();
+        #[cfg(debug_assertions)]
+        {
+            let mut v = before.compare_transaction(&self.world.conservation_summary());
+            if let Err(more) = self.world.check_lod_invariants(self.now, self.step, true) {
+                v.extend(more);
+            }
+            assert!(v.is_empty(), "LOD invariants violated by set_lod: {v:?}");
+        }
+        report
+    }
+}

@@ -1,5 +1,7 @@
 # 5. Simulation Architecture
 
+The accepted TP-008 boundary queue, pause/resume and transaction rules are detailed in [ADR 0019](../adr/0019-command-journal-and-world-events.md). Noah accepted the ADR on 2026-10-16. TP-008 replaces production direct setters with journaled commands.
+
 Covers point 5. Simulation LOD is in [05](05-simulation-lod.md), entities in [09](09-entities-and-agents.md), events and causality in [24](24-world-events-and-causality.md), and reproducibility in [25](25-determinism-policy.md).
 
 ## 5.1 Shape of the core
@@ -79,3 +81,5 @@ Most of the world is in the background most of the time. Background agents with 
 | `save(target)` | Incremental or full save |
 
 This list is conceptual and will be finalised as an ADR in the Technical Prototype. It is shown here because its shape (commands in, snapshots and query results out) is a decision made now.
+
+The TP-003 synchronous prototype subset is specified in [Accepted ADR 0018](../adr/0018-rust-unity-bridge.md); the conceptual API above remains the long-term shape.

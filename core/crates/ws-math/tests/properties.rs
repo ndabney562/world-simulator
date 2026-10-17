@@ -131,6 +131,37 @@ proptest! {
         }
     }
 
+    /// Cached frames must preserve cell decisions and all f32 bits, not
+    /// just the existing 0.1 mm position tolerance. Covers arbitrary cells,
+    /// heights, inside positions and multi-cell moves (fixed seed above).
+    #[test]
+    fn cached_reexpression_is_bit_identical_to_full_lookup(
+        g in any_lat_lon(),
+        e in -2500.0..2500.0f32,
+        n in -2500.0..2500.0f32,
+        u in -100_000.0..1_000_000.0f32,
+    ) {
+        let cell = CellId::from_geodetic_at_level(&g, SECTOR_LEVEL).unwrap();
+        let p = SurfacePos::new(cell, [e, n, u]).unwrap();
+        let frame = CellFrame::new(cell);
+        let cached = p.reexpress_with(&frame);
+        let full = p.reexpress();
+        prop_assert_eq!(cached, full);
+        // With the inside fast path (#48) too.
+        let fast = p.reexpress_with(&CellFrame::with_inside_test(cell));
+        prop_assert_eq!(fast, full);
+        if let (Ok(a), Ok(b)) = (fast, full) {
+            prop_assert_eq!(a.offset().map(f32::to_bits), b.offset().map(f32::to_bits));
+        }
+        if let (Ok(a), Ok(b)) = (cached, full) {
+            prop_assert_eq!(a.offset().map(f32::to_bits), b.offset().map(f32::to_bits));
+            prop_assert_eq!(a.cell(), p.occupied_cell().unwrap());
+            if a.cell() == cell {
+                prop_assert_eq!(a.offset().map(f32::to_bits), p.offset().map(f32::to_bits));
+            }
+        }
+    }
+
     #[test]
     fn reexpression_is_deterministic_and_preserves_position(
         g in geodetic(0.0, 0.0),

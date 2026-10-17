@@ -20,6 +20,8 @@ checks cover what can be verified from the files alone:
    assets in this project.
 8. apps/unity/.gitignore ignores Unity's generated folders, and none of them
    is tracked by git.
+9. The serialized iOS graphics API list contains exactly Metal, independent
+   of the automatic-selection flag (issue #37).
 
 Uses only the Python standard library. Exits non-zero on any failure.
 """
@@ -68,6 +70,34 @@ def check_editor_version(project, errors):
     readme = project / "README.md"
     if not readme.is_file() or match.group(1) not in read(readme):
         errors.append(f"apps/unity/README.md does not record the editor version {match.group(1)}")
+
+
+def check_ios_graphics_api(project, errors):
+    """Check the committed iOS API list, not Unity's selection-mode flag.
+
+    Read only Unity's canonical graphics-API list block; another platform's
+    API value or a similarly named field elsewhere must not satisfy iOS.
+    Metal's enum value is 16, serialized as one little-endian u32: 10000000.
+    """
+    settings = project / "ProjectSettings" / "ProjectSettings.asset"
+    if not settings.is_file():
+        errors.append("ProjectSettings/ProjectSettings.asset is missing")
+        return
+    sections = re.findall(
+        r"^  m_BuildTargetGraphicsAPIs:[ \t]*\n((?:(?:  - |    )[^\n]*(?:\n|$))*)",
+        read(settings), re.M,
+    )
+    if len(sections) != 1:
+        errors.append("ProjectSettings.asset must contain one m_BuildTargetGraphicsAPIs list")
+        return
+    entries = re.split(r"^  - ", sections[0], flags=re.M)[1:]
+    ios = [entry for entry in entries if re.match(r"m_BuildTarget:[ \t]*iOSSupport[ \t]*(?:\n|$)", entry)]
+    if len(ios) != 1:
+        errors.append("ProjectSettings.asset graphics API list must contain exactly one iOSSupport entry")
+        return
+    apis = re.findall(r"^    m_APIs:[ \t]*([0-9a-fA-F]*)[ \t]*$", ios[0], re.M)
+    if apis != ["10000000"]:
+        errors.append("ProjectSettings.asset iOSSupport graphics APIs must be exactly Metal (m_APIs: 10000000)")
 
 
 def check_manifest(project, errors):
@@ -240,6 +270,7 @@ def check(project, tracked=None):
         return [f"{project} is missing"]
     check_editor_version(project, errors)
     check_manifest(project, errors)
+    check_ios_graphics_api(project, errors)
     guids = asset_guids(project, errors)
     check_text_serialization(project, errors)
     check_assemblies(project, errors)

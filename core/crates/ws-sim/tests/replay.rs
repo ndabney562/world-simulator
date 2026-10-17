@@ -51,7 +51,7 @@ fn per_tick_hashes_with_transitions(seed: u64, ticks: usize) -> Vec<u64> {
     (0..ticks as u64)
         .map(|k| {
             if let Some(req) = request(&w, k) {
-                w.set_lod(&req).unwrap();
+                apply_lod(&mut w, &req);
             }
             w.step().unwrap();
             w.state_hash()
@@ -86,7 +86,7 @@ fn replay_with_transitions() {
     let (mut saw_l1, mut saw_l2) = (false, false);
     for k in 0..10_000 {
         if let Some(req) = request(&w, k) {
-            w.set_lod(&req).unwrap();
+            apply_lod(&mut w, &req);
         }
         w.step().unwrap();
         w.check_lod_invariants(false).unwrap();
@@ -103,8 +103,8 @@ fn host_elapsed_with_transitions_matches_step() {
     let hosts = [250_000, 33_333, 1_000_000, 16_667, 99_999, 7_000_000];
     for (k, host) in hosts.iter().cycle().take(60).enumerate() {
         let req = subset(&a, ws_rng::hash(7, 12, &[k as u64]));
-        a.set_lod(&req).unwrap();
-        b.set_lod(&req).unwrap();
+        apply_lod(&mut a, &req);
+        apply_lod(&mut b, &req);
         let taken = a.advance_by_host_elapsed(*host).unwrap();
         for _ in 0..taken {
             b.step().unwrap();
@@ -186,4 +186,15 @@ fn separate_process_reproduces_the_hashes() {
             PROCESS_TICKS
         ))
     );
+}
+
+fn apply_lod(w: &mut ws_sim::World, request: &[(ws_sim::EntityId, ws_sim::Lod)]) {
+    use ws_sim::commands::{Action, Command, IssuedBy};
+    w.submit(vec![Command::new(
+        IssuedBy::Test,
+        Action::SetNodeLod(request.to_vec()),
+    )])
+    .unwrap();
+    w.flush_commands().unwrap();
+    assert!(w.journal().last().unwrap().result.is_ok());
 }

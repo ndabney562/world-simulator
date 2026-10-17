@@ -33,7 +33,7 @@ pub mod ids;
 pub mod lod;
 
 use core::fmt;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ws_ecs::{Column, DuplicateEntity, EntityId, join, join_mut};
 use ws_math::{CellFrame, CoordError, Ecef, Position, SurfacePos};
@@ -192,7 +192,24 @@ pub struct ToyWorld {
 
 /// The planned result of one L1 movement step: each L1 agent's new walk
 /// and position, in ascending ID order.
-pub(crate) struct Movement(Vec<(EntityId, Walk, SurfacePos)>);
+pub(crate) struct Movement(Vec<(EntityId, Walk, SurfacePos)>, Vec<ArrivalFact>);
+
+/// A meaningful arrival produced by a domain plan, not inferred from snapshots.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArrivalFact {
+    /// Resident completing the leg.
+    pub resident: EntityId,
+    /// Destination building.
+    pub destination: EntityId,
+    /// Stable target counter identifying this leg.
+    pub leg: u32,
+    /// Scheduled L2 time, or None for the enclosing L1 tick end.
+    pub time: Option<SimTime>,
+    /// Producing simulation LOD.
+    pub lod: Lod,
+    /// Exact destination location.
+    pub position: SurfacePos,
+}
 
 impl ToyWorld {
     /// An empty world; entities are added with [`ToyWorld::insert_building`]
@@ -387,7 +404,7 @@ impl ToyWorld {
     /// world.
     pub(crate) fn plan_movement(&self, dt: SimDuration) -> Result<Movement, WorldError> {
         if self.walks.is_empty() {
-            return Ok(Movement(Vec::new()));
+            return Ok(Movement(Vec::new(), Vec::new()));
         }
         // Microseconds to seconds; Tier 2, so floating point is allowed.
         let dt_s = dt.as_micros() as f64 * 1e-6;
@@ -399,7 +416,12 @@ impl ToyWorld {
             .iter()
             .map(|(_, b)| b.pos.to_ecef())
             .collect();
+        // Derived, step-local cache: one exact frame per occupied cell,
+        // shared by goal projection and re-expression. No canonical state
+        // or iteration order depends on the cache; L2 never builds it.
+        let mut frames = BTreeMap::new();
         let mut updates = Vec::with_capacity(self.walks.len());
+        let mut arrivals = Vec::new();
         for (id, walk, pos) in join(&self.walks, &self.positions) {
             let mut walk = *walk;
             let mut pos = *pos;
@@ -425,13 +447,23 @@ impl ToyWorld {
             let t = building_ids
                 .binary_search(&walk.target)
                 .map_err(|_| WorldError::UnknownBuilding(walk.target))?;
-            let frame = CellFrame::new(pos.cell());
+            let frame = frames
+                .entry(pos.cell())
+                .or_insert_with(|| CellFrame::with_inside_test(pos.cell()));
             let goal = frame.frame().to_enu(centres[t]);
             let here = pos.offset_enu();
             let to_goal = goal - here;
             let dist = to_goal.length();
             if dist <= step_m {
                 pos = self.buildings.get(walk.target).expect("found above").pos;
+                arrivals.push(ArrivalFact {
+                    resident: id,
+                    destination: walk.target,
+                    leg: walk.targets_drawn,
+                    time: None,
+                    lod: Lod::L1,
+                    position: pos,
+                });
                 walk.arrived = true;
                 walk.wait_steps = self.walk.wait_steps;
                 walk.velocity = [0.0; 3];
@@ -441,11 +473,11 @@ impl ToyWorld {
                 let v = dir * self.walk.speed_m_s;
                 walk.velocity = [v.x as f32, v.y as f32, v.z as f32];
                 pos = SurfacePos::new(pos.cell(), [next.x as f32, next.y as f32, next.z as f32])?
-                    .reexpress()?;
+                    .reexpress_with(frame)?;
             }
             updates.push((id, walk, pos));
         }
-        Ok(Movement(updates))
+        Ok(Movement(updates, arrivals))
     }
 
     /// Writes a planned movement step.

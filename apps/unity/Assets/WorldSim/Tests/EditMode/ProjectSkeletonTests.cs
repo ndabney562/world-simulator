@@ -78,7 +78,8 @@ namespace WorldSim.Tests.EditMode
         {
             Assert.That(PlayerSettings.GetScriptingBackend(NamedBuildTarget.iOS), Is.EqualTo(ScriptingImplementation.IL2CPP));
             Assert.That(PlayerSettings.GetArchitecture(NamedBuildTarget.iOS), Is.EqualTo(IosArm64));
-            Assert.That(PlayerSettings.GetUseDefaultGraphicsAPIs(BuildTarget.iOS), Is.False);
+            // iOS has only Metal in the pinned Unity Editor. The automatic-selection
+            // flag is not the contract: verify the actual API list below instead.
             Assert.That(PlayerSettings.GetGraphicsAPIs(BuildTarget.iOS), Is.EqualTo(new[] { GraphicsDeviceType.Metal }));
             Assert.That(PlayerSettings.iOS.targetOSVersionString, Is.EqualTo(MinimumIosVersion));
             Assert.That(PlayerSettings.iOS.targetDevice, Is.EqualTo(iOSTargetDevice.iPhoneOnly));
@@ -125,13 +126,17 @@ namespace WorldSim.Tests.EditMode
         }
 
         [Test]
-        public void BootstrapSceneHoldsOnlyACameraAndADirectionalLight()
+        public void BootstrapSceneHoldsCameraLightAndBridgeDemo()
         {
             var scene = EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Additive);
             try
             {
                 var roots = scene.GetRootGameObjects();
-                Assert.That(roots.Select(r => r.name), Is.EquivalentTo(new[] { "Main Camera", "Directional Light" }));
+                Assert.That(roots.Select(r => r.name), Is.EquivalentTo(new[] { "Main Camera", "Directional Light", "Rust Bridge Debug Markers" }));
+
+                var demo = roots.Single(r => r.name == "Rust Bridge Debug Markers");
+                Assert.That(demo.GetComponent<WorldSim.Rendering.BridgeDemo>(), Is.Not.Null);
+                Assert.That(demo.transform.childCount, Is.Zero);
 
                 var camera = roots.Single(r => r.name == "Main Camera");
                 Assert.That(camera.GetComponent<Camera>(), Is.Not.Null);

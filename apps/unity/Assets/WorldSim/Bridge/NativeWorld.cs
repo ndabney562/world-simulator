@@ -1,0 +1,164 @@
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+
+namespace WorldSim.Bridge
+{
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeConfig
+    {
+        internal uint Version, Size;
+        internal ulong Seed;
+        internal long Start;
+        internal uint Count, Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeControlState
+    {
+        internal uint Version, Size, Scale, Reserved;
+    }
+
+    internal sealed class WorldHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        internal WorldHandle(IntPtr pointer) : base(true) { SetHandle(pointer); }
+        protected override bool ReleaseHandle() { NativeMethods.Destroy(handle); return true; }
+    }
+
+    internal static class NativeMethods
+    {
+#if UNITY_IOS && !UNITY_EDITOR
+        const string Library = "__Internal";
+#elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+        const string Library = "ws_ffi";
+#else
+        const string Library = "ws_ffi_unsupported_platform";
+#endif
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_abi_version")]
+        internal static extern uint Version();
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_create")]
+        internal static extern IntPtr Create(in NativeConfig config);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_destroy")]
+        internal static extern void Destroy(IntPtr handle);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_advance")]
+        internal static extern uint Advance(WorldHandle handle, uint steps);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_get_control_state")]
+        internal static extern uint ControlState(WorldHandle handle, ref NativeControlState state);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_submit")]
+        internal static extern uint Submit(WorldHandle handle, byte[] bytes, UIntPtr length);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_fill_render_snapshot")]
+        internal static extern uint Fill(WorldHandle handle, IntPtr buffer, UIntPtr capacity, out UIntPtr written);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_last_error")]
+        internal static extern UIntPtr Error(IntPtr handle, byte[] buffer, UIntPtr capacity);
+    }
+
+    /// <summary>Owns one serialized native world and a persistent caller-owned snapshot buffer.</summary>
+    public sealed class NativeWorld : IDisposable
+    {
+        public const uint AbiVersion = 2;
+        readonly object gate = new object();
+        WorldHandle handle;
+        NativeArray<byte> bytes;
+        bool disposed;
+        public int MarkerCount { get; }
+
+        internal static void RequireVersion(uint actual)
+        {
+            if (actual != AbiVersion) throw new InvalidOperationException($"Native ABI {actual}; expected {AbiVersion}. Restart Unity after rebuilding the plugin.");
+        }
+        public NativeWorld(ulong seed, int markerCount, long startMicroseconds = 0)
+        {
+            if (markerCount < 0 || markerCount > 100000) throw new ArgumentOutOfRangeException(nameof(markerCount));
+            RequireVersion(NativeMethods.Version());
+            var config = new NativeConfig { Version = AbiVersion, Size = 32, Seed = seed, Start = startMicroseconds, Count = (uint)markerCount };
+            var pointer = NativeMethods.Create(in config);
+            if (pointer == IntPtr.Zero) throw new InvalidOperationException(ReadError(IntPtr.Zero));
+            handle = new WorldHandle(pointer);
+            try { bytes = new NativeArray<byte>(checked(24 + markerCount * 32), Allocator.Persistent); }
+            catch { handle.Dispose(); throw; }
+            MarkerCount = markerCount;
+        }
+        static string ReadError(IntPtr pointer)
+        {
+            var error = new byte[256];
+            NativeMethods.Error(pointer, error, (UIntPtr)error.Length);
+            int end = Array.IndexOf(error, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(error, 0, end < 0 ? error.Length : end);
+        }
+        void Check(uint status)
+        {
+            if (status != 0) throw new InvalidOperationException($"Native status {status}: {ReadError(handle.DangerousGetHandle())}");
+        }
+        void RequireLive() { if (disposed) throw new ObjectDisposedException(nameof(NativeWorld)); }
+        public void Advance(uint steps)
+        {
+            lock (gate) { RequireLive(); Check(NativeMethods.Advance(handle, steps)); }
+        }
+        static bool ValidScale(uint scale) => scale==0 || scale==1 || scale==10 || scale==100;
+        uint ReadControlState()
+        {
+            var state=new NativeControlState { Version=AbiVersion, Size=16 };
+            Check(NativeMethods.ControlState(handle,ref state));
+            RequireVersion(state.Version);
+            if(state.Size!=16 || state.Reserved!=0 || !ValidScale(state.Scale))
+                throw new InvalidOperationException("Invalid native control state.");
+            return state.Scale;
+        }
+        /// <summary>Committed native scale; reading does not flush pending commands.</summary>
+        public uint CommittedScale { get { lock(gate) { RequireLive(); return ReadControlState(); } } }
+        /// <summary>Flush queued commands even while paused; return the committed scale without ticking.</summary>
+        public uint FlushCommands()
+        {
+            lock(gate) { RequireLive(); Check(NativeMethods.Advance(handle,0)); return ReadControlState(); }
+        }
+        /// <summary>Copy a canonical v2 command batch into the native queue; success means pending.</summary>
+        public void SubmitCommands(byte[] batch)
+        {
+            if(batch==null) throw new ArgumentNullException(nameof(batch));
+            lock(gate) { RequireLive(); Check(NativeMethods.Submit(handle,batch,(UIntPtr)batch.Length)); }
+        }
+        static void WriteU32(byte[] bytes,int offset,uint value)
+        {
+            for(int i=0;i<4;i++) bytes[offset+i]=(byte)(value>>(i*8));
+        }
+        static byte[] CommandBatch(uint opcode,int payloadSize)
+        {
+            // Control-path allocation only; no batch is created by the frame loop.
+            var batch=new byte[16+payloadSize];
+            WriteU32(batch,0,2); WriteU32(batch,4,1);
+            WriteU32(batch,8,opcode); WriteU32(batch,12,(uint)payloadSize);
+            WriteU32(batch,16,1); WriteU32(batch,20,0); // schema 1, Player provenance
+            return batch;
+        }
+        public void SubmitNoOp() { SubmitCommands(CommandBatch(0,8)); }
+        public void SubmitTimeScale(uint scale)
+        {
+            if(!ValidScale(scale)) throw new ArgumentOutOfRangeException(nameof(scale));
+            var batch=CommandBatch(1,12); WriteU32(batch,24,scale); SubmitCommands(batch);
+        }
+        /// <summary>One native fill, then complete decode into the reusable destination. No pointers escape.</summary>
+        public unsafe ulong FillSnapshot(UnityEngine.Matrix4x4[] destination)
+        {
+            lock (gate)
+            {
+                RequireLive();
+                // The buffer belongs to this object; lock excludes filling/disposing concurrently.
+                IntPtr pointer = (IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(bytes);
+                Check(NativeMethods.Fill(handle, pointer, (UIntPtr)bytes.Length, out var written));
+                return SnapshotDecoder.Decode(bytes, checked((int)written.ToUInt64()), destination, MarkerCount);
+            }
+        }
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                if (disposed) return;
+                disposed = true;
+                if (bytes.IsCreated) bytes.Dispose();
+                handle.Dispose();
+            }
+        }
+    }
+}

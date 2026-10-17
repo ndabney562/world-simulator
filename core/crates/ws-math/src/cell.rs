@@ -243,6 +243,46 @@ impl CellId {
         EnuFrame::new(self.center_geodetic())
     }
 
+    /// Unit normals of the four planes through the Earth's centre that
+    /// bound this cell, each pointing into the cell.
+    ///
+    /// A cell is the set of directions (geodetic normals, see the module
+    /// docs) between these planes: a direction `d` lies strictly inside the
+    /// cell when `d · n > 0` for all four normals `n`. The normals are
+    /// rounded `f64` values, so they are only for conservative tests with
+    /// an explicit margin (see [`CellFrame::certainly_contains`]), never
+    /// for deciding membership exactly; that is [`CellId::from_ecef`].
+    ///
+    /// [`CellFrame::certainly_contains`]: crate::CellFrame::certainly_contains
+    #[must_use]
+    pub fn edge_normals(self) -> [[f64; 3]; 4] {
+        let size = 1_u64 << (MAX_LEVEL - self.level());
+        let (face, i, j) = self.face_ij_min();
+        // Exact in f64: the numerators are at most 2^30.
+        let uv = |k: u32, add: u64| st_to_uv((u64::from(k) + add) as f64 / MAX_SIZE as f64);
+        let (u0, u1) = (uv(i, 0), uv(i, size));
+        let (v0, v1) = (uv(j, 0), uv(j, size));
+        let corners = [
+            face_uv_to_xyz(face, u0, v0),
+            face_uv_to_xyz(face, u1, v0),
+            face_uv_to_xyz(face, u1, v1),
+            face_uv_to_xyz(face, u0, v1),
+        ];
+        let centre = face_uv_to_xyz(face, 0.5 * (u0 + u1), 0.5 * (v0 + v1));
+        core::array::from_fn(|k| {
+            let [ax, ay, az] = corners[k];
+            let [bx, by, bz] = corners[(k + 1) % 4];
+            let n = [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx];
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            let sign = if n[0] * centre[0] + n[1] * centre[1] + n[2] * centre[2] < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            n.map(|c| sign * c / len)
+        })
+    }
+
     const fn lsb(self) -> u64 {
         self.0 & self.0.wrapping_neg()
     }

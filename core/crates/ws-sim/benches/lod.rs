@@ -25,7 +25,8 @@ fn warmed_world(per_building: u32, level: Lod) -> World {
     for _ in 0..600 {
         w.step().unwrap();
     }
-    w.set_lod(&all(&w, level)).unwrap();
+    let req = all(&w, level);
+    apply_lod(&mut w, &req);
     w
 }
 
@@ -50,7 +51,7 @@ fn transitions(c: &mut Criterion) {
                 b.iter_batched(
                     || w.clone(),
                     |mut w| {
-                        black_box(w.set_lod(&req).unwrap());
+                        black_box(apply_lod(&mut w, &req));
                         w
                     },
                     BatchSize::LargeInput,
@@ -138,3 +139,22 @@ fn hour(c: &mut Criterion) {
 
 criterion_group!(benches, transitions, steps, hour);
 criterion_main!(benches);
+
+fn apply_lod(
+    w: &mut ws_sim::World,
+    request: &[(ws_sim::EntityId, ws_sim::Lod)],
+) -> ws_sim::TransitionReport {
+    use ws_sim::commands::{Action, Command, IssuedBy};
+    w.submit(vec![Command::new(
+        IssuedBy::Test,
+        Action::SetNodeLod(request.to_vec()),
+    )])
+    .unwrap();
+    w.flush_commands().unwrap();
+    assert!(w.journal().last().unwrap().result.is_ok());
+    let o = w.journal().last().unwrap();
+    ws_sim::TransitionReport {
+        demoted: o.demoted as usize,
+        promoted: o.promoted as usize,
+    }
+}
