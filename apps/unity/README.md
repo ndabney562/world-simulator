@@ -30,7 +30,7 @@ Changing the editor version is a deliberate change: update `ProjectVersion.txt` 
 | Colour space | Linear | Physically based lighting (§4.4) |
 | iOS scripting backend | IL2CPP | The only backend iOS supports |
 | iOS architecture | arm64 | The only architecture Unity 6 builds for iOS |
-| iOS graphics API | Metal only | |
+| iOS graphics API | Metal only | Checked through `PlayerSettings.GetGraphicsAPIs`; automatic selection is acceptable when the resulting list is Metal only. |
 | iOS target device | iPhone only | ADR 0004 |
 | iOS minimum version | 26.0 | ADR 0004: the current (iOS 27) and previous major version. Raise it each year when a new major iOS ships (the edit-mode test holds the value). |
 | iOS SDK | Device SDK | |
@@ -78,3 +78,11 @@ How Unity tests relate to CI is in [ci.md](../../docs/process/ci.md) (S-6).
 ```
 
 No Git LFS is used (ADR 0007); there are no large binaries yet.
+
+## iOS graphics test troubleshooting
+
+Unity 6000.3.26f1 can report automatic iOS graphics selection while the API list remains Metal only. Its Player inspector hides graphics API selection when fewer than two APIs are available. Do not look for a missing Auto Graphics API checkbox or change platforms to fix this. The EditMode test verifies the actual iOS API list is exactly Metal; the automatic-selection flag does not determine whether this requirement is met.
+
+The original skeleton test also required the automatic-selection flag to be false, causing a fresh import to fail despite selecting Metal. That assertion was corrected in the fix for issue #37; no other Player requirement was relaxed. If the API-list assertion fails, record the reported list and Editor version on the bug issue.
+
+The static CI checker also requires the serialized `iOSSupport` API list to contain exactly Metal (`m_APIs: 10000000`, the little-endian encoding of graphics API value 16). It deliberately does not constrain `m_Automatic`; both 0 and 1 pass when Metal is the only API. This catches API-list drift without needing the Unity Editor in CI. The Editor test still verifies the effective imported API list.
