@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0021: first god intervention (2026-10-17, Accepted)
+
+Design phase of TP-010 (#11): decides the `Intervene` command, effect vocabulary v1 (`afflict(illness, severity)`), validation, a single `illness` column that makes LOD and save/load persistence structural, the shared L1/L2 return-home rule, the three event types and links, the causal query, and save format 2 (v1 files still load). Docs only.
+
 ## TP-009 implementation of ADR 0020 (2026-10-17)
 
 Implements #10: the `ws-persist` crate (SQLite save container, hand-written canonical codec, version header, load validation), restore support in `ws-world` (`ToyParts`), `ws-sim` (`WorldParts`, `Clock::from_parts`) and `ws-cli` (`save` and `load`), and the format-1 fixture under `tests/saves/`. As ADR 0020 decided, `ws-persist` moves to its own layer above `ws-sim`; the layer table in `scripts/check_core_deps.py` and `docs/process/ci.md`, and the dependency direction in [17 §18.2](17-repository-structure.md) and `AGENTS.md`, now read `ws-sim` → `ws-persist` → `ws-ffi`. Two clarifications of the ADR, both within its load-validation paragraph: the header also records journal and event digests (a lost causal link does not change the state hash), and `buildings` and `l1_state` are keyed by (cell, entity ID) while the other record tables are keyed by entity ID. No accepted decision is changed.
