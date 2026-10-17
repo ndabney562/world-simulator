@@ -118,6 +118,14 @@ class CheckUnityProjectTest(unittest.TestCase):
         self.edit_player_settings(lambda s: s.replace("    m_APIs: 10000000", "    m_APIs: 10000000\n    m_APIs: 0b000000"))
         self.assertReports("iOSSupport graphics APIs must be exactly Metal")
 
+    def test_input_backend_must_be_explicit_input_manager(self):
+        original = self.path("ProjectSettings/ProjectSettings.asset").read_text()
+        for value in ("-1", "1", "2", ""):
+            with self.subTest(value=value):
+                self.path("ProjectSettings/ProjectSettings.asset").write_text(
+                    original.replace("activeInputHandler: 0", "activeInputHandler: " + value))
+                self.assertReports("activeInputHandler must be 0")
+
     def test_player_settings_file_is_required(self):
         self.path("ProjectSettings/ProjectSettings.asset").unlink()
         self.assertReports("ProjectSettings/ProjectSettings.asset is missing")

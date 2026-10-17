@@ -110,7 +110,10 @@ namespace WorldSim.Tests.EditMode
                 Assert.That(Vector3.Distance(frame.Buildings[0].GetColumn(3),new Vector3(1,7,2)),Is.LessThan(0.00001f));
                 Assert.That(Vector3.Distance(frame.Buildings[0].lossyScale,new Vector3(10,8,10)),Is.LessThan(0.0001f));
                 Assert.That(Vector3.Distance(frame.Residents[0].GetColumn(3),new Vector3(4,0.85f,6)),Is.LessThan(0.00001f));
-                Assert.That(Vector3.Distance(frame.Residents[0].MultiplyVector(Vector3.forward),Vector3.forward),Is.LessThan(0.00001f));
+                // MultiplyVector includes the capsule's deliberate 0.5 forward scale; test heading and size independently.
+                var forward = frame.Residents[0].MultiplyVector(Vector3.forward);
+                Assert.That(Vector3.Distance(forward.normalized,Vector3.forward),Is.LessThan(0.00001f));
+                Assert.That(Vector3.Distance(frame.Residents[0].lossyScale,new Vector3(0.5f,0.85f,0.5f)),Is.LessThan(0.00001f));
             }
         }
         [TestCase(0,2)]   // ABI mismatch

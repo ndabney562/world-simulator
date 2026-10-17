@@ -11,6 +11,57 @@ namespace WorldSim.Tests.EditMode
     public sealed class BridgePlayTests
     {
         [Test]
+        public void DemoInputBackendSupportsLegacyMouseAndTouch()
+        {
+#if ENABLE_LEGACY_INPUT_MANAGER
+            Assert.DoesNotThrow(() => { var position = Input.mousePosition; var count = Input.touchCount; });
+#else
+            Assert.Fail("The demo uses UnityEngine.Input; select Input Manager in Active Input Handling.");
+#endif
+        }
+
+        [TestCase(16f / 9f)]
+        [TestCase(9f / 16f)]
+        public void OverviewFitsEveryBuildingAndKeepsZoomOutInsideClipRange(float aspect)
+        {
+            var go = new GameObject("Framing regression camera");
+            try
+            {
+                var camera = go.AddComponent<Camera>();
+                camera.aspect = aspect;
+                using (var world = new WorldSim.Bridge.NativeWorld(7, 1))
+                {
+                    var frame = new WorldSim.Bridge.RenderFrame(5, 5);
+                    world.FillSnapshot(frame);
+                    var bounds = new Bounds(frame.Buildings[0].GetColumn(3), frame.Buildings[0].lossyScale);
+                    for (int i = 1; i < frame.BuildingCount; i++)
+                        bounds.Encapsulate(new Bounds(frame.Buildings[i].GetColumn(3), frame.Buildings[i].lossyScale));
+                    var orbit = new OrbitCamera(camera, Vector3.zero);
+                    orbit.FrameBounds(bounds);
+                    AssertBuildingCornersVisible(camera, frame);
+                    orbit.Distance *= 2f;
+                    orbit.Update(true);
+                    AssertBuildingCornersVisible(camera, frame);
+                }
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        static void AssertBuildingCornersVisible(Camera camera, WorldSim.Bridge.RenderFrame frame)
+        {
+            for (int building = 0; building < frame.BuildingCount; building++)
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    var local = new Vector3((corner & 1) == 0 ? -0.5f : 0.5f,
+                        (corner & 2) == 0 ? -0.5f : 0.5f, (corner & 4) == 0 ? -0.5f : 0.5f);
+                    var p = camera.WorldToViewportPoint(frame.Buildings[building].MultiplyPoint3x4(local));
+                    Assert.That(p.x, Is.InRange(0.01f, 0.99f), $"Building {building} horizontal framing");
+                    Assert.That(p.y, Is.InRange(0.01f, 0.99f), $"Building {building} vertical framing");
+                    Assert.That(p.z, Is.InRange(camera.nearClipPlane, camera.farClipPlane), $"Building {building} clipping");
+                }
+        }
+
+        [Test]
         public void LongStallDropsExcessWholeSteps()
         {
             double remainder=0;
@@ -91,9 +142,9 @@ namespace WorldSim.Tests.EditMode
             int cyan=0;
             foreach(var pixel in image.GetPixels32())
                 if(pixel.g>pixel.r*2 && pixel.b>pixel.r*2 && pixel.g>100) cyan++;
-            Assert.That(cyan,Is.GreaterThan(100),"Native marker geometry must be visible.");
             string path=Path.Combine(Path.GetTempPath(),"worldsim-bridge-bootstrap.png");
             File.WriteAllBytes(path,image.EncodeToPNG());
+            Assert.That(cyan,Is.GreaterThan(100),"Native marker geometry must be visible.");
             camera.targetTexture=null;
             Object.Destroy(image);Object.Destroy(target);
             yield return new ExitPlayMode();

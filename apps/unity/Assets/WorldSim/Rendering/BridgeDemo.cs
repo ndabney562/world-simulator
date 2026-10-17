@@ -27,6 +27,8 @@ namespace WorldSim.Rendering
         Rect hudRect;
         int scaleIndex;
         bool framed;
+        Camera viewCamera;
+        float framedAspect;
         // Metrics over the current half-second window and the last published window.
         float windowStart, windowFrameSum, windowFrameMax, windowFillSum;
         int windowFrames;
@@ -54,7 +56,8 @@ namespace WorldSim.Rendering
                 residentMaterial = new Material(shader) { enableInstancing = true };
                 residentMaterial.SetColor("_BaseColor", new Color(1f, 0.55f, 0.1f));
                 Application.targetFrameRate = 60;
-                orbit = new OrbitCamera(Camera.main.transform, Vector3.zero);
+                viewCamera = Camera.main;
+                orbit = new OrbitCamera(viewCamera, Vector3.zero);
                 StartWorld(Mathf.Clamp(startScaleIndex, 0, Scales.Length - 1));
             }
             catch (Exception error) { Debug.LogError($"Toy world stopped: {error.Message}", this); Release(); enabled = false; }
@@ -95,7 +98,7 @@ namespace WorldSim.Rendering
                 if (host.Failure != null) throw host.Failure;
                 double fill = host.Fill(frame);
                 Tick = frame.Tick;
-                if (!framed) Frame();
+                if (!framed || Mathf.Abs(framedAspect - viewCamera.aspect) > 0.001f) Frame();
                 orbit.Update(hudRect.Contains(HudPointer()));
                 Draw();
                 Sample(Time.unscaledDeltaTime * 1000f, (float)fill);
@@ -112,14 +115,11 @@ namespace WorldSim.Rendering
 
         void Frame()
         {
-            var min = new Vector3(float.MaxValue, 0, float.MaxValue); var max = new Vector3(float.MinValue, 0, float.MinValue);
-            for (int i = 0; i < frame.BuildingCount; i++)
-            {
-                Vector3 p = frame.Buildings[i].GetColumn(3);
-                min = Vector3.Min(min, p); max = Vector3.Max(max, p);
-            }
-            orbit.Target = new Vector3((min.x + max.x) * 0.5f, 0, (min.z + max.z) * 0.5f);
-            orbit.Distance = Mathf.Max(120f, (max - min).magnitude * 1.4f);
+            var bounds = new Bounds(frame.Buildings[0].GetColumn(3), frame.Buildings[0].lossyScale);
+            for (int i = 1; i < frame.BuildingCount; i++)
+                bounds.Encapsulate(new Bounds(frame.Buildings[i].GetColumn(3), frame.Buildings[i].lossyScale));
+            orbit.FrameBounds(bounds);
+            framedAspect = viewCamera.aspect;
             framed = true;
         }
 
