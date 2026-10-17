@@ -56,6 +56,55 @@ class CheckUnityProjectTest(unittest.TestCase):
         self.path("ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 6000.3.99f1\n")
         self.assertReports("does not record the editor version 6000.3.99f1")
 
+    def edit_player_settings(self, change):
+        path = self.path("ProjectSettings/ProjectSettings.asset")
+        path.write_text(change(path.read_text()))
+
+    def test_ios_non_metal_graphics_api_fails(self):
+        self.edit_player_settings(lambda s: s.replace("m_APIs: 10000000", "m_APIs: 0b000000"))
+        self.assertReports("iOSSupport graphics APIs must be exactly Metal")
+
+    def test_ios_mixed_graphics_apis_fail(self):
+        self.edit_player_settings(lambda s: s.replace("m_APIs: 10000000", "m_APIs: 100000000b000000"))
+        self.assertReports("iOSSupport graphics APIs must be exactly Metal")
+
+    def test_ios_empty_graphics_apis_fail(self):
+        self.edit_player_settings(lambda s: s.replace("m_APIs: 10000000", "m_APIs:"))
+        self.assertReports("iOSSupport graphics APIs must be exactly Metal")
+
+    def test_ios_automatic_selection_flag_is_not_the_contract(self):
+        for automatic in (0, 1):
+            with self.subTest(automatic=automatic):
+                self.edit_player_settings(
+                    lambda s: s.replace("m_Automatic: 0", "m_Automatic: 1")
+                    if automatic else s.replace("m_Automatic: 1", "m_Automatic: 0")
+                )
+                self.assertEqual(self.errors(), [])
+
+    def test_other_platform_metal_does_not_replace_ios_entry(self):
+        self.edit_player_settings(lambda s: s.replace("m_BuildTarget: iOSSupport", "m_BuildTarget: Android"))
+        self.assertReports("exactly one iOSSupport entry")
+
+    def test_other_platform_graphics_apis_do_not_change_ios_requirement(self):
+        self.edit_player_settings(lambda s: s + "  - m_BuildTarget: Android\n    m_APIs: 0b000000\n    m_Automatic: 1\n")
+        self.assertEqual(self.errors(), [])
+
+    def test_ios_graphics_entry_cannot_come_from_another_section(self):
+        self.edit_player_settings(lambda s: s.replace("m_BuildTargetGraphicsAPIs:", "unrelatedList:"))
+        self.assertReports("one m_BuildTargetGraphicsAPIs list")
+
+    def test_duplicate_ios_graphics_entries_fail(self):
+        self.edit_player_settings(lambda s: s + "  - m_BuildTarget: iOSSupport\n    m_APIs: 10000000\n    m_Automatic: 0\n")
+        self.assertReports("exactly one iOSSupport entry")
+
+    def test_duplicate_ios_api_fields_fail(self):
+        self.edit_player_settings(lambda s: s.replace("    m_APIs: 10000000", "    m_APIs: 10000000\n    m_APIs: 0b000000"))
+        self.assertReports("iOSSupport graphics APIs must be exactly Metal")
+
+    def test_player_settings_file_is_required(self):
+        self.path("ProjectSettings/ProjectSettings.asset").unlink()
+        self.assertReports("ProjectSettings/ProjectSettings.asset is missing")
+
     def test_third_party_package_fails(self):
         self.edit_json("Packages/manifest.json", lambda m: m["dependencies"].update({"com.cesium.unity": "1.0.0"}))
         self.assertReports("com.cesium.unity is not a Unity package")
