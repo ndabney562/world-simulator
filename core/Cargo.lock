@@ -536,6 +536,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ws-ffi"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "ws-sim",
+]
+
+[[package]]
 name = "ws-math"
 version = "0.1.0"
 dependencies = [

@@ -16,6 +16,8 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs 
 | Simulation LOD tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-world` `tests/lod.rs` and `src/lod_tests.rs` (ADR 0017 §14): zero-time round trips, conservation properties, L1/L2 equivalence over one simulated hour, the invariant checker against injected faults, and `lod_soak_short` (1,000 agents, 30 simulated minutes, about 3 minutes in a debug build) | Active (TP-007) |
 | Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Active in [nightly.yml](../../.github/workflows/nightly.yml). Both tests passed in push validation, manual dispatch and the scheduled run; evidence below (#40) |
 
+The TP-003 **Native bridge and header** job runs on macOS 14. It installs the workspace-pinned Rust toolchain and `aarch64-apple-ios`, installs cbindgen 0.29.2 as a build-only tool, verifies `ws_ffi.h` matches regenerated output, and builds the iOS target with `--release --locked`. FFI unit/error/layout tests are included in both Rust matrix jobs. Unity Editor integration/rendering tests remain a local verification step; static checks do not substitute for them.
+
 The repository is public, so GitHub-hosted Linux and macOS runners cost nothing (ADR 0007).
 
 ## Nightly LOD workflow
@@ -71,7 +73,6 @@ Each is added by the issue that introduces what it checks.
 | Check | Added by |
 |---|---|
 | Unity edit-mode tests in CI, once the Product Owner adds the licence secrets (S-6, below) | Follow-up to TP-002 |
-| Native library build for `aarch64-apple-ios`; C header generation check (`cbindgen` output committed and up to date) | TP-003 |
 | Tier 2 replay tests with different thread counts, and journal replay | TP-008 |
 | Save fixture compatibility tests | TP-009 |
 | Event and causality invariant tests | TP-008, TP-010 |
