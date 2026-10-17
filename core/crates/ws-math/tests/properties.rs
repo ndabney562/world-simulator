@@ -147,6 +147,12 @@ proptest! {
         let cached = p.reexpress_with(&frame);
         let full = p.reexpress();
         prop_assert_eq!(cached, full);
+        // With the inside fast path (#48) too.
+        let fast = p.reexpress_with(&CellFrame::with_inside_test(cell));
+        prop_assert_eq!(fast, full);
+        if let (Ok(a), Ok(b)) = (fast, full) {
+            prop_assert_eq!(a.offset().map(f32::to_bits), b.offset().map(f32::to_bits));
+        }
         if let (Ok(a), Ok(b)) = (cached, full) {
             prop_assert_eq!(a.offset().map(f32::to_bits), b.offset().map(f32::to_bits));
             prop_assert_eq!(a.cell(), p.occupied_cell().unwrap());

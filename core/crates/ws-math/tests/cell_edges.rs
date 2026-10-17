@@ -73,7 +73,9 @@ fn sweep(cell: CellId, angle: f64, step_m: f64, out: &mut Sweep) {
         // The cached path is not allowed to call an outside point inside,
         // or alter the edge-settling bits. These fixed/global sweeps cover
         // every distinct f32 sample within +/-200 micrometres of the edge.
-        let cached = p.reexpress_with(&CellFrame::new(cell)).unwrap();
+        let cached = p
+            .reexpress_with(&CellFrame::with_inside_test(cell))
+            .unwrap();
         assert_eq!(cached.cell(), q.cell());
         assert_eq!(
             cached.offset().map(f32::to_bits),
@@ -82,6 +84,12 @@ fn sweep(cell: CellId, angle: f64, step_m: f64, out: &mut Sweep) {
         if cached.cell() == cell {
             assert_eq!(p.occupied_cell(), Ok(cell));
         }
+        // The inside fast path keeps a margin of millimetres, so it never
+        // claims a point this close to an edge (#48).
+        assert!(
+            !CellFrame::with_inside_test(cell).certainly_contains(p.to_ecef()),
+            "{p:?}"
+        );
         out.samples += 1;
 
         // The invariant, idempotence, settling, and the position bound.

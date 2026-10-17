@@ -449,7 +449,7 @@ impl ToyWorld {
                 .map_err(|_| WorldError::UnknownBuilding(walk.target))?;
             let frame = frames
                 .entry(pos.cell())
-                .or_insert_with(|| CellFrame::new(pos.cell()));
+                .or_insert_with(|| CellFrame::with_inside_test(pos.cell()));
             let goal = frame.frame().to_enu(centres[t]);
             let here = pos.offset_enu();
             let to_goal = goal - here;
