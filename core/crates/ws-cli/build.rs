@@ -1,16 +1,6 @@
 //! Deterministic source/compiler/target identity for same-build replay artifacts.
-use std::process::Command;
-fn output(program: &str, args: &[&str]) -> String {
-    let out = Command::new(program)
-        .args(args)
-        .output()
-        .expect("build identity tool");
-    assert!(out.status.success());
-    String::from_utf8(out.stdout)
-        .expect("UTF-8 build identity")
-        .trim()
-        .to_owned()
-}
+mod build_identity;
+use build_identity::try_output;
 fn main() {
     // Include the complete tracked+untracked Rust source tree in the build identity;
     // a dirty checkout must not masquerade as the same committed build.
@@ -58,15 +48,16 @@ fn main() {
     println!("cargo:rerun-if-changed=..");
     println!("cargo:rerun-if-changed=../../Cargo.lock");
     println!("cargo:rerun-if-changed=../../Cargo.toml");
-    let sha = output("git", &["rev-parse", "HEAD"]);
-    let rustc = output("rustc", &["--version"]);
+    let sha = try_output("git", &["rev-parse", "HEAD"]).unwrap_or_else(|| "nogit".into());
+    let rustc = try_output("rustc", &["--version"]).expect("Rust compiler identity");
     println!(
         "cargo:rustc-env=WS_BUILD={sha}|{rustc}|{}|{}",
         std::env::var("TARGET").unwrap(),
         std::env::var("PROFILE").unwrap()
     );
     for path in ["HEAD", "refs/heads"] {
-        let file = output("git", &["rev-parse", "--git-path", path]);
-        println!("cargo:rerun-if-changed={file}");
+        if let Some(file) = try_output("git", &["rev-parse", "--git-path", path]) {
+            println!("cargo:rerun-if-changed={file}");
+        }
     }
 }

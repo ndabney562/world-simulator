@@ -1,4 +1,7 @@
 //! Standard-library-only headless runner and bounded WSJR debug tape codec.
+#[cfg(test)]
+#[path = "../build_identity.rs"]
+mod build_identity;
 use std::io::{Read, Write};
 use ws_sim::{
     EntityId, Lod, SimTime, World, WorldConfig,
@@ -214,8 +217,6 @@ fn outcome(o: &commands::Outcome) -> Result<Vec<u8>> {
         o.tick,
         o.time.as_micros_since_epoch() as u64,
         o.boundary,
-        o.before,
-        o.after,
         o.effect as u64,
         o.demoted as u64,
         o.promoted as u64,
@@ -245,7 +246,7 @@ fn read_frame(r: &mut impl Read) -> Result<(u32, u64, Vec<u8>)> {
             1 => (32..=65_568).contains(&size),
             2 => size == 56,
             3 => size == 40,
-            4 => (120..=12_412).contains(&size),
+            4 => (104..=12_396).contains(&size),
             5 => (104..=2048).contains(&size) && size.is_multiple_of(8),
             6 => size == 32,
             7 => size == 72,
@@ -575,6 +576,18 @@ mod tests {
     use super::*;
     fn world() -> World {
         World::new(WorldConfig::new(7, SimTime::EPOCH)).unwrap()
+    }
+    #[test]
+    fn journal_observation_has_ten_words_and_exact_command() {
+        let mut w = world();
+        let command = Command::new(IssuedBy::Test, Action::NoOp);
+        w.submit(vec![command.clone()]).unwrap();
+        w.flush_commands().unwrap();
+        let bytes = outcome(&w.journal()[0]).unwrap();
+        assert_eq!(bytes.len(), 80 + 24);
+        let expected = [1u64, 1, 0, 0, 1, 0, 0, 0, 0, 0];
+        assert_eq!(&bytes[..80], words(expected));
+        assert_eq!(commands::decode_batch(&bytes[80..]).unwrap(), vec![command]);
     }
     #[test]
     fn environmental_fences_preserve_pending_retry_and_ordinals() {

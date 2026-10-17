@@ -107,10 +107,6 @@ pub struct Outcome {
     pub sequence: u64,
     /// Integer boundary time.
     pub time: crate::SimTime,
-    /// Canonical state hash before application.
-    pub before: u64,
-    /// Canonical state hash after application.
-    pub after: u64,
     /// Actual effect: scale tag or changed-node count.
     pub effect: u32,
     /// Demoted residents.

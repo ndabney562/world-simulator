@@ -137,8 +137,6 @@ impl World {
                 o.tick,
                 o.time.as_micros_since_epoch() as u64,
                 o.boundary,
-                o.before,
-                o.after,
                 o.effect as u64,
                 o.demoted as u64,
                 o.promoted as u64,
@@ -190,7 +188,6 @@ impl World {
         self.journal
             .try_reserve(1)
             .map_err(|_| ControlError::Resource)?;
-        let before = self.state_hash();
         let now = self.now();
         let tick = self.tick();
         let mut effect = 0;
@@ -284,7 +281,6 @@ impl World {
                 }
             }
         };
-        let after = self.state_hash();
         self.journal.push(Outcome {
             schema_version: 1,
             sequence,
@@ -293,8 +289,6 @@ impl World {
             boundary,
             command,
             result,
-            before,
-            after,
             effect,
             demoted,
             promoted,

@@ -1,6 +1,7 @@
 //! Event memory/query and bounded 5,000-agent history overhead measurements.
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
+use ws_sim::commands::{Action, Command, IssuedBy};
 use ws_sim::{EntityId, Population, SimTime, World, WorldConfig, ws_events::*};
 fn history(n: usize) -> EventStore {
     let ids: Vec<_> = (0..1001).map(|i| EntityId::spawned(i).unwrap()).collect();
@@ -53,6 +54,32 @@ fn measure(c: &mut Criterion) {
     c.bench_function("history_actor_query_10_of_10000", |b| {
         b.iter(|| black_box(store.query(Some(id), SimTime::MIN, SimTime::MAX)))
     });
+    // Setup and submission are outside timing; flush includes outcome/event publication.
+    for (name, population) in [
+        ("flush_1024_noops_toy", Population::default()),
+        ("flush_1024_noops_5000_agents", Population::exactly(1000)),
+    ] {
+        let mut group = c.benchmark_group(name);
+        group.sample_size(10);
+        group.bench_function("flush", |b| {
+            b.iter_batched_ref(
+                || {
+                    let mut world = World::new(WorldConfig {
+                        population,
+                        ..WorldConfig::new(1, SimTime::EPOCH)
+                    })
+                    .unwrap();
+                    world
+                        .submit(vec![Command::new(IssuedBy::Test, Action::NoOp); 1024])
+                        .unwrap();
+                    world
+                },
+                |world| black_box(world.flush_commands().unwrap()),
+                BatchSize::LargeInput,
+            )
+        });
+        group.finish();
+    }
     let mut w = World::new(WorldConfig {
         population: Population::exactly(1000),
         ..WorldConfig::new(1, SimTime::EPOCH)

@@ -18,7 +18,7 @@ A u32 header-byte length precedes a 68–1024 byte bounded header body. Body off
 | 48, 52 | u32 generator, rules versions (1, 1) |
 | 56 onward | Three strings: build identifier, architecture, OS; each u32 byte count followed by exact UTF-8 bytes |
 
-Build identifier combines Git HEAD, compiler version, target, profile and a deterministic digest of workspace Rust sources/manifests/lockfile and relevant compiler flags/features. Dirty source changes are included. This is a compatibility guard, not a cryptographic authenticity claim. The runner reconstructs the expected header and requires exact equality before replay.
+Build identifier combines Git HEAD (or `nogit` when Git is unavailable or the source is outside a checkout), compiler version, target, profile and a deterministic digest of workspace Rust sources/manifests/lockfile and relevant compiler flags/features. Dirty source changes are included. This is a compatibility guard, not a cryptographic authenticity claim. The runner reconstructs the expected header and requires exact equality before replay.
 
 ## Frames and operations
 
@@ -29,7 +29,7 @@ Every frame is 32 bytes followed by its exact body. Offset 0 u32 total size, 4 u
 | 1 Submit | Fixed metadata 32 bytes plus exact batch: offset 0 u32 batch length ≤65536; 4 u32 ingress status; 8 u32 accepted count; 12 u32 zero; 16 u64 first assigned sequence (zero if none); 24 u64 zero; 32 batch bytes. Max total 65600. |
 | 2 Flush | Exactly 56 bytes: 0 u32 entry count; 4 u32 committed prefix count; 8 u64 next untouched sequence (zero if drained); 16 u32 terminal status; 20 u32 zero; 24 four u64 checkpoint values. |
 | 3 Step | Exactly 40 bytes: 0 u32 terminal status; 4 u32 zero; 8 four u64 checkpoints. One physical tick, following explicit flush, no second implicit flush. |
-| 4 Journal observation | 120–12412 bytes: twelve u64 words (below), then exact original command encoded as a single-command batch. Compared byte-for-byte with newly generated outcome. |
+| 4 Journal observation | 104–12396 bytes: ten u64 words (below), then exact original command encoded as a single-command batch. Compared byte-for-byte with newly generated outcome. |
 | 5 Event observation | 104–2048 bytes, multiple of eight: canonical event words below; compared byte-for-byte with newly generated event. |
 | 6 Checkpoint | Exactly 32 bytes: simulation hash, pending-queue digest, journal digest, event digest, all u64. |
 | 7 Completion footer | Exactly 72 bytes: nine u64 words: total frames including footer, total operations, journal count, event count, completed ticks, then the four checkpoints. No trailing bytes permitted. |
@@ -42,9 +42,11 @@ For environmental Submit replay, decode and validate fixed logical limits first,
 
 ## Command and journal fields
 
+Per-command outcomes contain no full-world hashes. Replay still compares every outcome/event and the four checkpoint digests after each operation. This removes O(world) work per NoOp; old debug tapes are rejected by the changed source/build identity before decoding observations.
+
 Command batch: u32 envelope version 2, u32 count ≤1024; each record u32 opcode, u32 payload length, exact payload. Payload starts u32 command schema 1, u32 issued_by (0 player, 1 script, 2 test). NoOp opcode 0 adds nothing. SetTimeScale opcode 1 adds u32 scale 0/1/10/100. SetNodeLod opcode 2 adds u32 entry count ≤1024, then u64 entity ID + u32 LOD 1/2 per entry. No padding/trailing bytes. The queue cap counts the same canonical record bytes plus one 8-byte batch header, irrespective of submission grouping.
 
-Journal observation's twelve u64 words: schema 1, assigned command sequence, application tick, application time bits, boundary ordinal, before simulation hash, after simulation hash, effect (scale tag or actual changed-building count), demoted, promoted, reason, reason detail. Reasons: 0 applied, 1 typed diagnostic schema, 2 too many nodes, 3 unknown node (detail raw ID), 4 duplicate node (raw ID), 5 unsupported LOD (tag), 6 domain rejection (reserved; infrastructure failures produce no outcome). CLI wire ingress accepts only schema 1 and supported LOD tags; diagnostic typed Rust commands are tested in core, not accepted as malformed wire artifacts.
+Journal observation's ten u64 words: schema 1, assigned command sequence, application tick, application time bits, boundary ordinal, effect (scale tag or actual changed-building count), demoted, promoted, reason, reason detail. Reasons: 0 applied, 1 typed diagnostic schema, 2 too many nodes, 3 unknown node (detail raw ID), 4 duplicate node (raw ID), 5 unsupported LOD (tag), 6 domain rejection (reserved; infrastructure failures produce no outcome). CLI wire ingress accepts only schema 1 and supported LOD tags; diagnostic typed Rust commands are tested in core, not accepted as malformed wire artifacts.
 
 ## Canonical event words
 

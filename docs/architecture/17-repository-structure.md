@@ -35,10 +35,10 @@ world-simulator/
 │       ├── ws-sim/               Scheduler, command queue, journal, system registry
 │       ├── ws-persist/           SQLite storage, serialization, migrations
 │       ├── ws-snapshot/          Render, inspector, and query snapshot builders
+│       ├── ws-cli/               Headless runner and replay host (ADR 0019 §1)
 │       ├── ws-ffi/               C ABI; the only crate Unity links
 │       └── ws-testkit/           Scenario DSL, invariant checkers, determinism tiers, fixtures
 ├── tools/
-│   ├── ws-cli/                   Headless runner: create worlds, run N years, replay, benchmark
 │   ├── ws-inspector/             Desktop debug viewer (maps, graphs, entity and event browser)
 │   └── ws-datapipe/              Offline data pipeline: sources → simulation and visual tiles
 ├── apps/

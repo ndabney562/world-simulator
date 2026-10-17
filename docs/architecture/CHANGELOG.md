@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## TP-008 repository layout correction (2026-10-17)
+
+The repository tree now places the headless host at `core/crates/ws-cli/`, as accepted ADR 0019 §1 specifies; `tools/` remains for the inspector and data pipeline. No dependency direction or architecture decision changed.
+
 ## ADR 0019 accepted (2026-10-16)
 
 Noah explicitly approved ADR 0019 and assigned #9 implementation in Codex; approval is recorded on #9 and PR #44. Status/index now say Accepted. Implementation follows on a separate branch; no PR merge was performed.

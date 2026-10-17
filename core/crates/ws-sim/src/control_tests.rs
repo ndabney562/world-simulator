@@ -371,3 +371,28 @@ fn exhausted_command_counters_never_wrap_or_publish() {
     assert_eq!(w.checkpoint(), before);
     assert!(w.journal.is_empty());
 }
+
+#[test]
+fn maximum_noop_flush_preserves_world_and_records_every_outcome() {
+    let mut w = World::new(WorldConfig {
+        population: Population::exactly(1000),
+        ..WorldConfig::new(42, SimTime::EPOCH)
+    })
+    .unwrap();
+    let state = w.state_hash();
+    w.submit(vec![cmd(Action::NoOp); 1024]).unwrap();
+    let report = w.flush_commands().unwrap();
+    assert_eq!(report.committed, 1024);
+    assert_eq!(report.next, 0);
+    assert_eq!(w.state_hash(), state);
+    assert_eq!(w.tick(), 0);
+    assert_eq!(w.events().records().len(), 1025);
+    for (i, outcome) in w.journal().iter().enumerate() {
+        assert_eq!(outcome.sequence, i as u64 + 1);
+        assert_eq!(outcome.result, Ok(()));
+        assert_eq!(outcome.command.action, Action::NoOp);
+    }
+    let checkpoint = w.checkpoint();
+    w.flush_commands().unwrap();
+    assert_eq!(w.checkpoint(), checkpoint);
+}
