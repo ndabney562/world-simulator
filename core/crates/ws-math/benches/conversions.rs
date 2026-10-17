@@ -94,5 +94,21 @@ fn main() {
             }
         }),
     );
+    report(
+        "reexpress (frame built per call)",
+        time(|| {
+            for (b, p) in back.iter_mut().zip(&input) {
+                *b = black_box(p).reexpress().unwrap();
+            }
+        }),
+    );
+    report(
+        "reexpress (prebuilt CellFrame)",
+        time(|| {
+            for (b, p) in back.iter_mut().zip(&input) {
+                *b = black_box(p).reexpress_with(&frame).unwrap();
+            }
+        }),
+    );
     black_box((&out, &back));
 }

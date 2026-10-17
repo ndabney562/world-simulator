@@ -85,6 +85,8 @@ Unity 6000.3.26f1 can report automatic iOS graphics selection while the API list
 
 The original skeleton test also required the automatic-selection flag to be false, causing a fresh import to fail despite selecting Metal. That assertion was corrected in the fix for issue #37; no other Player requirement was relaxed. If the API-list assertion fails, record the reported list and Editor version on the bug issue.
 
+The static CI checker also requires the serialized `iOSSupport` API list to contain exactly Metal (`m_APIs: 10000000`, the little-endian encoding of graphics API value 16). It deliberately does not constrain `m_Automatic`; both 0 and 1 pass when Metal is the only API. This catches API-list drift without needing the Unity Editor in CI. The Editor test still verifies the effective imported API list.
+
 ## Running the native demo
 
 Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. A cyan grid of 1,000 moving cubes is rendered from ABI-v1 snapshots; motion is derived from Rust seed/tick, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.

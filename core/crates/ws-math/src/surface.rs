@@ -19,8 +19,8 @@ pub const SECTOR_LEVEL: u8 = 13;
 /// Building a cell's frame costs a few trigonometric calls, so code that
 /// converts many positions in the same cell (snapshot building) builds the
 /// `CellFrame` once and passes it to [`SurfacePos::to_ecef_with`] and
-/// [`SurfacePos::from_ecef_in`]. Converting with a frame does not
-/// allocate.
+/// [`SurfacePos::from_ecef_in`]. Movement also shares it with
+/// [`SurfacePos::reexpress_with`]. Converting with a frame does not allocate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellFrame {
     cell: CellId,
@@ -217,6 +217,27 @@ impl SurfacePos {
         }
     }
 
+    /// Re-expresses with a prebuilt frame of this position's cell.
+    ///
+    /// Exactly the same cell lookup and ADR 0016 edge settling as
+    /// [`Self::reexpress`], without rebuilding the source frame. Reuse one
+    /// frame for all moving agents in a cell. This is not an approximate
+    /// inside test: points near an edge still use the full Tier 1 lookup.
+    ///
+    /// # Errors
+    ///
+    /// [`CoordError::FrameMismatch`] for a frame of another cell; otherwise
+    /// the same errors as [`Self::reexpress`].
+    pub fn reexpress_with(&self, frame: &CellFrame) -> Result<Self, CoordError> {
+        let p = self.to_ecef_with(frame)?;
+        let cell = CellId::from_ecef(p)?.parent(SECTOR_LEVEL)?;
+        if cell == self.cell {
+            Ok(*self)
+        } else {
+            settle(p, &CellFrame::new(cell))
+        }
+    }
+
     /// Whether the stored position lies in its own cell, with a prebuilt
     /// frame of that cell.
     fn lies_in_own_cell(&self, frame: &CellFrame) -> Result<bool, CoordError> {
@@ -314,6 +335,7 @@ mod tests {
         let other = CellFrame::new(sector.edge_neighbors()[0]);
         let p = SurfacePos::new(sector, [0.0; 3]).unwrap();
         assert_eq!(p.to_ecef_with(&other), Err(CoordError::FrameMismatch));
+        assert_eq!(p.reexpress_with(&other), Err(CoordError::FrameMismatch));
         assert_eq!(p.to_ecef_with(&CellFrame::new(sector)), Ok(p.to_ecef()));
     }
 
@@ -369,6 +391,7 @@ mod tests {
     fn adr_0016_case_settles_in_the_containing_cell() {
         let p = adr_0016_case();
         let q = p.reexpress().unwrap();
+        assert_eq!(p.reexpress_with(&CellFrame::new(p.cell())), Ok(q));
         assert_eq!(q.cell(), CellId::from_raw(0x89c2_4564_0000_0000).unwrap());
         assert_eq!(q.occupied_cell(), Ok(q.cell()));
         assert!(q.to_ecef().distance(p.to_ecef()) < 1e-4);
