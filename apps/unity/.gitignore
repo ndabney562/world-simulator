@@ -51,3 +51,4 @@ crashlytics-build.properties
 # Native plugin is rebuilt per Editor architecture.
 /Assets/Plugins/macOS/*.dylib
 /Assets/Plugins/macOS/*.dylib.meta
+/Assets/Plugins/iOS/*.a.meta

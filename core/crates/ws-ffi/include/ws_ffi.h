@@ -12,7 +12,12 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 2
+#define ABI_VERSION 3
+
+/**
+ * Most residents per building a config may ask for.
+ */
+#define MAX_RESIDENTS_PER_BUILDING 2000
 
 /**
  * Successful operation.
@@ -64,7 +69,7 @@ typedef struct WsHandle WsHandle;
  */
 typedef struct {
   /**
-   * Must equal 2.
+   * Must equal 3.
    */
   uint32_t abi_version;
   /**
@@ -80,9 +85,9 @@ typedef struct {
    */
   int64_t start_us;
   /**
-   * Debug markers, 0 through 100,000; not canonical entities.
+   * Residents in every building, 1 through 2,000 (the toy world has five buildings).
    */
-  uint32_t debug_marker_count;
+  uint32_t residents_per_building;
   /**
    * Must be zero.
    */
@@ -99,7 +104,7 @@ typedef uint32_t WsStatus;
  */
 typedef struct {
   /**
-   * Caller requests ABI 2; returned as 2 on success.
+   * Caller requests ABI 3; returned as 3 on success.
    */
   uint32_t abi_version;
   /**
@@ -117,7 +122,7 @@ typedef struct {
 } WsControlState;
 
 /**
- * Snapshot v2 header, serialized little-endian without alignment assumptions.
+ * Snapshot v3 header, serialized little-endian without alignment assumptions.
  */
 typedef struct {
   /**
@@ -143,37 +148,37 @@ typedef struct {
 } WsSnapshotHeader;
 
 /**
- * Debug render record, never a canonical entity.
+ * Render record (ADR 0022): kind 1 is a building box, kind 2 a resident capsule.
  */
 typedef struct {
   /**
-   * Debug ID, index plus one.
+   * Raw entity ID.
    */
   uint64_t id;
   /**
-   * Zero for debug markers.
+   * 1 building, 2 resident.
    */
   uint32_t kind;
   /**
-   * East metres.
+   * East metres of the snapshot origin.
    */
   float east;
   /**
-   * North metres.
+   * North metres of the snapshot origin.
    */
   float north;
   /**
-   * Up metres.
+   * Up metres of the snapshot origin.
    */
   float up;
   /**
-   * Heading radians from east towards north.
+   * Building half extent in metres, or resident heading in radians.
    */
-  float heading;
+  float a;
   /**
-   * Zero.
+   * Building height in metres, or zero.
    */
-  uint32_t reserved;
+  float b;
 } WsInstance;
 
 /**

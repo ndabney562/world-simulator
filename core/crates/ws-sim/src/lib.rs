@@ -32,8 +32,8 @@ pub use ws_ecs::EntityId;
 pub use ws_time::{SimTime, TimeOverflow};
 use ws_world::{Dataset, WalkParams};
 pub use ws_world::{
-    Illness, IllnessKind, Lod, LodError, LodViolation, Population, TOY_DATASET_VERSION, ToyWorld,
-    TransitionReport, WorldError,
+    Illness, IllnessKind, Lod, LodError, LodViolation, Population, RenderInstance, RenderKind,
+    TOY_DATASET_VERSION, ToyWorld, TransitionReport, WorldError,
 };
 
 /// Parameters a [`World`] is created from.
@@ -334,21 +334,18 @@ impl World {
     pub fn seed(&self) -> u64 {
         self.seed
     }
-}
 
-/// TP-003 debug-only render marker in a synthetic ENU frame.
-/// Returns east/north/up/heading; not canonical state or an EntityId.
-/// Pure in seed/tick/index; TP-011 replaces markers with world entities.
-#[must_use]
-pub fn debug_marker(seed: u64, tick: u64, index: u32) -> [f32; 4] {
-    let phase = (tick % 200 + seed % 200) % 200;
-    let travel = if phase < 100 { phase } else { 200 - phase };
-    [
-        (index % 100) as f32 * 2.0 + travel as f32 * 0.02,
-        (index / 100) as f32 * 2.0,
-        0.5,
-        0.0,
-    ]
+    /// How many records [`World::render_instances`] yields right now.
+    #[must_use]
+    pub fn render_instance_count(&self) -> usize {
+        self.toy.render_instance_count()
+    }
+
+    /// The render snapshot's records, buildings then L1 residents, each in
+    /// ascending ID order (ADR 0022). Read-only.
+    pub fn render_instances(&self, f: impl FnMut(RenderInstance)) {
+        self.toy.render_instances(f);
+    }
 }
 
 #[cfg(test)]

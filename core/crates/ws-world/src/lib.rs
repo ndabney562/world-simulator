@@ -162,6 +162,35 @@ impl From<LodError> for WorldError {
     }
 }
 
+/// What a render record shows (ADR 0022). The numbers are the wire tags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum RenderKind {
+    /// A box: `a` is the half extent and `b` the height, in metres.
+    Building = 1,
+    /// A capsule: `a` is the heading in radians from east towards north.
+    Resident = 2,
+}
+
+/// One entity of the render snapshot, in metres from the snapshot origin.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RenderInstance {
+    /// The entity.
+    pub id: EntityId,
+    /// What to draw.
+    pub kind: RenderKind,
+    /// Metres east of the snapshot origin.
+    pub east: f32,
+    /// Metres north of the snapshot origin.
+    pub north: f32,
+    /// Metres above the snapshot origin.
+    pub up: f32,
+    /// Half extent (building) or heading (resident).
+    pub a: f32,
+    /// Height (building) or zero (resident).
+    pub b: f32,
+}
+
 /// The canonical state of a [`ToyWorld`] as plain rows, for persistence
 /// (ADR 0020). Derived indices are not part of it: [`ToyWorld::from_parts`]
 /// rebuilds them.
@@ -451,6 +480,68 @@ impl ToyWorld {
     pub fn illness_root_if_home(&self, id: EntityId, destination: EntityId) -> Option<u64> {
         let ill = self.illness.get(id)?;
         (self.residents.get(id)?.home == destination).then_some(ill.root_event)
+    }
+
+    /// How many records [`ToyWorld::render_instances`] yields: every
+    /// building plus every L1 resident.
+    #[must_use]
+    pub fn render_instance_count(&self) -> usize {
+        self.buildings.len() + self.walks.len()
+    }
+
+    /// Calls `f` with the render record of every building (ascending ID),
+    /// then every L1 resident (ascending ID), in metres east, north and up
+    /// of the ground centre of the lowest-ID building, in that building's
+    /// cell frame (ADR 0022). Residents at L2 have no position and are
+    /// skipped. Read-only.
+    pub fn render_instances(&self, mut f: impl FnMut(RenderInstance)) {
+        let Some((_, first)) = self.buildings.iter().next() else {
+            return;
+        };
+        let frame = CellFrame::new(first.pos.cell());
+        let origin = first.pos.offset_enu();
+        let to_local = |p: &SurfacePos| -> [f32; 3] {
+            let e = if p.cell() == first.pos.cell() {
+                p.offset_enu()
+            } else {
+                frame.frame().to_enu(p.to_ecef())
+            };
+            [
+                (e.x - origin.x) as f32,
+                (e.y - origin.y) as f32,
+                (e.z - origin.z) as f32,
+            ]
+        };
+        for (id, b) in self.buildings.iter() {
+            let [east, north, up] = to_local(&b.pos);
+            f(RenderInstance {
+                id,
+                kind: RenderKind::Building,
+                east,
+                north,
+                up,
+                a: b.half_extent_m,
+                b: b.height_m,
+            });
+        }
+        for (id, pos, walk) in join(&self.positions, &self.walks) {
+            let [east, north, up] = to_local(pos);
+            let [vx, vy, _] = walk.velocity;
+            let heading = if vx.abs() + vy.abs() > 1e-6 {
+                vy.atan2(vx)
+            } else {
+                0.0
+            };
+            f(RenderInstance {
+                id,
+                kind: RenderKind::Resident,
+                east,
+                north,
+                up,
+                a: heading,
+                b: 0.0,
+            });
+        }
     }
 
     /// The movement parameters.

@@ -1,4 +1,4 @@
-//! Synchronous C ABI v2; see ADRs 0018/0019 and this crate's README for ownership.
+//! Synchronous C ABI v3; see ADRs 0018/0019/0022 and this crate's README for ownership.
 #![allow(unsafe_code)] // The only native-pointer boundary in the workspace.
 
 use std::{
@@ -6,10 +6,14 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
 };
-use ws_sim::{SimTime, StepError, World, WorldConfig, commands::IngressError};
+use ws_sim::{
+    Population, RenderInstance, SimTime, StepError, World, WorldConfig, commands::IngressError,
+};
 
 /// Exact native/managed contract version.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
+/// Most residents per building a config may ask for.
+pub const MAX_RESIDENTS_PER_BUILDING: u32 = 2_000;
 /// Fixed-width C status code; numeric values retain their ABI-v1 meanings.
 pub type WsStatus = u32;
 /// Successful operation.
@@ -37,7 +41,7 @@ pub const RECORD_SIZE: usize = 32;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct WsConfig {
-    /// Must equal 2.
+    /// Must equal 3.
     pub abi_version: u32,
     /// Must equal 32.
     pub struct_size: u32,
@@ -45,8 +49,8 @@ pub struct WsConfig {
     pub seed: u64,
     /// Epoch-relative microseconds, divisible by 100,000.
     pub start_us: i64,
-    /// Debug markers, 0 through 100,000; not canonical entities.
-    pub debug_marker_count: u32,
+    /// Residents in every building, 1 through 2,000 (the toy world has five buildings).
+    pub residents_per_building: u32,
     /// Must be zero.
     pub reserved: u32,
 }
@@ -55,7 +59,7 @@ pub struct WsConfig {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WsControlState {
-    /// Caller requests ABI 2; returned as 2 on success.
+    /// Caller requests ABI 3; returned as 3 on success.
     pub abi_version: u32,
     /// Caller provides 16 bytes; returned as 16 on success.
     pub struct_size: u32,
@@ -65,7 +69,7 @@ pub struct WsControlState {
     pub reserved: u32,
 }
 
-/// Snapshot v2 header, serialized little-endian without alignment assumptions.
+/// Snapshot v3 header, serialized little-endian without alignment assumptions.
 #[repr(C)]
 pub struct WsSnapshotHeader {
     /// ABI version.
@@ -79,29 +83,28 @@ pub struct WsSnapshotHeader {
     /// Instance record bytes (32).
     pub record_size: u32,
 }
-/// Debug render record, never a canonical entity.
+/// Render record (ADR 0022): kind 1 is a building box, kind 2 a resident capsule.
 #[repr(C)]
 pub struct WsInstance {
-    /// Debug ID, index plus one.
+    /// Raw entity ID.
     pub id: u64,
-    /// Zero for debug markers.
+    /// 1 building, 2 resident.
     pub kind: u32,
-    /// East metres.
+    /// East metres of the snapshot origin.
     pub east: f32,
-    /// North metres.
+    /// North metres of the snapshot origin.
     pub north: f32,
-    /// Up metres.
+    /// Up metres of the snapshot origin.
     pub up: f32,
-    /// Heading radians from east towards north.
-    pub heading: f32,
-    /// Zero.
-    pub reserved: u32,
+    /// Building half extent in metres, or resident heading in radians.
+    pub a: f32,
+    /// Building height in metres, or zero.
+    pub b: f32,
 }
 
 /// Opaque C handle. Never construct, dereference or copy its storage in a caller.
 pub struct WsHandle {
     world: World,
-    markers: u32,
     error: Diagnostic,
     poisoned: bool,
 }
@@ -152,17 +155,24 @@ pub unsafe extern "C" fn ws_create(config: *const WsConfig) -> *mut WsHandle {
         if config.abi_version != ABI_VERSION {
             return Err("ABI version mismatch");
         }
-        if config.struct_size != 32 || config.reserved != 0 || config.debug_marker_count > 100_000 {
-            return Err("invalid config size, reserved field or marker count");
+        if config.struct_size != 32
+            || config.reserved != 0
+            || !(1..=MAX_RESIDENTS_PER_BUILDING).contains(&config.residents_per_building)
+        {
+            return Err("invalid config size, reserved field or residents per building");
         }
-        let world = World::new(WorldConfig::new(
+        let mut world_config = WorldConfig::new(
             config.seed,
             SimTime::from_micros_since_epoch(config.start_us),
-        ))
-        .map_err(|_| "world creation failed (check start alignment)")?;
+        );
+        world_config.population = Population {
+            min_per_building: config.residents_per_building,
+            max_per_building: config.residents_per_building,
+        };
+        let world = World::new(world_config)
+            .map_err(|_| "world creation failed (check start alignment)")?;
         Ok(Box::into_raw(Box::new(WsHandle {
             world,
-            markers: config.debug_marker_count,
             error: Diagnostic::new(),
             poisoned: false,
         })))
@@ -362,7 +372,8 @@ pub unsafe extern "C" fn ws_fill_render_snapshot(
             if written.is_null() {
                 return Err((INVALID_ARGUMENT, "written is null"));
             }
-            let required = HEADER_SIZE + h.markers as usize * RECORD_SIZE;
+            let count = h.world.render_instance_count();
+            let required = HEADER_SIZE + count * RECORD_SIZE;
             if cap < required {
                 *written = required;
                 return Err((BUFFER_TOO_SMALL, "snapshot capacity too small"));
@@ -374,17 +385,19 @@ pub unsafe extern "C" fn ws_fill_render_snapshot(
             out[..4].copy_from_slice(&ABI_VERSION.to_le_bytes());
             out[4..8].copy_from_slice(&(HEADER_SIZE as u32).to_le_bytes());
             out[8..16].copy_from_slice(&h.world.tick().to_le_bytes());
-            out[16..20].copy_from_slice(&h.markers.to_le_bytes());
+            out[16..20].copy_from_slice(&(count as u32).to_le_bytes());
             out[20..24].copy_from_slice(&(RECORD_SIZE as u32).to_le_bytes());
-            for index in 0..h.markers {
-                let record = &mut out[HEADER_SIZE + index as usize * RECORD_SIZE..][..RECORD_SIZE];
-                record.fill(0);
-                record[..8].copy_from_slice(&(u64::from(index) + 1).to_le_bytes());
-                let marker = ws_sim::debug_marker(h.world.seed(), h.world.tick(), index);
-                for (field, value) in marker.into_iter().enumerate() {
-                    record[12 + field * 4..16 + field * 4].copy_from_slice(&value.to_le_bytes());
+            let mut at = HEADER_SIZE;
+            h.world.render_instances(|i: RenderInstance| {
+                let record = &mut out[at..at + RECORD_SIZE];
+                record[..8].copy_from_slice(&i.id.raw().to_le_bytes());
+                record[8..12].copy_from_slice(&(i.kind as u32).to_le_bytes());
+                for (n, v) in [i.east, i.north, i.up, i.a, i.b].into_iter().enumerate() {
+                    record[12 + n * 4..16 + n * 4].copy_from_slice(&v.to_le_bytes());
                 }
-            }
+                at += RECORD_SIZE;
+            });
+            debug_assert_eq!(at, required);
             *written = required;
             Ok(())
         })

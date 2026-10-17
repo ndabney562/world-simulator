@@ -2,11 +2,11 @@ use super::*;
 use std::ptr::{null, null_mut};
 fn config(n: u32) -> WsConfig {
     WsConfig {
-        abi_version: 2,
+        abi_version: 3,
         struct_size: 32,
         seed: 7,
         start_us: 0,
-        debug_marker_count: n,
+        residents_per_building: n,
         reserved: 0,
     }
 }
@@ -16,14 +16,14 @@ fn layout() {
     assert_eq!(std::mem::align_of::<WsConfig>(), 8);
     assert_eq!(std::mem::offset_of!(WsConfig, seed), 8);
     assert_eq!(std::mem::offset_of!(WsConfig, start_us), 16);
-    assert_eq!(std::mem::offset_of!(WsConfig, debug_marker_count), 24);
+    assert_eq!(std::mem::offset_of!(WsConfig, residents_per_building), 24);
     assert_eq!(std::mem::offset_of!(WsConfig, reserved), 28);
 }
 #[test]
 fn invalid_arguments_and_config() {
     // SAFETY: documented null paths and live stack configurations; no dangling pointers.
     unsafe {
-        assert_eq!(ws_abi_version(), 2);
+        assert_eq!(ws_abi_version(), 3);
         assert!(ws_create(null()).is_null());
         assert!(ws_last_error(null_mut(), null_mut(), 0) > 1);
         for bad in [
@@ -43,7 +43,8 @@ fn invalid_arguments_and_config() {
                 start_us: 1,
                 ..config(1)
             },
-            config(100_001),
+            config(0),
+            config(2_001),
         ] {
             assert!(ws_create(&bad).is_null());
         }
@@ -110,37 +111,40 @@ fn snapshot_and_noop_leave_canonical_state_unchanged() {
             ws_fill_render_snapshot(h, null_mut(), 0, &mut n),
             BUFFER_TOO_SMALL
         );
-        assert_eq!(n, 88);
-        let mut buf = [0xa5; 100];
+        assert_eq!(n, 504);
+        let mut buf = [0xa5; 520];
         assert_eq!(
-            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 87, &mut n),
+            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 503, &mut n),
             BUFFER_TOO_SMALL
         );
-        assert_eq!(buf, [0xa5; 100]);
+        assert_eq!(buf, [0xa5; 520]);
         assert_eq!(
-            ws_fill_render_snapshot(h, null_mut(), 88, &mut n),
+            ws_fill_render_snapshot(h, null_mut(), 504, &mut n),
             INVALID_ARGUMENT
         );
         assert_eq!(n, 0);
         assert_eq!(
-            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 100, null_mut()),
+            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 520, null_mut()),
             INVALID_ARGUMENT
         );
         assert_eq!(
-            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 100, &mut n),
+            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 520, &mut n),
             OK
         );
-        assert_eq!(&buf[88..], &[0xa5; 12]);
-        assert_eq!(&buf[..8], &[2, 0, 0, 0, 24, 0, 0, 0]);
-        assert_eq!(&buf[16..24], &[2, 0, 0, 0, 32, 0, 0, 0]);
-        assert_eq!(&buf[24..32], &1u64.to_le_bytes());
-        assert_eq!(&buf[36..40], &0.14f32.to_le_bytes());
+        assert_eq!(&buf[504..], &[0xa5; 16]);
+        assert_eq!(&buf[..8], &[3, 0, 0, 0, 24, 0, 0, 0]);
+        assert_eq!(&buf[16..24], &[15, 0, 0, 0, 32, 0, 0, 0]);
+        assert_eq!(&buf[32..36], &1u32.to_le_bytes()); // first record is a building
+        assert_eq!(&buf[24 + 5 * 32 + 8..24 + 5 * 32 + 12], &2u32.to_le_bytes()); // then residents
         assert_eq!((*h).world.state_hash(), hash);
         assert_eq!(ws_advance(h, 101), INVALID_ARGUMENT);
         assert_eq!(ws_advance(h, 0), OK);
         assert_eq!((*h).world.state_hash(), hash);
         assert_eq!(ws_advance(h, 2), OK);
-        assert_eq!(ws_fill_render_snapshot(h, buf.as_mut_ptr(), 88, &mut n), OK);
+        assert_eq!(
+            ws_fill_render_snapshot(h, buf.as_mut_ptr(), 504, &mut n),
+            OK
+        );
         assert_eq!(&buf[8..16], &2u64.to_le_bytes());
         ws_destroy(h);
     }
@@ -152,7 +156,7 @@ fn completed_ticks_survive_step_failure() {
         let start = (i64::MAX / 100_000 - 1) * 100_000;
         let h = ws_create(&WsConfig {
             start_us: start,
-            ..config(0)
+            ..config(1)
         });
         assert!(!h.is_null());
         let input = batch(vec![ws_sim::commands::Action::NoOp]);
@@ -176,7 +180,7 @@ fn completed_ticks_survive_step_failure() {
 fn panic_poison_and_utf8_diagnostics() {
     // SAFETY: live exclusively owned handle and valid disjoint output storage.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         assert_eq!(operate(h, |_| panic!("injected")), PANIC);
         assert_eq!(ws_advance(h, 0), POISONED);
         (*h).error.set("éé");
@@ -191,7 +195,7 @@ fn panic_poison_and_utf8_diagnostics() {
 
 #[test]
 fn shared_managed_fixture_matches_native_bytes() {
-    let hex = include_str!("../tests/fixtures/snapshot-v2.hex").trim();
+    let hex = include_str!("../tests/fixtures/snapshot-v3.hex").trim();
     let expected: Vec<u8> = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
@@ -199,7 +203,7 @@ fn shared_managed_fixture_matches_native_bytes() {
     // SAFETY: owned handle and disjoint correctly sized destination.
     unsafe {
         let h = ws_create(&config(1));
-        let mut out = vec![0; 56];
+        let mut out = vec![0; 24 + 32 * 10];
         let mut n = 0;
         assert_eq!(
             ws_fill_render_snapshot(h, out.as_mut_ptr(), out.len(), &mut n),
@@ -226,8 +230,8 @@ fn snapshot_structs_match_byte_offsets() {
     assert_eq!(std::mem::offset_of!(WsInstance, east), 12);
     assert_eq!(std::mem::offset_of!(WsInstance, north), 16);
     assert_eq!(std::mem::offset_of!(WsInstance, up), 20);
-    assert_eq!(std::mem::offset_of!(WsInstance, heading), 24);
-    assert_eq!(std::mem::offset_of!(WsInstance, reserved), 28);
+    assert_eq!(std::mem::offset_of!(WsInstance, a), 24);
+    assert_eq!(std::mem::offset_of!(WsInstance, b), 28);
 }
 
 #[test]
@@ -235,7 +239,7 @@ fn snapshot_output_errors_use_the_live_handle_diagnostic() {
     // SAFETY: live exclusively owned handle, deliberate supported null-output
     // error paths, and disjoint writable diagnostic/output storage.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         assert!(!h.is_null());
         assert_eq!(ws_advance(h, 101), INVALID_ARGUMENT);
         thread_error("thread sentinel");
@@ -283,7 +287,7 @@ fn batch(actions: Vec<ws_sim::commands::Action>) -> Vec<u8> {
 }
 fn control_request() -> WsControlState {
     WsControlState {
-        abi_version: 2,
+        abi_version: 3,
         struct_size: 16,
         scale_tag: 999,
         reserved: 999,
@@ -293,7 +297,7 @@ fn control_request() -> WsControlState {
 fn v2_noop_is_owned_pending_then_journaled_at_zero_step_flush() {
     // SAFETY: live exclusive handle and disjoint initialized buffers.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         let hash = (*h).world.state_hash();
         let mut input = batch(vec![ws_sim::commands::Action::NoOp]);
         assert_eq!(ws_submit(h, input.as_ptr(), input.len()), OK);
@@ -327,11 +331,11 @@ fn v1_clients_and_batches_are_refused_without_enqueue() {
         assert!(
             ws_create(&WsConfig {
                 abi_version: 1,
-                ..config(0)
+                ..config(1)
             })
             .is_null()
         );
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         let before = (*h).world.checkpoint();
         let old = [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(ws_submit(h, old.as_ptr(), old.len()), VERSION_MISMATCH);
@@ -350,17 +354,17 @@ fn control_state_layout_validation_and_uninitialized_output_fields() {
     // SAFETY: exclusive handle and correctly aligned/disjoint stack storage.
     // Only the first two request fields are initialized until success writes all fields.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         let mut out = std::mem::MaybeUninit::<WsControlState>::uninit();
         let ptr = out.as_mut_ptr();
-        std::ptr::addr_of_mut!((*ptr).abi_version).write(2);
+        std::ptr::addr_of_mut!((*ptr).abi_version).write(3);
         std::ptr::addr_of_mut!((*ptr).struct_size).write(16);
         let before = (*h).world.checkpoint();
         assert_eq!(ws_get_control_state(h, ptr), OK);
         assert_eq!(
             out.assume_init(),
             WsControlState {
-                abi_version: 2,
+                abi_version: 3,
                 struct_size: 16,
                 scale_tag: 1,
                 reserved: 0
@@ -369,8 +373,9 @@ fn control_state_layout_validation_and_uninitialized_output_fields() {
         assert_eq!((*h).world.checkpoint(), before);
         for (version, size, status) in [
             (1, 16, VERSION_MISMATCH),
-            (2, 0, INVALID_ARGUMENT),
-            (2, 20, INVALID_ARGUMENT),
+            (2, 16, VERSION_MISMATCH),
+            (3, 0, INVALID_ARGUMENT),
+            (3, 20, INVALID_ARGUMENT),
         ] {
             let mut state = WsControlState {
                 abi_version: version,
@@ -408,7 +413,7 @@ fn scale_pause_resume_explicit_steps_and_invalid_advance_before_flush() {
     use ws_sim::{TimeScale, commands::Action};
     // SAFETY: owned handle and valid disjoint command/control buffers.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         let pause = batch(vec![Action::SetTimeScale(TimeScale::Paused)]);
         assert_eq!(ws_submit(h, pause.as_ptr(), pause.len()), OK);
         assert_eq!(ws_advance(h, 101), INVALID_ARGUMENT);
@@ -437,7 +442,7 @@ fn native_ingress_caps_are_atomic_and_semantic_lod_errors_are_journaled() {
     use ws_sim::{EntityId, Lod, commands::Action};
     // SAFETY: live handle and valid borrowed byte arrays; no overlapping output.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         let full = batch(vec![Action::NoOp; 1024]);
         assert_eq!(ws_submit(h, full.as_ptr(), full.len()), OK);
         let before = (*h).world.checkpoint();
@@ -466,7 +471,7 @@ fn exact_maximum_wire_batch_and_malformed_inputs_are_atomic_at_native_boundary()
     use ws_sim::{Lod, TimeScale, commands::Action};
     // SAFETY: valid exclusively owned handle and real byte arrays covering all supplied lengths.
     unsafe {
-        let h = ws_create(&config(0));
+        let h = ws_create(&config(1));
         let id = (*h).world.toy().buildings().ids()[0];
         let mut actions = vec![Action::SetNodeLod(vec![(id, Lod::L2); 1024]); 5];
         actions.push(Action::SetTimeScale(TimeScale::X1));

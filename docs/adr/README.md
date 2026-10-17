@@ -25,3 +25,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0019](0019-command-journal-and-world-events.md) | TP-008 command journal and World Event contract (D-8) | Accepted |
 | [0020](0020-save-format-and-versioning.md) | TP-009 save container, serialization format (S-2) and version header (D-14) | Accepted |
 | [0021](0021-god-intervention-contract.md) | TP-010 first structured god intervention: command, effect vocabulary v1, Illness state, events, format 2 | Accepted |
+| [0022](0022-toy-world-render-snapshot-abi-3.md) | TP-011 toy-world render snapshot and ABI 3 | Accepted |
