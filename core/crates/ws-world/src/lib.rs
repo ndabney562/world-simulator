@@ -30,6 +30,7 @@
 
 pub mod dataset;
 pub mod ids;
+pub mod illness;
 pub mod lod;
 
 use core::fmt;
@@ -42,6 +43,7 @@ use ws_time::{SimDuration, SimTime};
 
 pub use dataset::{BuildingSite, Dataset, TOY_BUILDINGS, TOY_DATASET_VERSION, ToyBuildingSpec};
 pub use ids::{Population, ResidentAddress};
+pub use illness::{Illness, IllnessKind, SEVERITY_MAX, SEVERITY_MIN};
 pub use lod::{
     Activity, Background, ConservationSummary, Lod, LodError, LodViolation, Origin, Quantity,
     ScheduleProblem, TransitionReport,
@@ -120,6 +122,8 @@ pub enum WorldError {
     Duplicate(EntityId),
     /// A resident refers to a building that does not exist.
     UnknownBuilding(EntityId),
+    /// An illness refers to an entity that is not a resident.
+    UnknownResident(EntityId),
     /// A coordinate operation failed.
     Coord(CoordError),
     /// A simulation-LOD transition, L2 event, or LOD invariant failed.
@@ -131,6 +135,7 @@ impl fmt::Display for WorldError {
         match self {
             Self::Duplicate(id) => write!(f, "entity ID {id} is used twice"),
             Self::UnknownBuilding(id) => write!(f, "building {id} does not exist"),
+            Self::UnknownResident(id) => write!(f, "resident {id} does not exist"),
             Self::Coord(e) => write!(f, "coordinate error: {e}"),
             Self::Lod(e) => write!(f, "{e}"),
         }
@@ -176,6 +181,8 @@ pub struct ToyParts {
     pub l1: Vec<(EntityId, SurfacePos, Walk)>,
     /// L2 state: the schedule.
     pub l2: Vec<(EntityId, Background)>,
+    /// Illnesses (ADR 0021), keyed by resident.
+    pub illness: Vec<(EntityId, Illness)>,
 }
 
 /// The toy world: buildings and residents in `ws-ecs` columns.
@@ -201,6 +208,11 @@ pub struct ToyWorld {
     walks: Column<Walk>,
     /// L2 state.
     background: Column<Background>,
+    /// Illness of the sick residents, at either level (ADR 0021 §3).
+    illness: Column<Illness>,
+    /// Derived index: each home's residents, ascending. Residents are
+    /// never removed, so inserts keep it sorted and it is rebuilt on load.
+    by_home: BTreeMap<EntityId, Vec<EntityId>>,
     /// Derived index of `background`: one `(next event, ID)` per L2 agent.
     queue: BTreeSet<(SimTime, EntityId)>,
     /// Derived index: the residents whose store differs from their
@@ -247,6 +259,8 @@ impl ToyWorld {
             positions: Column::new(),
             walks: Column::new(),
             background: Column::new(),
+            illness: Column::new(),
+            by_home: BTreeMap::new(),
             queue: BTreeSet::new(),
             unreconciled: BTreeSet::new(),
         }
@@ -311,6 +325,7 @@ impl ToyWorld {
                 .map(|(id, p, w)| (id, *p, *w))
                 .collect(),
             l2: self.background.iter().map(|(id, b)| (id, *b)).collect(),
+            illness: self.illness.iter().map(|(id, i)| (id, *i)).collect(),
         }
     }
 
@@ -341,6 +356,12 @@ impl ToyWorld {
                 return Err(WorldError::UnknownBuilding(r.home));
             }
         }
+        for (id, r) in &parts.residents {
+            world.by_home.entry(r.home).or_default().push(*id);
+        }
+        for ids in world.by_home.values_mut() {
+            ids.sort_unstable();
+        }
         world.residents.insert_batch(parts.residents)?;
         let mut positions = Vec::with_capacity(parts.l1.len());
         let mut walks = Vec::with_capacity(parts.l1.len());
@@ -351,6 +372,14 @@ impl ToyWorld {
         world.positions.insert_batch(positions)?;
         world.walks.insert_batch(walks)?;
         world.background.insert_batch(parts.l2)?;
+        if let Some((id, _)) = parts
+            .illness
+            .iter()
+            .find(|(id, _)| !world.residents.contains(*id))
+        {
+            return Err(WorldError::UnknownResident(*id));
+        }
+        world.illness.insert_batch(parts.illness)?;
         let queue: Vec<_> = world
             .background
             .iter()
@@ -372,6 +401,56 @@ impl ToyWorld {
             .collect();
         world.unreconciled.extend(unreconciled);
         Ok(world)
+    }
+
+    fn index_home(&mut self, id: EntityId, home: EntityId) {
+        let ids = self.by_home.entry(home).or_default();
+        if let Err(at) = ids.binary_search(&id) {
+            ids.insert(at, id);
+        }
+    }
+
+    /// The residents of `building`, ascending: O(1) lookup, no scan.
+    #[must_use]
+    pub fn residents_of(&self, building: EntityId) -> &[EntityId] {
+        self.by_home.get(&building).map_or(&[], Vec::as_slice)
+    }
+
+    /// The illnesses (ADR 0021).
+    #[must_use]
+    pub const fn illness(&self) -> &Column<Illness> {
+        &self.illness
+    }
+
+    /// The simulation level of the building that governs resident `id`
+    /// (its home), if `id` is a resident.
+    #[must_use]
+    pub fn resident_level(&self, id: EntityId) -> Option<Lod> {
+        let home = self.residents.get(id)?.home;
+        self.node_lod.get(home).copied()
+    }
+
+    /// Makes residents ill. Callers have validated the batch: each ID is a
+    /// resident and not yet ill (ADR 0021 §3).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownResident`] or [`WorldError::Duplicate`]; the
+    /// world is then unchanged.
+    pub fn afflict(&mut self, batch: Vec<(EntityId, Illness)>) -> Result<(), WorldError> {
+        if let Some((id, _)) = batch.iter().find(|(id, _)| !self.residents.contains(*id)) {
+            return Err(WorldError::UnknownResident(*id));
+        }
+        self.illness.insert_batch(batch)?;
+        Ok(())
+    }
+
+    /// If resident `id` is ill and `destination` is its home, the raw ID of
+    /// its `life.illness` event: an arrival that is a return home.
+    #[must_use]
+    pub fn illness_root_if_home(&self, id: EntityId, destination: EntityId) -> Option<u64> {
+        let ill = self.illness.get(id)?;
+        (self.residents.get(id)?.home == destination).then_some(ill.root_event)
     }
 
     /// The movement parameters.
@@ -447,6 +526,7 @@ impl ToyWorld {
             return Err(LodError::Invariant(LodViolation::NotAtCentre(id)).into());
         }
         self.residents.insert(id, resident)?;
+        self.index_home(id, resident.home);
         self.positions.insert(id, pos)?;
         self.walks.insert(id, walk)?;
         self.note_residency(id, walk.target, Lod::L1);
@@ -485,6 +565,7 @@ impl ToyWorld {
             return Err(WorldError::Duplicate(id));
         }
         self.residents.insert(id, resident)?;
+        self.index_home(id, resident.home);
         self.background.insert(id, background)?;
         self.queue.insert((background.next_event(), id));
         self.note_residency(id, background.governing(), Lod::L2);
@@ -545,17 +626,33 @@ impl ToyWorld {
                     updates.push((id, walk, pos));
                     continue;
                 }
-                walk.target = ids::next_target(
-                    self.seed,
-                    id,
-                    walk.targets_drawn,
-                    &building_ids,
-                    walk.target,
-                );
-                walk.targets_drawn = walk
-                    .targets_drawn
-                    .checked_add(1)
-                    .ok_or(LodError::CounterExhausted(id))?;
+                if self.illness.contains(id) {
+                    // ADR 0021 §4: an ill agent draws no target. Away from
+                    // home it walks home; at home it keeps waiting.
+                    let home = self
+                        .residents
+                        .get(id)
+                        .ok_or(LodError::UnknownNode(id))?
+                        .home;
+                    if walk.target == home {
+                        walk.wait_steps = self.walk.wait_steps;
+                        updates.push((id, walk, pos));
+                        continue;
+                    }
+                    walk.target = home;
+                } else {
+                    walk.target = ids::next_target(
+                        self.seed,
+                        id,
+                        walk.targets_drawn,
+                        &building_ids,
+                        walk.target,
+                    );
+                    walk.targets_drawn = walk
+                        .targets_drawn
+                        .checked_add(1)
+                        .ok_or(LodError::CounterExhausted(id))?;
+                }
                 walk.arrived = false;
             }
             let t = building_ids
@@ -693,6 +790,19 @@ impl ToyWorld {
                         }
                     }
                 }
+            }
+        }
+        if !self.illness.is_empty() {
+            // Appended only when someone is ill, so worlds without
+            // illness hash exactly as before (format-1 fixtures).
+            h.write_words(&[7, self.illness.len() as u64]);
+            for (id, i) in self.illness.iter() {
+                h.write_words(&[
+                    id.raw(),
+                    u64::from(i.kind.tag()),
+                    u64::from(i.severity),
+                    i.root_event,
+                ]);
             }
         }
         h.finish()

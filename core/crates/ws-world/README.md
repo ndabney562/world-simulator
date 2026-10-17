@@ -38,6 +38,10 @@ Domain plans expose actual `ArrivalFact`s (L1 completed boundary, L2 scheduled a
 - **Checker (§12).** `check_lod_invariants` reports every violation (`Duplicated`, `Lost`, `Orphan`, `PartialL1`, `IdentityMismatch`, `UnknownBuilding`, `MissingNodeLod`, `InvalidNodeLod`, `ResidencyMismatch`, `QueueMismatch`, `BadSchedule`, `NotAtCentre`, `NotInOwnCell`), and `ConservationSummary` compares population, identity, per-home and per-governing counts, and counters across a transaction or tick. Debug builds run both after every transaction and tick; release builds only on request. An arrived L1 agent off its target's centre is rejected on insertion.
 - Integer simulation time comes in as `SimDuration` and `SimTime`; no wall clock, no threads, no `unsafe`, no unordered maps.
 
+## Illness (TP-010)
+
+`ToyWorld::illness()` is a column keyed by resident ID, independent of the L1 and L2 stores ([ADR 0021](../../../docs/adr/0021-god-intervention-contract.md) §3): `Illness { kind, severity, root_event }`, where `root_event` is the raw ID of the resident's `life.illness` event. It survives demote, promote, save and load by construction, is hashed only when non-empty (so worlds without illness hash as before) and is changed only by `afflict`. An ill agent draws no target: when its wait ends away from home it walks home, and at home it keeps waiting. L1 (`plan_movement`) and L2 (`process_event`) apply the same rule, so a level round trip stays exact (`ws-sim/tests/intervention.rs`). `residents_of(building)` is a derived index (rebuilt on load) so a target set resolves without scanning the world.
+
 ## Saving
 
 `ToyWorld::to_parts` returns the canonical rows (`ToyParts`, ascending ID order) and `ToyWorld::from_parts` rebuilds a world from rows in any order, deriving the L2 event queue and the unreconciled-residency set. It rejects repeated IDs and residents whose home is missing; the caller runs `check_lod_invariants` for the rest (`World::from_parts` does). The file format is in `ws-persist`.

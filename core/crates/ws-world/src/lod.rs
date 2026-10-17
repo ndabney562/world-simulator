@@ -1048,8 +1048,33 @@ impl ToyWorld {
         match bg.activity {
             Activity::Waiting { at, depart } => {
                 let k = bg.targets_drawn;
-                let dest = ids::next_target(self.seed, id, k, self.buildings.ids(), at);
-                let targets_drawn = k.checked_add(1).ok_or(LodError::CounterExhausted(id))?;
+                let (dest, targets_drawn) = if self.illness.contains(id) {
+                    // ADR 0021 §4: the same rule as the L1 movement system.
+                    let home = self
+                        .residents
+                        .get(id)
+                        .ok_or(LodError::UnknownNode(id))?
+                        .home;
+                    if home == at {
+                        return Ok(Background {
+                            activity: Activity::Waiting {
+                                at,
+                                depart: after_steps(
+                                    depart,
+                                    i64::from(self.walk.wait_steps) + 1,
+                                    step,
+                                )?,
+                            },
+                            targets_drawn: k,
+                        });
+                    }
+                    (home, k)
+                } else {
+                    (
+                        ids::next_target(self.seed, id, k, self.buildings.ids(), at),
+                        k.checked_add(1).ok_or(LodError::CounterExhausted(id))?,
+                    )
+                };
                 let origin_time = after_steps(depart, -1, step)?;
                 let o = self.centre(id, at)?.to_ecef();
                 let g = self.centre(id, dest)?.to_ecef();
@@ -1454,6 +1479,11 @@ pub struct PreparedTick<'a> {
     before: ConservationSummary,
 }
 impl PreparedTick<'_> {
+    /// See [`ToyWorld::illness_root_if_home`].
+    #[must_use]
+    pub fn illness_root_if_home(&self, id: EntityId, destination: EntityId) -> Option<u64> {
+        self.world.illness_root_if_home(id, destination)
+    }
     /// Facts generated directly by the L1 and L2 domain plans.
     pub fn arrivals(&self) -> impl Iterator<Item = &ArrivalFact> {
         self.movement

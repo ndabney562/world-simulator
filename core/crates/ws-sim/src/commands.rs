@@ -1,5 +1,5 @@
 //! Typed ingress and bounded canonical wire codec (ADR 0019).
-use crate::{EntityId, Lod, TimeScale};
+use crate::{EntityId, IllnessKind, Lod, SimTime, TimeScale};
 /// Maximum incoming/pending canonical command bytes.
 pub const MAX_BYTES: usize = 65_536;
 /// Maximum incoming/pending commands.
@@ -24,6 +24,53 @@ pub enum Action {
     SetTimeScale(TimeScale),
     /// Atomic building-level request.
     SetNodeLod(Vec<(EntityId, Lod)>),
+    /// A structured god intervention (ADR 0021).
+    Intervene(Intervention),
+}
+
+/// Version of the closed effect vocabulary (ADR 0021 §1).
+pub const EFFECT_VOCABULARY_VERSION: u32 = 1;
+
+/// Who an intervention affects. Resolved at apply time in canonical order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterventionTarget {
+    /// One resident.
+    Entity(EntityId),
+    /// Every resident of one building.
+    ResidentsOf(EntityId),
+}
+
+/// An effect from the closed vocabulary. Never code supplied at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    /// Makes the target ill; supports levels L1 and L2.
+    Afflict {
+        /// Kind of illness.
+        illness: IllnessKind,
+        /// Severity, `SEVERITY_MIN..=SEVERITY_MAX`.
+        severity: u8,
+    },
+}
+
+/// When an intervention takes effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Timing {
+    /// At the boundary where it is processed.
+    Now,
+    /// At the first tick boundary at or after `SimTime`; a time already
+    /// reached applies now.
+    At(SimTime),
+}
+
+/// `{ target, effect, timing }`; provenance is the journal entry itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Intervention {
+    /// Who is affected.
+    pub target: InterventionTarget,
+    /// What happens.
+    pub effect: Effect,
+    /// When.
+    pub timing: Timing,
 }
 /// Owned command envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +97,7 @@ impl Command {
             Action::NoOp => 0,
             Action::SetTimeScale(_) => 4,
             Action::SetNodeLod(v) => 4 + 12 * v.len(),
+            Action::Intervene(_) => INTERVENE_BYTES,
         }
     }
     /// Stable opcode.
@@ -58,9 +106,14 @@ impl Command {
             Action::NoOp => 0,
             Action::SetTimeScale(_) => 1,
             Action::SetNodeLod(_) => 2,
+            Action::Intervene(_) => 3,
         }
     }
 }
+/// Wire payload bytes of an intervention: target kind, ID (2 words), effect,
+/// illness, severity, timing kind, time (2 words).
+const INTERVENE_BYTES: usize = 36;
+
 /// Ingress rejects an entire batch without allocating sequences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -97,6 +150,12 @@ pub enum Rejection {
     TooManyNodes,
     /// Domain rejected the request without mutation.
     Lod(crate::LodError),
+    /// An intervention names an entity that is not a resident / building.
+    UnknownTarget(EntityId),
+    /// A target resident is at a simulation level the effect does not support.
+    UnsupportedLevel(EntityId),
+    /// Severity outside the accepted range.
+    SeverityOutOfRange(u8),
 }
 /// One committed outcome; infrastructure failures have no outcome yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +209,24 @@ pub fn encode_batch(commands: &[Command]) -> Result<Vec<u8>, IngressError> {
                         },
                     );
                 }
+            }
+            Action::Intervene(i) => {
+                let (kind, id) = match i.target {
+                    InterventionTarget::Entity(id) => (0, id),
+                    InterventionTarget::ResidentsOf(id) => (1, id),
+                };
+                put(&mut out, kind);
+                out.extend_from_slice(&id.raw().to_le_bytes());
+                let Effect::Afflict { illness, severity } = i.effect;
+                put(&mut out, 0);
+                put(&mut out, u32::from(illness.tag()));
+                put(&mut out, u32::from(severity));
+                let (tk, micros) = match i.timing {
+                    Timing::Now => (0, 0),
+                    Timing::At(t) => (1, t.as_micros_since_epoch()),
+                };
+                put(&mut out, tk);
+                out.extend_from_slice(&micros.to_le_bytes());
             }
         }
     }
@@ -245,6 +322,37 @@ fn decode_owned(bytes: &[u8], owned: bool) -> Result<Vec<Command>, IngressError>
                 }
                 Action::SetNodeLod(v)
             }
+            3 => {
+                if len != 8 + INTERVENE_BYTES {
+                    return Err(IngressError::Malformed);
+                }
+                let kind = r.u32()?;
+                let id = r.id()?;
+                let target = match kind {
+                    0 => InterventionTarget::Entity(id),
+                    1 => InterventionTarget::ResidentsOf(id),
+                    _ => return Err(IngressError::Malformed),
+                };
+                if r.u32()? != 0 {
+                    return Err(IngressError::Malformed);
+                }
+                let illness = u8::try_from(r.u32()?)
+                    .ok()
+                    .and_then(IllnessKind::from_tag)
+                    .ok_or(IngressError::Malformed)?;
+                // Out-of-range severity is a semantic rejection, not framing.
+                let severity = u8::try_from(r.u32()?).unwrap_or(u8::MAX);
+                let timing = match r.u32()? {
+                    0 if r.i64()? == 0 => Timing::Now,
+                    1 => Timing::At(SimTime::from_micros_since_epoch(r.i64()?)),
+                    _ => return Err(IngressError::Malformed),
+                };
+                Action::Intervene(Intervention {
+                    target,
+                    effect: Effect::Afflict { illness, severity },
+                    timing,
+                })
+            }
             _ => return Err(IngressError::Malformed),
         };
         if r.at != end {
@@ -268,6 +376,16 @@ struct Reader<'a> {
     at: usize,
 }
 impl Reader<'_> {
+    fn id(&mut self) -> Result<EntityId, IngressError> {
+        let lo = u64::from(self.u32()?);
+        let hi = u64::from(self.u32()?);
+        EntityId::from_raw(lo | (hi << 32)).map_err(|_| IngressError::Malformed)
+    }
+    fn i64(&mut self) -> Result<i64, IngressError> {
+        let lo = u64::from(self.u32()?);
+        let hi = u64::from(self.u32()?);
+        Ok((lo | (hi << 32)) as i64)
+    }
     fn u32(&mut self) -> Result<u32, IngressError> {
         let s = self
             .bytes

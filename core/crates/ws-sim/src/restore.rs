@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use ws_events::{Event, EventError, EventStore};
 
 use crate::clock::InvalidClock;
-use crate::commands::Outcome;
+use crate::commands::{Intervention, Outcome};
 use crate::{Clock, LodViolation, ToyWorld, World};
 
 /// The canonical state of a [`World`] at a boundary with no pending
@@ -32,6 +32,8 @@ pub struct WorldParts {
     pub boundary: u64,
     /// One outcome per processed command, in processing order.
     pub journal: Vec<Outcome>,
+    /// Interventions waiting for their time, by journal sequence.
+    pub scheduled: Vec<(u64, Intervention)>,
 }
 
 /// Why saved parts do not form a valid world.
@@ -47,6 +49,9 @@ pub enum RestoreError {
     History(EventError),
     /// The journal or the sequence counter is inconsistent.
     Journal(&'static str),
+    /// An illness does not trace to a `life.illness` event for the same
+    /// resident (ADR 0021 §7).
+    Illness(ws_ecs::EntityId),
 }
 
 impl fmt::Display for RestoreError {
@@ -57,6 +62,7 @@ impl fmt::Display for RestoreError {
             Self::Lod(v) => write!(f, "{} LOD invariants are violated", v.len()),
             Self::History(e) => write!(f, "{e}"),
             Self::Journal(why) => write!(f, "inconsistent journal: {why}"),
+            Self::Illness(id) => write!(f, "the illness of {id} has no matching event"),
         }
     }
 }
@@ -98,6 +104,7 @@ impl World {
             next_sequence: self.next_sequence,
             boundary: self.boundary,
             journal: self.journal.clone(),
+            scheduled: self.scheduled.iter().map(|(s, i)| (*s, *i)).collect(),
         }
     }
 
@@ -116,6 +123,7 @@ impl World {
             next_sequence,
             boundary,
             journal,
+            scheduled,
         } = parts;
         if toy.seed() != seed {
             return Err(RestoreError::SeedMismatch);
@@ -148,6 +156,26 @@ impl World {
             }
             last = o.sequence;
         }
+        for (id, ill) in toy.illness().iter() {
+            let ok = events.get(ws_events::EventId(ill.root_event)).is_some_and(|e| {
+                matches!(
+                    e.record.payload,
+                    ws_events::Payload::LifeIllness { resident, illness, severity }
+                        if resident == id && illness == ill.kind.tag() && severity == ill.severity
+                )
+            });
+            if !ok {
+                return Err(RestoreError::Illness(id));
+            }
+        }
+        let mut scheduled_map = std::collections::BTreeMap::new();
+        for (seq, i) in scheduled {
+            if seq == 0 || seq >= next_sequence || scheduled_map.insert(seq, i).is_some() {
+                return Err(RestoreError::Journal(
+                    "a scheduled intervention is inconsistent",
+                ));
+            }
+        }
         Ok(Self {
             seed,
             clock,
@@ -158,6 +186,7 @@ impl World {
             next_sequence,
             boundary,
             journal,
+            scheduled: scheduled_map,
             #[cfg(test)]
             fail_after: None,
             #[cfg(test)]

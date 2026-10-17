@@ -190,6 +190,36 @@ pub enum Payload {
         /// Stable leg counter.
         leg: u32,
     },
+    /// An intervention command took effect (root of its consequences,
+    /// ADR 0021 §5).
+    InterventionApplied {
+        /// Journal sequence of the command.
+        sequence: u64,
+        /// Effect tag in the effect vocabulary (0: afflict).
+        effect: u8,
+        /// Illness kind tag.
+        illness: u8,
+        /// Severity.
+        severity: u8,
+        /// Residents newly affected.
+        affected: u32,
+    },
+    /// A resident fell ill.
+    LifeIllness {
+        /// The resident.
+        resident: EntityId,
+        /// Illness kind tag.
+        illness: u8,
+        /// Severity.
+        severity: u8,
+    },
+    /// An ill resident arrived at its home.
+    ReturnedHome {
+        /// The resident.
+        resident: EntityId,
+        /// Its home building.
+        home: EntityId,
+    },
 }
 impl Payload {
     /// Hierarchical event taxonomy name.
@@ -199,6 +229,9 @@ impl Payload {
             Self::CommandApplied { .. } => "sim.command_applied",
             Self::LodChanged { .. } => "sim.lod_changed",
             Self::Arrived { .. } => "agent.arrived",
+            Self::InterventionApplied { .. } => "intervention.applied",
+            Self::LifeIllness { .. } => "life.illness",
+            Self::ReturnedHome { .. } => "agent.returned_home",
         }
     }
     /// Stable initial payload tag (schema version is separate).
@@ -208,6 +241,9 @@ impl Payload {
             Self::CommandApplied { .. } => 1,
             Self::LodChanged { .. } => 2,
             Self::Arrived { .. } => 3,
+            Self::InterventionApplied { .. } => 4,
+            Self::LifeIllness { .. } => 5,
+            Self::ReturnedHome { .. } => 6,
         }
     }
     /// Initial quantized importance, without floating relevance calculation.
@@ -217,6 +253,9 @@ impl Payload {
             Self::CommandApplied { .. } => 0,
             Self::LodChanged { .. } => 16384,
             Self::Arrived { .. } => 4096,
+            Self::InterventionApplied { .. } => 32768,
+            Self::LifeIllness { .. } => 24576,
+            Self::ReturnedHome { .. } => 8192,
         }
     }
 }
@@ -370,6 +409,25 @@ impl Event {
                 destination,
                 leg,
             } => sink(&[resident.raw(), destination.raw(), leg as u64]),
+            Payload::InterventionApplied {
+                sequence,
+                effect,
+                illness,
+                severity,
+                affected,
+            } => sink(&[
+                sequence,
+                effect as u64,
+                illness as u64,
+                severity as u64,
+                affected as u64,
+            ]),
+            Payload::LifeIllness {
+                resident,
+                illness,
+                severity,
+            } => sink(&[resident.raw(), illness as u64, severity as u64]),
+            Payload::ReturnedHome { resident, home } => sink(&[resident.raw(), home.raw()]),
         }
         one(&mut sink, self.record.actors.len() as u64);
         for a in self.record.actors.iter() {
@@ -535,6 +593,27 @@ impl EventStore {
                         return Err(EventError::Order);
                     }
                 }
+                Payload::InterventionApplied { .. } => {
+                    if c.system != 10 || c.lod != 0 {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::LifeIllness { resident, .. } => {
+                    if !known(resident) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.system != 12 || c.lod != 0 {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::ReturnedHome { resident, home } => {
+                    if !known(resident) || !known(home) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if !matches!((c.system, c.lod), (50, 1 | 2)) {
+                        return Err(EventError::Order);
+                    }
+                }
                 Payload::WorldCreated { .. } => {
                     if c.system != 0 || c.lod != 0 {
                         return Err(EventError::Order);
@@ -675,6 +754,37 @@ impl EventStore {
             }
         }
         out
+    }
+    /// The root intervention behind `event`: follows `CausedBy` links (and,
+    /// where an event has none, its `ContributedTo` links) back to an event
+    /// with no such cause, and returns it when that event is an applied
+    /// intervention. `None` if the event is unknown or its history does not
+    /// end at an intervention (ADR 0021 §6). Ties go to the smallest ID.
+    pub fn root_intervention(&self, event: EventId) -> Option<&Event> {
+        let mut at = self.get(event)?;
+        // Causal links point strictly backwards in ID order, so this ends.
+        loop {
+            let next = at
+                .record
+                .causes
+                .iter()
+                .filter(|c| c.relation == Relation::CausedBy)
+                .chain(
+                    at.record
+                        .causes
+                        .iter()
+                        .filter(|c| c.relation == Relation::ContributedTo),
+                )
+                .find_map(|c| match c.target {
+                    Target::Id(id) => Some(id),
+                    Target::Local(_) => None,
+                });
+            match next {
+                Some(id) => at = self.get(id)?,
+                None => break,
+            }
+        }
+        matches!(at.record.payload, Payload::InterventionApplied { .. }).then_some(at)
     }
     /// Reconstructs counters/indices from committed records (not a save codec).
     pub fn from_records(known: Vec<EntityId>, records: &[Event]) -> Result<Self, EventError> {

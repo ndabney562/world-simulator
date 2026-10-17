@@ -1,9 +1,13 @@
 //! Serialized boundary transactions and one-way publication of domain facts.
 use crate::*;
-use commands::{Accepted, Action, IngressError, MAX_BYTES, MAX_COMMANDS, Rejection};
-use ws_events::{
-    Actor, Candidate, Cause, Confidence, Location, Origin, Payload, Relation, Role, Target,
+use commands::{
+    Accepted, Action, Effect, IngressError, Intervention, InterventionTarget, MAX_BYTES,
+    MAX_COMMANDS, Rejection, Timing,
 };
+use ws_events::{
+    Actor, Candidate, Cause, Confidence, EventId, Location, Origin, Payload, Relation, Role, Target,
+};
+use ws_world::{Illness, SEVERITY_MAX, SEVERITY_MIN};
 /// Infrastructure failure: current command and suffix remain pending.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlError {
@@ -124,6 +128,11 @@ impl World {
         for (seq, c) in &self.pending {
             h.write_u64(*seq);
             command_hash(&mut h, c);
+        }
+        h.write_u64(self.scheduled.len() as u64);
+        for (seq, i) in &self.scheduled {
+            h.write_u64(*seq);
+            intervention_hash(&mut h, i);
         }
         h.finish()
     }
@@ -262,6 +271,36 @@ impl World {
                         }
                     }
                 }
+                Action::Intervene(i) => match self.resolve_intervention(i) {
+                    Err(r) => Err(r),
+                    Ok(_) if matches!(i.timing, Timing::At(t) if t > now) => {
+                        // Waits for its time; applied at the tick boundary
+                        // that reaches it (ADR 0021 §1).
+                        self.scheduled.insert(sequence, *i);
+                        Ok(())
+                    }
+                    Ok(targets) => {
+                        let (first, _) = self.events.counters().map_err(history)?;
+                        let (candidates, batch) = intervention_candidates(
+                            &self.toy,
+                            now,
+                            first,
+                            &[(sequence, i.effect, targets)],
+                        )
+                        .map_err(|_| ControlError::Resource)?;
+                        effect = batch.len() as u32;
+                        #[cfg(test)]
+                        if self.fail_history {
+                            return Err(ControlError::Resource);
+                        }
+                        let events = self.events.prepare(tick, &candidates).map_err(history)?;
+                        self.toy
+                            .afflict(batch)
+                            .expect("targets were resolved to healthy residents");
+                        events.commit();
+                        Ok(())
+                    }
+                },
                 Action::NoOp | Action::SetTimeScale(_) => {
                     if let Action::SetTimeScale(scale) = command.action {
                         effect = scale.multiplier();
@@ -318,6 +357,29 @@ impl World {
         }
         let mut clock = self.clock.clone();
         clock.step()?;
+        // Interventions whose time has been reached take effect at the end
+        // of this tick, the boundary the next tick starts from (ADR 0021 §1).
+        let reached = clock.now();
+        let due_keys: Vec<u64> = self
+            .scheduled
+            .iter()
+            .filter(|(_, i)| matches!(i.timing, Timing::At(t) if t <= reached))
+            .map(|(seq, _)| *seq)
+            .collect();
+        // Targets that no longer resolve are dropped; unreachable while
+        // only L1 and L2 exist.
+        let due: Vec<_> = due_keys
+            .iter()
+            .filter_map(|seq| {
+                let i = &self.scheduled[seq];
+                self.resolve_intervention(i)
+                    .ok()
+                    .map(|targets| (*seq, i.effect, targets))
+            })
+            .collect();
+        let (first, _) = self.events.counters().map_err(StepError::History)?;
+        let (mut candidates, batch) = intervention_candidates(&self.toy, reached, first, &due)
+            .map_err(|()| StepError::History(EventError::Resource))?;
         let plan = self
             .toy
             .prepare_tick(self.clock.now(), self.clock.base_step())?;
@@ -335,11 +397,11 @@ impl World {
                 f.leg,
             )
         });
-        let mut candidates = Vec::new();
         candidates
-            .try_reserve(count)
+            .try_reserve(2 * count)
             .map_err(|_| StepError::History(EventError::Resource))?;
         let mut local = [0u64; 2];
+        let mut returned = Vec::new();
         for f in facts {
             let l = lod_tag(f.lod);
             let ix = usize::from(l - 1);
@@ -370,6 +432,43 @@ impl World {
                 .expect("two actors");
             c.location = Some(Location::building(f.destination, f.position));
             candidates.push(c);
+            if let Some(root) = plan.illness_root_if_home(f.resident, f.destination) {
+                returned.push((f, l, root));
+            }
+        }
+        for (n, (f, l, root)) in returned.into_iter().enumerate() {
+            let mut c = Candidate::new(
+                f.time.unwrap_or(clock.now()),
+                50,
+                n as u64,
+                Payload::ReturnedHome {
+                    resident: f.resident,
+                    home: f.destination,
+                },
+                Origin::System(50),
+            );
+            c.lod = l;
+            c.actors
+                .push(Actor {
+                    id: f.resident,
+                    role: Role::Subject,
+                })
+                .expect("two actors");
+            c.actors
+                .push(Actor {
+                    id: f.destination,
+                    role: Role::Object,
+                })
+                .expect("two actors");
+            c.location = Some(Location::building(f.destination, f.position));
+            c.causes
+                .push(Cause {
+                    target: Target::Id(EventId(root)),
+                    relation: Relation::ContributedTo,
+                    confidence: Confidence::Contributing,
+                })
+                .expect("one cause");
+            candidates.push(c);
         }
         #[cfg(test)]
         if self.fail_after == Some(0) {
@@ -382,8 +481,162 @@ impl World {
         plan.commit();
         self.clock = clock;
         events.commit();
+        self.toy
+            .afflict(batch)
+            .expect("targets were resolved to healthy residents");
+        for seq in due_keys {
+            self.scheduled.remove(&seq);
+        }
         Ok(())
     }
+}
+/// Why a resident is ill: the chain from its illness to the command
+/// (ADR 0021 §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WhyIll<'a> {
+    /// The resident's `life.illness` event.
+    pub illness_event: EventId,
+    /// The `intervention.applied` root event.
+    pub intervention_event: EventId,
+    /// The journal entry of the command.
+    pub journal: &'a Outcome,
+}
+impl World {
+    /// "Why is this resident ill?": the root intervention event and the
+    /// journal entry of the command. `None` if the resident is not ill.
+    #[must_use]
+    pub fn why_ill(&self, resident: EntityId) -> Option<WhyIll<'_>> {
+        let ill = self.toy.illness().get(resident)?;
+        let illness_event = EventId(ill.root_event);
+        let root = self.events.root_intervention(illness_event)?;
+        let Payload::InterventionApplied { sequence, .. } = root.record.payload else {
+            return None;
+        };
+        let at = self.journal.partition_point(|o| o.sequence < sequence);
+        let journal = self.journal.get(at).filter(|o| o.sequence == sequence)?;
+        Some(WhyIll {
+            illness_event,
+            intervention_event: root.id,
+            journal,
+        })
+    }
+    /// Validates an intervention against the current world and resolves its
+    /// targets in canonical (ascending ID) order. Changes nothing.
+    fn resolve_intervention(&self, i: &Intervention) -> Result<Vec<EntityId>, Rejection> {
+        let Effect::Afflict { severity, .. } = i.effect;
+        if !(SEVERITY_MIN..=SEVERITY_MAX).contains(&severity) {
+            return Err(Rejection::SeverityOutOfRange(severity));
+        }
+        let targets: Vec<EntityId> = match i.target {
+            InterventionTarget::Entity(id) => {
+                if !self.toy.residents().contains(id) {
+                    return Err(Rejection::UnknownTarget(id));
+                }
+                vec![id]
+            }
+            InterventionTarget::ResidentsOf(b) => {
+                if !self.toy.buildings().contains(b) {
+                    return Err(Rejection::UnknownTarget(b));
+                }
+                self.toy.residents_of(b).to_vec()
+            }
+        };
+        for id in &targets {
+            if !matches!(self.toy.resident_level(*id), Some(Lod::L1 | Lod::L2)) {
+                return Err(Rejection::UnsupportedLevel(*id));
+            }
+        }
+        Ok(targets)
+    }
+}
+/// Event candidates and illness rows of a batch of interventions.
+type Planned = (Vec<Candidate>, Vec<(EntityId, Illness)>);
+/// The events and illness rows of the interventions in `items` (journal
+/// sequence, effect, resolved targets), applied together at `now`.
+/// `first` is the ID the first candidate will get. Roots come first, then
+/// one `life.illness` per newly ill resident; residents already ill (or
+/// already ill earlier in this batch) are skipped.
+fn intervention_candidates(
+    toy: &ToyWorld,
+    now: SimTime,
+    first: u64,
+    items: &[(u64, Effect, Vec<EntityId>)],
+) -> Result<Planned, ()> {
+    let mut fresh: Vec<Vec<EntityId>> = Vec::with_capacity(items.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for (_, _, targets) in items {
+        fresh.push(
+            targets
+                .iter()
+                .copied()
+                .filter(|id| !toy.illness().contains(*id) && seen.insert(*id))
+                .collect(),
+        );
+    }
+    let total: usize = fresh.iter().map(Vec::len).sum();
+    let mut candidates = Vec::new();
+    candidates
+        .try_reserve(items.len() + total)
+        .map_err(|_| ())?;
+    let mut batch = Vec::new();
+    batch.try_reserve(total).map_err(|_| ())?;
+    for ((sequence, effect, _), new) in items.iter().zip(&fresh) {
+        let Effect::Afflict { illness, severity } = *effect;
+        candidates.push(Candidate::new(
+            now,
+            10,
+            *sequence,
+            Payload::InterventionApplied {
+                sequence: *sequence,
+                effect: 0,
+                illness: illness.tag(),
+                severity,
+                affected: new.len() as u32,
+            },
+            Origin::Command(*sequence),
+        ));
+    }
+    let mut j = 0u64;
+    for (root, ((sequence, effect, _), new)) in items.iter().zip(&fresh).enumerate() {
+        let Effect::Afflict { illness, severity } = *effect;
+        for id in new {
+            let mut c = Candidate::new(
+                now,
+                12,
+                j,
+                Payload::LifeIllness {
+                    resident: *id,
+                    illness: illness.tag(),
+                    severity,
+                },
+                Origin::Command(*sequence),
+            );
+            c.actors
+                .push(Actor {
+                    id: *id,
+                    role: Role::Subject,
+                })
+                .expect("one actor");
+            c.causes
+                .push(Cause {
+                    target: Target::Local(root as u32),
+                    relation: Relation::CausedBy,
+                    confidence: Confidence::Direct,
+                })
+                .expect("one cause");
+            batch.push((
+                *id,
+                Illness {
+                    kind: illness,
+                    severity,
+                    root_event: first + candidates.len() as u64,
+                },
+            ));
+            candidates.push(c);
+            j += 1;
+        }
+    }
+    Ok((candidates, batch))
 }
 fn history(e: EventError) -> ControlError {
     if e == EventError::Resource {
@@ -436,7 +689,28 @@ fn command_hash(h: &mut ws_rng::SipHasher24, c: &Command) {
                 h.write_words(&[id.raw(), *l as u64]);
             }
         }
+        Action::Intervene(i) => intervention_hash(h, i),
     }
+}
+fn intervention_hash(h: &mut ws_rng::SipHasher24, i: &Intervention) {
+    let (kind, id) = match i.target {
+        InterventionTarget::Entity(id) => (0, id),
+        InterventionTarget::ResidentsOf(id) => (1, id),
+    };
+    let Effect::Afflict { illness, severity } = i.effect;
+    let (timing, micros) = match i.timing {
+        Timing::Now => (0, 0),
+        Timing::At(t) => (1, t.as_micros_since_epoch() as u64),
+    };
+    h.write_words(&[
+        kind,
+        id.raw(),
+        0,
+        u64::from(illness.tag()),
+        u64::from(severity),
+        timing,
+        micros,
+    ]);
 }
 fn reason(r: Result<(), Rejection>) -> [u64; 2] {
     match r {
@@ -447,5 +721,8 @@ fn reason(r: Result<(), Rejection>) -> [u64; 2] {
         Err(Rejection::Lod(LodError::DuplicateNode(id))) => [4, id.raw()],
         Err(Rejection::Lod(LodError::UnsupportedLevel(l))) => [5, l as u64],
         Err(Rejection::Lod(_)) => [6, 0],
+        Err(Rejection::UnknownTarget(id)) => [7, id.raw()],
+        Err(Rejection::UnsupportedLevel(id)) => [8, id.raw()],
+        Err(Rejection::SeverityOutOfRange(s)) => [9, s as u64],
     }
 }

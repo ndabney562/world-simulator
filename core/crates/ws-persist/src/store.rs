@@ -21,6 +21,10 @@ const APPLICATION_ID: i32 = 0x5753_4156;
 /// own, so one kind can move to a new version without the others.
 const RECORD_SCHEMA: u32 = 1;
 
+/// Tables added by format 2 (ADR 0021 §7); a format-1 file lacks them and
+/// loads with none of their rows.
+const TABLES_V2: [&str; 2] = ["illness", "scheduled"];
+
 const TABLES: [&str; 9] = [
     "header",
     "clock",
@@ -50,7 +54,8 @@ CREATE TABLE header (
     population_max INTEGER NOT NULL,
     state_hash INTEGER NOT NULL,
     journal_digest INTEGER NOT NULL,
-    events_digest INTEGER NOT NULL
+    events_digest INTEGER NOT NULL,
+    effect_vocabulary INTEGER NOT NULL
 );
 CREATE TABLE clock (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -72,6 +77,12 @@ CREATE TABLE l2_state (
     id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE journal (
+    sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE illness (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE scheduled (
     sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE events (
@@ -192,6 +203,7 @@ fn header_of(world: &World, parts: &WorldParts) -> Result<Header, SaveError> {
         state_hash: world.state_hash(),
         journal_digest: world.journal_digest(),
         events_digest: world.events().digest(),
+        effect_vocabulary: ws_sim::commands::EFFECT_VOCABULARY_VERSION,
     })
 }
 
@@ -211,7 +223,7 @@ fn write_file(
     let tx = conn.transaction()?;
     tx.execute_batch(SCHEMA)?;
     tx.execute(
-        "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
             h.format_version,
             h.build,
@@ -228,6 +240,7 @@ fn write_file(
             word(h.state_hash),
             word(h.journal_digest),
             word(h.events_digest),
+            h.effect_vocabulary,
         ],
     )?;
     tx.execute(
@@ -268,6 +281,22 @@ fn write_file(
         let mut st = tx.prepare("INSERT INTO l2_state VALUES (?, ?, ?)")?;
         for (id, bg) in &toy.l2 {
             st.execute(params![key(id.raw()), RECORD_SCHEMA, codec::put_l2(bg)])?;
+        }
+        let mut st = tx.prepare("INSERT INTO illness VALUES (?, ?, ?)")?;
+        for (id, ill) in &toy.illness {
+            st.execute(params![
+                key(id.raw()),
+                RECORD_SCHEMA,
+                codec::put_illness(ill)
+            ])?;
+        }
+        let mut st = tx.prepare("INSERT INTO scheduled VALUES (?, ?, ?)")?;
+        for (sequence, i) in &parts.scheduled {
+            st.execute(params![
+                key(*sequence),
+                RECORD_SCHEMA,
+                codec::put_scheduled(i)
+            ])?;
         }
         let mut st = tx.prepare("INSERT INTO journal VALUES (?, ?, ?)")?;
         for o in &parts.journal {
@@ -330,10 +359,15 @@ fn open(path: &Path) -> Result<Connection, LoadError> {
             supported: FORMAT_VERSION,
         });
     }
-    for table in TABLES {
+    let required = TABLES.iter().chain(if found >= 2 {
+        TABLES_V2.iter()
+    } else {
+        [].iter()
+    });
+    for table in required {
         let present: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
-            [table],
+            [*table],
             |r| r.get(0),
         )?;
         if !present {
@@ -372,13 +406,19 @@ fn header_row(conn: &Connection) -> Result<Header, LoadError> {
                 state_hash: unword(r.get(13)?),
                 journal_digest: unword(r.get(14)?),
                 events_digest: unword(r.get(15)?),
+                effect_vocabulary: if r.as_ref().column_count() > 16 {
+                    r.get(16)?
+                } else {
+                    0
+                },
             })
         })
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => bad("header", "no header row"),
             e => LoadError::Sqlite(e),
         })?;
-    if h.format_version != FORMAT_VERSION {
+    let found: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if h.format_version != found || !(1..=FORMAT_VERSION).contains(&found) {
         return Err(bad("header", "header and file format versions differ"));
     }
     Ok(h)
@@ -453,6 +493,7 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
         residents: Vec::new(),
         l1: Vec::new(),
         l2: Vec::new(),
+        illness: Vec::new(),
     };
     for (cell, id, data) in rows(
         &conn,
@@ -492,6 +533,16 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
         let bg = codec::get_l2(&data).map_err(|e| corrupt("l2_state", e))?;
         toy.l2.push((entity("l2_state", id)?, bg));
     }
+    if header.format_version >= 2 {
+        for (id, _, data) in rows(
+            &conn,
+            "illness",
+            "SELECT id, 0, schema, data FROM illness ORDER BY id",
+        )? {
+            let ill = codec::get_illness(&data).map_err(|e| corrupt("illness", e))?;
+            toy.illness.push((entity("illness", id)?, ill));
+        }
+    }
     let toy = ws_world::ToyWorld::from_parts(toy).map_err(LoadError::Toy)?;
 
     let mut journal = Vec::new();
@@ -505,6 +556,18 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
             return Err(bad("journal", "key sequence differs from the record's"));
         }
         journal.push(o);
+    }
+
+    let mut scheduled = Vec::new();
+    if header.format_version >= 2 {
+        for (sequence, _, data) in rows(
+            &conn,
+            "scheduled",
+            "SELECT sequence, 0, schema, data FROM scheduled ORDER BY sequence",
+        )? {
+            let i = codec::get_scheduled(&data).map_err(|e| corrupt("scheduled", e))?;
+            scheduled.push((unkey(sequence), i));
+        }
     }
 
     let mut links: BTreeMap<u64, Vec<Link>> = BTreeMap::new();
@@ -557,6 +620,7 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
         next_sequence: clock.next_sequence,
         boundary: clock.boundary,
         journal,
+        scheduled,
     })
     .map_err(LoadError::Invalid)?;
 

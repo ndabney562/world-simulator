@@ -94,3 +94,7 @@ Requirements on every effect type (adding to 14.3):
 ## 14.9 Observability
 
 Every intervention has an inspector record: what it targeted, what it changed at each level, and a timeline of consequences built from the causal links and attributions above. Players and developers can answer "what did my plague actually do?" and "what happened here?", and see how confident each answer is.
+
+## 14.10 First implementation (TP-010)
+
+[ADR 0021](../adr/0021-god-intervention-contract.md) records the first intervention: the `Intervene` command (target, effect, timing; provenance is the journal entry), the one-effect vocabulary `afflict(illness, severity)` at L1 and L2, the `intervention.applied` / `life.illness` / `agent.returned_home` events and links of §14.8, and `why_ill`. Aggregate application, other effects and the FFI are later work.
