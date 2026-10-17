@@ -9,6 +9,7 @@ publish.workspace = true
 ws-sim = { path = "../ws-sim" }
 ws-events = { path = "../ws-events" }
 ws-ecs = { path = "../ws-ecs" }
+ws-persist = { path = "../ws-persist" }
 
 [lints]
 workspace = true

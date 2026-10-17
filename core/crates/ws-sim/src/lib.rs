@@ -18,6 +18,7 @@
 mod clock;
 pub mod commands;
 mod control;
+mod restore;
 use commands::{Command, Outcome};
 pub use control::{ControlError, FlushReport};
 pub use ws_events;
@@ -25,7 +26,8 @@ use ws_events::{EventError, EventStore};
 
 use core::fmt;
 
-pub use clock::{Clock, TimeScale};
+pub use clock::{Clock, InvalidClock, TimeScale};
+pub use restore::{RestoreError, WorldParts};
 pub use ws_ecs::EntityId;
 pub use ws_time::{SimTime, TimeOverflow};
 use ws_world::{Dataset, WalkParams};

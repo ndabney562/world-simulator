@@ -157,6 +157,27 @@ impl From<LodError> for WorldError {
     }
 }
 
+/// The canonical state of a [`ToyWorld`] as plain rows, for persistence
+/// (ADR 0020). Derived indices are not part of it: [`ToyWorld::from_parts`]
+/// rebuilds them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToyParts {
+    /// The world seed.
+    pub seed: u64,
+    /// The dataset version the world was generated from.
+    pub dataset_version: u64,
+    /// Movement parameters.
+    pub walk: WalkParams,
+    /// Every building with its simulation level.
+    pub buildings: Vec<(EntityId, Building, Lod)>,
+    /// Identity of every resident.
+    pub residents: Vec<(EntityId, Resident)>,
+    /// L1 state: position and movement.
+    pub l1: Vec<(EntityId, SurfacePos, Walk)>,
+    /// L2 state: the schedule.
+    pub l2: Vec<(EntityId, Background)>,
+}
+
 /// The toy world: buildings and residents in `ws-ecs` columns.
 ///
 /// Every column iterates in ascending [`EntityId`] order. Two worlds with
@@ -264,6 +285,99 @@ impl ToyWorld {
             world.insert_resident(id, Resident { address, home })?;
         }
         Ok(world)
+    }
+
+    /// The canonical state as plain rows, every list in ascending ID
+    /// order.
+    #[must_use]
+    pub fn to_parts(&self) -> ToyParts {
+        ToyParts {
+            seed: self.seed,
+            dataset_version: self.dataset_version,
+            walk: self.walk,
+            buildings: self
+                .buildings
+                .iter()
+                .map(|(id, b)| {
+                    (
+                        id,
+                        *b,
+                        *self.node_lod.get(id).expect("every building has a level"),
+                    )
+                })
+                .collect(),
+            residents: self.residents.iter().map(|(id, r)| (id, *r)).collect(),
+            l1: join(&self.positions, &self.walks)
+                .map(|(id, p, w)| (id, *p, *w))
+                .collect(),
+            l2: self.background.iter().map(|(id, b)| (id, *b)).collect(),
+        }
+    }
+
+    /// Rebuilds a world from its canonical rows (loading a save). The
+    /// event queue and the unreconciled-residency index are derived from
+    /// the rows. Rows may arrive in any order.
+    ///
+    /// This checks only what building the columns needs: no ID appears
+    /// twice within a table, and every building has exactly one level.
+    /// Callers run [`ToyWorld::check_lod_invariants`] for the rest.
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::Duplicate`] for a repeated ID, and
+    /// [`WorldError::UnknownBuilding`] if a resident's home is missing.
+    pub fn from_parts(parts: ToyParts) -> Result<Self, WorldError> {
+        let mut world = Self::empty(parts.seed, parts.dataset_version, parts.walk);
+        let mut levels = Vec::with_capacity(parts.buildings.len());
+        let mut buildings = Vec::with_capacity(parts.buildings.len());
+        for (id, b, level) in parts.buildings {
+            levels.push((id, level));
+            buildings.push((id, b));
+        }
+        world.buildings.insert_batch(buildings)?;
+        world.node_lod.insert_batch(levels)?;
+        for (_, r) in &parts.residents {
+            if !world.buildings.contains(r.home) {
+                return Err(WorldError::UnknownBuilding(r.home));
+            }
+        }
+        world.residents.insert_batch(parts.residents)?;
+        let mut positions = Vec::with_capacity(parts.l1.len());
+        let mut walks = Vec::with_capacity(parts.l1.len());
+        for (id, p, w) in parts.l1 {
+            positions.push((id, p));
+            walks.push((id, w));
+        }
+        world.positions.insert_batch(positions)?;
+        world.walks.insert_batch(walks)?;
+        world.background.insert_batch(parts.l2)?;
+        let queue: Vec<_> = world
+            .background
+            .iter()
+            .map(|(id, bg)| (bg.next_event(), id))
+            .collect();
+        world.queue.extend(queue);
+        let unreconciled: Vec<_> = world
+            .walks
+            .iter()
+            .map(|(id, w)| (id, w.target, Lod::L1))
+            .chain(
+                world
+                    .background
+                    .iter()
+                    .map(|(id, bg)| (id, bg.governing(), Lod::L2)),
+            )
+            .filter(|(_, b, residency)| world.node_lod.get(*b) != Some(residency))
+            .map(|(id, _, _)| id)
+            .collect();
+        world.unreconciled.extend(unreconciled);
+        Ok(world)
+    }
+
+    /// The movement parameters.
+    #[must_use]
+    pub const fn walk_params(&self) -> WalkParams {
+        self.walk
     }
 
     /// Adds a building at [`Lod::L1`].

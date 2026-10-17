@@ -41,6 +41,18 @@ impl TimeScale {
     }
 }
 
+/// Saved clock fields that cannot belong to one clock (ADR 0020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidClock;
+
+impl core::fmt::Display for InvalidClock {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("saved clock fields are inconsistent")
+    }
+}
+
+impl std::error::Error for InvalidClock {}
+
 /// The clock owned by a [`World`](crate::World).
 ///
 /// Invariant: `now == start + steps * base_step`.
@@ -125,6 +137,46 @@ impl Clock {
     /// simulated microseconds), so pausing and resuming loses nothing.
     pub fn set_scale(&mut self, scale: TimeScale) {
         self.scale = scale;
+    }
+
+    /// Scaled microseconds received from the host but not yet turned into
+    /// a whole step; always less than one base step.
+    #[must_use]
+    pub const fn pending_micros(&self) -> u64 {
+        self.pending_us
+    }
+
+    /// Rebuilds a clock from saved fields (loading a save, ADR 0020).
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidClock`] unless `start` is a tick boundary, `now` is exactly
+    /// `start + steps * base_step`, and the pending remainder is less than
+    /// one base step.
+    pub fn from_parts(
+        start: SimTime,
+        base_step: Rate,
+        steps: u64,
+        scale: TimeScale,
+        max_steps_per_call: NonZeroU32,
+        pending_us: u64,
+    ) -> Result<Self, InvalidClock> {
+        let step_us = base_step.step().as_micros();
+        if !base_step.is_tick_start(start) || pending_us >= step_us as u64 {
+            return Err(InvalidClock);
+        }
+        let elapsed = i128::from(steps) * i128::from(step_us);
+        let now = i128::from(start.as_micros_since_epoch()) + elapsed;
+        let now = i64::try_from(now).map_err(|_| InvalidClock)?;
+        Ok(Self {
+            start,
+            now: SimTime::from_micros_since_epoch(now),
+            base_step,
+            steps,
+            scale,
+            max_steps_per_call,
+            pending_us,
+        })
     }
 
     /// The cap on steps per [`Clock::advance_by_host_elapsed`] call.

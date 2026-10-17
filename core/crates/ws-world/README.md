@@ -38,6 +38,10 @@ Domain plans expose actual `ArrivalFact`s (L1 completed boundary, L2 scheduled a
 - **Checker (§12).** `check_lod_invariants` reports every violation (`Duplicated`, `Lost`, `Orphan`, `PartialL1`, `IdentityMismatch`, `UnknownBuilding`, `MissingNodeLod`, `InvalidNodeLod`, `ResidencyMismatch`, `QueueMismatch`, `BadSchedule`, `NotAtCentre`, `NotInOwnCell`), and `ConservationSummary` compares population, identity, per-home and per-governing counts, and counters across a transaction or tick. Debug builds run both after every transaction and tick; release builds only on request. An arrived L1 agent off its target's centre is rejected on insertion.
 - Integer simulation time comes in as `SimDuration` and `SimTime`; no wall clock, no threads, no `unsafe`, no unordered maps.
 
+## Saving
+
+`ToyWorld::to_parts` returns the canonical rows (`ToyParts`, ascending ID order) and `ToyWorld::from_parts` rebuilds a world from rows in any order, deriving the L2 event queue and the unreconciled-residency set. It rejects repeated IDs and residents whose home is missing; the caller runs `check_lod_invariants` for the rest (`World::from_parts` does). The file format is in `ws-persist`.
+
 ## Performance
 
 About 96 bytes per L1 agent in the columns (16 `Resident` + 24 `SurfacePos` + 32 `Walk` + 3 × 8 ID copies), well inside the 0.5–1 KB L1 target of 09 §10.8, because TP-006 agents have no needs, plans, or perception yet. An L2 agent takes 64 bytes in `background` (56-byte `Background` plus the ID copy), 24 in `residents`, and a 16-byte queue entry plus `BTreeSet` node overhead (an estimate of 8 to 16 bytes per entry: leaves of 11 keys, at least half full), so 112 to 120 bytes against ADR 0017's 128 (`l2_records_fit_the_memory_target`). L2 is not smaller than L1 in the toy because the toy's L1 agent is already small (ADR 0017 §15). Step and transition costs are measured by `cargo bench -p ws-sim` (see the ws-sim README).
