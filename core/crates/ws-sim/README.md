@@ -85,3 +85,9 @@ Same Apple M1 Pro, Rust 1.97.0 release, after all local suites finished; Criteri
 The maximum-batch flush is about 0.271 ms at 5,000 agents after removing the two full-world hashes per outcome. Setup, submission and destruction are outside timing; outcome/event publication remains inside. Per-operation checkpoint hashing and tape serialization remain separate debug-host work. This meets the requested few-ms desktop flush check, not a total frame or iPhone budget claim. Existing tick-overhead measurements above remain historical evidence; no physical-tick algorithm changed here.
 
 Reproduce from `core/`: `cargo bench --locked -p ws-sim --bench history -- flush_1024 --warm-up-time 1 --measurement-time 2`. For before/after comparison, copy this benchmark source into an isolated baseline checkout and preserve separate executables/target directories; do not run other local suites during timing. An earlier concurrent measurement is excluded; the table uses only the isolated runs.
+
+### Movement frame reuse (#31, 2026-10-16)
+
+On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 3.3330 to 2.2909 ms (about 31%). This meets the approximate 2.4 ms target on that Mac. Claude's independent Linux Xeon review measured 2.62–2.65 ms, so the target remains unmet on that reference machine; its average ×10 tick cost is about 8.8 ms per 30 fps frame before other work. Neither result establishes iPhone performance.
+
+See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.

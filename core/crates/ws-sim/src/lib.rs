@@ -331,6 +331,21 @@ impl World {
     }
 }
 
+/// TP-003 debug-only render marker in a synthetic ENU frame.
+/// Returns east/north/up/heading; not canonical state or an EntityId.
+/// Pure in seed/tick/index; TP-011 replaces markers with world entities.
+#[must_use]
+pub fn debug_marker(seed: u64, tick: u64, index: u32) -> [f32; 4] {
+    let phase = (tick % 200 + seed % 200) % 200;
+    let travel = if phase < 100 { phase } else { 200 - phase };
+    [
+        (index % 100) as f32 * 2.0 + travel as f32 * 0.02,
+        (index / 100) as f32 * 2.0,
+        0.5,
+        0.0,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

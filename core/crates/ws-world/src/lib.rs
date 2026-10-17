@@ -33,7 +33,7 @@ pub mod ids;
 pub mod lod;
 
 use core::fmt;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ws_ecs::{Column, DuplicateEntity, EntityId, join, join_mut};
 use ws_math::{CellFrame, CoordError, Ecef, Position, SurfacePos};
@@ -416,6 +416,10 @@ impl ToyWorld {
             .iter()
             .map(|(_, b)| b.pos.to_ecef())
             .collect();
+        // Derived, step-local cache: one exact frame per occupied cell,
+        // shared by goal projection and re-expression. No canonical state
+        // or iteration order depends on the cache; L2 never builds it.
+        let mut frames = BTreeMap::new();
         let mut updates = Vec::with_capacity(self.walks.len());
         let mut arrivals = Vec::new();
         for (id, walk, pos) in join(&self.walks, &self.positions) {
@@ -443,7 +447,9 @@ impl ToyWorld {
             let t = building_ids
                 .binary_search(&walk.target)
                 .map_err(|_| WorldError::UnknownBuilding(walk.target))?;
-            let frame = CellFrame::new(pos.cell());
+            let frame = frames
+                .entry(pos.cell())
+                .or_insert_with(|| CellFrame::new(pos.cell()));
             let goal = frame.frame().to_enu(centres[t]);
             let here = pos.offset_enu();
             let to_goal = goal - here;
@@ -467,7 +473,7 @@ impl ToyWorld {
                 let v = dir * self.walk.speed_m_s;
                 walk.velocity = [v.x as f32, v.y as f32, v.z as f32];
                 pos = SurfacePos::new(pos.cell(), [next.x as f32, next.y as f32, next.z as f32])?
-                    .reexpress()?;
+                    .reexpress_with(frame)?;
             }
             updates.push((id, walk, pos));
         }

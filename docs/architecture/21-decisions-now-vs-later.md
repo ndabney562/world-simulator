@@ -42,7 +42,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 |---|---|---|
 | S-1 | ECS library | `bevy_ecs` standalone, `hecs`, or a minimal custom store behind `ws-ecs`. Technical Prototype: minimal custom store ([ADR 0016](../adr/0016-entity-identity-storage-and-randomness.md)) |
 | S-2 | Binary serialization format | `serde` with a compact codec, FlatBuffers, Cap'n Proto; must support schema evolution |
-| S-3 | Rust ↔ Unity bridge details | A hand-written C ABI with `cbindgen` plus C# bindings (hand-written or generated); native buffers shared without copies |
+| S-3 | Rust ↔ Unity bridge details | A hand-written C ABI with `cbindgen` plus C# bindings (hand-written or generated); native buffers shared without copies. [ADR 0018](../adr/0018-rust-unity-bridge.md) specifies the accepted TP-003 contract |
 | S-4 | Sector cell level | ~1 km (level 13) proposed; confirm with materialization cost measurements |
 | S-5 | Frame-rate target | 30 fps sustained with opportunistic 60, or 60 sustained with lower budgets |
 | S-6 | Unity CI | Unity iOS builds in CI on the free plan, or local builds on Noah's Mac |

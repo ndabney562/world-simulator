@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/ws-cli",
+    "crates/ws-ffi",
     "crates/ws-ecs",
     "crates/ws-events",
     "crates/ws-math",

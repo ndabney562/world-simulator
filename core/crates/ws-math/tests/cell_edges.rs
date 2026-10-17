@@ -70,6 +70,18 @@ fn sweep(cell: CellId, angle: f64, step_m: f64, out: &mut Sweep) {
         last = Some(offset);
         let p = SurfacePos::new(cell, offset).unwrap();
         let q = p.reexpress().unwrap();
+        // The cached path is not allowed to call an outside point inside,
+        // or alter the edge-settling bits. These fixed/global sweeps cover
+        // every distinct f32 sample within +/-200 micrometres of the edge.
+        let cached = p.reexpress_with(&CellFrame::new(cell)).unwrap();
+        assert_eq!(cached.cell(), q.cell());
+        assert_eq!(
+            cached.offset().map(f32::to_bits),
+            q.offset().map(f32::to_bits)
+        );
+        if cached.cell() == cell {
+            assert_eq!(p.occupied_cell(), Ok(cell));
+        }
         out.samples += 1;
 
         // The invariant, idempotence, settling, and the position bound.
