@@ -2,7 +2,7 @@
 
 A continuous-scale simulation of real Earth, from a single Bay Ridge street to the solar system, targeting iPhone.
 
-**Status:** Architecture V1 frozen; Technical Prototype implementation underway. The Rust core includes time, coordinates, toy-world entities, and simulation LOD; Unity is a project skeleton. The Rust–Unity bridge remains open in [#4](https://github.com/ndabney562/world-simulator/issues/4). See the live issues and PRs for current progress.
+**Status:** Architecture V1 frozen; Technical Prototype implementation underway. The Rust core, Rust–Unity bridge, and command/event journal are merged; see the live issues and PRs (tracker [#14](https://github.com/ndabney562/world-simulator/issues/14)) for current progress.
 
 - Architecture proposal: [docs/architecture/README.md](docs/architecture/README.md)
 - Architecture decision records: [docs/adr/](docs/adr/README.md)
