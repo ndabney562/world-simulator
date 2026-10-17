@@ -1,8 +1,6 @@
 name: Nightly LOD tests
 
 on:
-  push:
-    branches: [codex/29-nightly-validation]
   schedule:
     # Off the hour to avoid the busiest scheduled-workflow period (UTC).
     - cron: '23 7 * * *'
@@ -22,8 +20,8 @@ jobs:
   lod:
     name: Long-running LOD tests
     runs-on: ubuntu-latest
-    # Provisional ceiling, not a measured budget; calibrate after the first run.
-    timeout-minutes: 350
+    # Measured job: 50m57s (run 38922438452); over 2x headroom.
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: core
