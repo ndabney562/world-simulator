@@ -5,6 +5,7 @@ use crate::cell::CellId;
 use crate::enu::EnuFrame;
 use crate::error::CoordError;
 use crate::frame::{Ecef, Enu, Position};
+use crate::wgs84::{A, B, EP2};
 
 /// The cell level used for sector cells, the unit of simulation
 /// partitioning, materialization, streaming, and persistence. Level 13
@@ -14,6 +15,22 @@ use crate::frame::{Ecef, Enu, Position};
 /// changed once materialization costs are measured.
 pub const SECTOR_LEVEL: u8 = 13;
 
+/// Largest height bound, in metres, for which
+/// [`CellFrame::certainly_contains`] tries to prove containment. Higher
+/// points always take the full lookup.
+const INSIDE_MAX_HEIGHT: f64 = 100_000.0;
+
+/// Angle, in radians per metre of height, by which the scaled ECEF
+/// direction `(x, y, z / (1 − e²))` can differ from the geodetic normal:
+/// at most `|h| e'² / (A − 2 INSIDE_MAX_HEIGHT)`, with 1% slack.
+const INSIDE_HEIGHT_SLOPE: f64 = 1.01 * EP2 / (A - 2.0 * INSIDE_MAX_HEIGHT);
+
+/// Angle, in radians, kept clear of every cell edge for rounding: in this
+/// test, in the edge normals, and in the full lookup (Bowring iteration,
+/// `libm` trigonometry, the (u, v) → (s, t) → (i, j) steps). Those errors
+/// are below 1e-12; 1e-9 rad is about 6 mm on the ground.
+const INSIDE_ROUNDING_MARGIN: f64 = 1e-9;
+
 /// A sector cell together with its precomputed ENU frame.
 ///
 /// Building a cell's frame costs a few trigonometric calls, so code that
@@ -21,10 +38,14 @@ pub const SECTOR_LEVEL: u8 = 13;
 /// `CellFrame` once and passes it to [`SurfacePos::to_ecef_with`] and
 /// [`SurfacePos::from_ecef_in`]. Movement also shares it with
 /// [`SurfacePos::reexpress_with`]. Converting with a frame does not allocate.
+/// The frame also holds the cell's edge planes for the cheap
+/// [`CellFrame::certainly_contains`] test.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellFrame {
     cell: CellId,
     frame: EnuFrame,
+    /// [`CellId::edge_normals`], for [`CellFrame::certainly_contains`].
+    edges: [[f64; 3]; 4],
 }
 
 impl CellFrame {
@@ -34,6 +55,7 @@ impl CellFrame {
         Self {
             cell,
             frame: cell.enu_frame(),
+            edges: cell.edge_normals(),
         }
     }
 
@@ -47,6 +69,40 @@ impl CellFrame {
     #[must_use]
     pub const fn frame(&self) -> &EnuFrame {
         &self.frame
+    }
+
+    /// Whether `p` certainly lies in this cell: `true` only when
+    /// [`CellId::from_ecef`] is guaranteed to return a leaf in this cell.
+    /// `false` means "not proven", not "outside"; callers then use the full
+    /// lookup. Cheap (no trigonometry), so movement asks it first.
+    ///
+    /// The full lookup puts `p` in the cell whose bounding planes (see
+    /// [`CellId::edge_normals`]) contain `p`'s geodetic normal `n`. This
+    /// test uses `q = (x, y, z / (1 − e²))` instead, which is parallel to
+    /// `n` on the ellipsoid and within `|h| e'² / (N + h)` radians of it at
+    /// height `h`. `|h|` is bounded by the distance from `p` to the
+    /// ellipsoid along the ray through the Earth's centre. `p` is proven
+    /// inside when `q` clears every edge plane by that angle plus
+    /// [`INSIDE_ROUNDING_MARGIN`]. Points more than
+    /// [`INSIDE_MAX_HEIGHT`] from the ellipsoid, or not finite, are never
+    /// proven inside.
+    #[must_use]
+    pub fn certainly_contains(&self, p: Position<Ecef>) -> bool {
+        let rho2 = p.x * p.x + p.y * p.y;
+        let r = (rho2 + p.z * p.z).sqrt();
+        // The ellipsoid's radius along `p`'s ray is A B r / s.
+        let s = (B * B * rho2 + A * A * p.z * p.z).sqrt();
+        // 1 m covers the rounding of this bound.
+        let h_bound = r * (1.0 - A * B / s).abs() + 1.0;
+        if !h_bound.is_finite() || h_bound > INSIDE_MAX_HEIGHT {
+            return false;
+        }
+        let q = [p.x, p.y, p.z * (1.0 + EP2)];
+        let q_len = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt();
+        let margin = q_len * (h_bound * INSIDE_HEIGHT_SLOPE + INSIDE_ROUNDING_MARGIN);
+        self.edges
+            .iter()
+            .all(|n| q[0] * n[0] + q[1] * n[1] + q[2] * n[2] > margin)
     }
 }
 
@@ -219,10 +275,13 @@ impl SurfacePos {
 
     /// Re-expresses with a prebuilt frame of this position's cell.
     ///
-    /// Exactly the same cell lookup and ADR 0016 edge settling as
-    /// [`Self::reexpress`], without rebuilding the source frame. Reuse one
-    /// frame for all moving agents in a cell. This is not an approximate
-    /// inside test: points near an edge still use the full Tier 1 lookup.
+    /// The same result as [`Self::reexpress`], bit for bit, without
+    /// rebuilding the source frame. Reuse one frame for all moving agents
+    /// in a cell. A point that [`CellFrame::certainly_contains`] proves
+    /// inside its cell is returned unchanged without the full lookup, which
+    /// is what the full lookup would also do; every other point, including
+    /// all points near an edge, takes the full Tier 1 lookup and ADR 0016
+    /// edge settling.
     ///
     /// # Errors
     ///
@@ -230,6 +289,9 @@ impl SurfacePos {
     /// the same errors as [`Self::reexpress`].
     pub fn reexpress_with(&self, frame: &CellFrame) -> Result<Self, CoordError> {
         let p = self.to_ecef_with(frame)?;
+        if frame.certainly_contains(p) {
+            return Ok(*self);
+        }
         let cell = CellId::from_ecef(p)?.parent(SECTOR_LEVEL)?;
         if cell == self.cell {
             Ok(*self)

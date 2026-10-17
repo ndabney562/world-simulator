@@ -82,6 +82,12 @@ fn sweep(cell: CellId, angle: f64, step_m: f64, out: &mut Sweep) {
         if cached.cell() == cell {
             assert_eq!(p.occupied_cell(), Ok(cell));
         }
+        // The inside fast path keeps a margin of millimetres, so it never
+        // claims a point this close to an edge (#48).
+        assert!(
+            !CellFrame::new(cell).certainly_contains(p.to_ecef()),
+            "{p:?}"
+        );
         out.samples += 1;
 
         // The invariant, idempotence, settling, and the position bound.

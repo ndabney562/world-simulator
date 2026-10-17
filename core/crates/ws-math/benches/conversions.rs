@@ -3,7 +3,8 @@
 //! Run with `cargo bench -p ws-math`. It measures the per-instance paths
 //! used when building snapshots: `SurfacePos` → ECEF with a prebuilt
 //! `CellFrame` (the hot path), without one, and ECEF → `SurfacePos`.
-//! None of these allocate. Results are printed, not asserted: timings
+//! It also measures re-expression and building a `CellFrame`. None of
+//! these allocate. Results are printed, not asserted: timings
 //! depend on the machine.
 
 // A benchmark is the one place in this crate that reads the wall clock; it
@@ -103,12 +104,27 @@ fn main() {
         }),
     );
     report(
-        "reexpress (prebuilt CellFrame)",
+        "reexpress (prebuilt CellFrame, inside test)",
         time(|| {
             for (b, p) in back.iter_mut().zip(&input) {
                 *b = black_box(p).reexpress_with(&frame).unwrap();
             }
         }),
     );
-    black_box((&out, &back));
+    let cells: Vec<CellId> = (0..N)
+        .map(|i| {
+            let g = ws_math::Geodetic::from_degrees(40.0 + i as f64 * 1e-4, -74.0, 0.0).unwrap();
+            CellId::from_geodetic_at_level(&g, SECTOR_LEVEL).unwrap()
+        })
+        .collect();
+    let mut frames = vec![frame; N];
+    report(
+        "CellFrame::new",
+        time(|| {
+            for (f, c) in frames.iter_mut().zip(&cells) {
+                *f = CellFrame::new(*black_box(c));
+            }
+        }),
+    );
+    black_box((&out, &back, &frames));
 }
