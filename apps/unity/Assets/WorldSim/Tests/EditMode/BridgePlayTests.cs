@@ -41,6 +41,27 @@ namespace WorldSim.Tests.EditMode
             Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,60,10),Is.EqualTo(100));
             Assert.That(BridgeDemo.ConsumeHostElapsed(ref remainder,0,1),Is.Zero);
         }
+        [Test]
+        public void WorkerThreadAdvancesTheWorldAndStopsCleanly()
+        {
+            var host=new SimHost(7,10);
+            try
+            {
+                var frame=new WorldSim.Bridge.RenderFrame(5,50);
+                host.SetScale(10);
+                var clock=System.Diagnostics.Stopwatch.StartNew();
+                while(host.Steps==0 && clock.Elapsed.TotalSeconds<3) System.Threading.Thread.Sleep(10);
+                Assert.That(host.Steps,Is.GreaterThan(0));
+                Assert.That(host.Failure,Is.Null);
+                host.Fill(frame);
+                Assert.That(frame.Tick,Is.GreaterThan(0));
+                Assert.That(frame.ResidentCount,Is.EqualTo(50));
+                host.TakeAdvanceStats(out double mean,out double max);
+                Assert.That(mean,Is.GreaterThanOrEqualTo(0));Assert.That(max,Is.GreaterThanOrEqualTo(mean));
+            }
+            finally { host.Dispose(); }
+            Assert.Throws<System.ObjectDisposedException>(()=>host.SetScale(1));
+        }
         [UnityTearDown]
         public IEnumerator LeavePlayModeAfterAnyFailure()
         {

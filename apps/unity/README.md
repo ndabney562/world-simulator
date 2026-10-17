@@ -2,7 +2,7 @@
 
 The Unity 6 / URP application shell. Unity owns rendering, presentation, input, and platform integration; it never owns simulation state, which stays in the Rust core (`core/`). See [03-rendering-architecture.md](../../docs/architecture/03-rendering-architecture.md) §4.1.
 
-The TP-003 Bootstrap demo now loads the Rust native bridge and draws deterministic debug markers from one snapshot per frame. The scene is intentionally synthetic; real toy-world entity rendering and iPhone performance are TP-011. Providers and gameplay UI are not implemented.
+The Bootstrap scene loads the Rust native bridge and draws the toy world (TP-011, ABI 3): five buildings as boxes and residents as capsules from one snapshot per frame, with an orbit camera and a debug HUD. The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Providers and gameplay UI are not implemented.
 
 ## Editor version
 
@@ -19,7 +19,7 @@ Changing the editor version is a deliberate change: update `ProjectVersion.txt` 
 | `Assets/WorldSim/Providers/` | none yet | Visual backdrop providers; the only place provider code may live ([17-repository-structure.md](../../docs/architecture/17-repository-structure.md) §18.2 rule 4). Empty until TP-012. |
 | `Assets/WorldSim/UI/` | none yet | UI Toolkit views. Empty placeholder. |
 | `Assets/WorldSim/Tests/EditMode/` | `WorldSim.Tests.EditMode` (Editor only) | Edit-mode tests. |
-| `Assets/WorldSim/Scenes/Bootstrap.unity` | | The only scene: camera, directional light, and native bridge debug-marker demo. |
+| `Assets/WorldSim/Scenes/Bootstrap.unity` | | The only scene: camera, directional light, and the native toy-world host (`BridgeDemo`). |
 
 ## Settings
 
@@ -89,7 +89,7 @@ The static CI checker also requires the serialized `iOSSupport` API list to cont
 
 ## Running the native demo
 
-Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. A cyan grid of 1,000 moving cubes is rendered from ABI-v2 snapshots; motion is derived from Rust seed/tick, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
+Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. Cyan boxes (buildings) and orange capsules (residents, 50 at start; the HUD switches to 500 or 5,000) are rendered from ABI-3 snapshots; positions come from the Rust core, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
 
 Bridge owns one persistent NativeArray and one SafeHandle; it serializes calls and disposal. Only Bridge enables unsafe C# to lend the buffer pointer for a synchronous call. Rendering uses safe decoded matrices in reusable storage and instanced draws. Fixed-step catch-up is capped at 100 ticks per frame; excess whole steps after a stall are dropped and only the sub-step remainder is retained, matching the Rust host clock. No per-entity native calls or callbacks occur. Disable/scene teardown disposes the world, buffer, material and mesh.
 
@@ -104,3 +104,7 @@ EditMode tests now include native load/version/create/advance/fill/dispose, v1-c
 The demo flushes every frame before choosing ticks and multiplies host elapsed time by that returned scale once. No local independent scale or second native multiplier is applied. Zero/paused frames still fill the render snapshot; catch-up keeps its existing 100-tick cap/drop policy. Inputs and disposal remain serialized by the same managed lock. Command helpers allocate only on submission; warmed per-frame flush/control read and snapshot decode tests check zero managed allocation on the calling thread.
 
 After switching branches, close Unity, rebuild the native plugin with `scripts/build-native-macos.sh`, and reopen with 6000.3.26f1. Run the full EditMode suite with graphics enabled, then open Bootstrap and press Play. A previously loaded ABI-v1 plugin must be replaced/reloaded: mismatched native/config/snapshot versions fail clearly. No device signing or real-entity rendering is added here.
+
+## iPhone spike (TP-011)
+
+Run `scripts/build-native-ios.sh`, then **WorldSim → Build iOS performance spike**, then run the generated Xcode project with your personal team. The simulation advances on a worker thread; the main thread submits time commands and decodes one snapshot per frame. The HUD and one-second CSV logs are described in the [TP-011 note](../../docs/spikes/tp-011-iphone-performance.md).

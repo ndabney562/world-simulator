@@ -12,7 +12,7 @@ namespace WorldSim.Bridge
         internal uint Version, Size;
         internal ulong Seed;
         internal long Start;
-        internal uint Count, Reserved;
+        internal uint ResidentsPerBuilding, Reserved;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -57,28 +57,33 @@ namespace WorldSim.Bridge
     /// <summary>Owns one serialized native world and a persistent caller-owned snapshot buffer.</summary>
     public sealed class NativeWorld : IDisposable
     {
-        public const uint AbiVersion = 2;
+        public const uint AbiVersion = 3;
+        /// <summary>The toy world has five buildings (ADR 0022).</summary>
+        public const int BuildingCount = 5;
+        public const int MaxResidentsPerBuilding = 2000;
         readonly object gate = new object();
         WorldHandle handle;
         NativeArray<byte> bytes;
         bool disposed;
-        public int MarkerCount { get; }
+        public int ResidentsPerBuilding { get; }
+        public int ResidentCount => ResidentsPerBuilding * BuildingCount;
+        public int InstanceCount => BuildingCount + ResidentCount;
 
         internal static void RequireVersion(uint actual)
         {
             if (actual != AbiVersion) throw new InvalidOperationException($"Native ABI {actual}; expected {AbiVersion}. Restart Unity after rebuilding the plugin.");
         }
-        public NativeWorld(ulong seed, int markerCount, long startMicroseconds = 0)
+        public NativeWorld(ulong seed, int residentsPerBuilding, long startMicroseconds = 0)
         {
-            if (markerCount < 0 || markerCount > 100000) throw new ArgumentOutOfRangeException(nameof(markerCount));
+            if (residentsPerBuilding < 1 || residentsPerBuilding > MaxResidentsPerBuilding) throw new ArgumentOutOfRangeException(nameof(residentsPerBuilding));
             RequireVersion(NativeMethods.Version());
-            var config = new NativeConfig { Version = AbiVersion, Size = 32, Seed = seed, Start = startMicroseconds, Count = (uint)markerCount };
+            var config = new NativeConfig { Version = AbiVersion, Size = 32, Seed = seed, Start = startMicroseconds, ResidentsPerBuilding = (uint)residentsPerBuilding };
             var pointer = NativeMethods.Create(in config);
             if (pointer == IntPtr.Zero) throw new InvalidOperationException(ReadError(IntPtr.Zero));
             handle = new WorldHandle(pointer);
-            try { bytes = new NativeArray<byte>(checked(24 + markerCount * 32), Allocator.Persistent); }
+            try { bytes = new NativeArray<byte>(checked(24 + (BuildingCount + BuildingCount * residentsPerBuilding) * 32), Allocator.Persistent); }
             catch { handle.Dispose(); throw; }
-            MarkerCount = markerCount;
+            ResidentsPerBuilding = residentsPerBuilding;
         }
         static string ReadError(IntPtr pointer)
         {
@@ -113,7 +118,7 @@ namespace WorldSim.Bridge
         {
             lock(gate) { RequireLive(); Check(NativeMethods.Advance(handle,0)); return ReadControlState(); }
         }
-        /// <summary>Copy a canonical v2 command batch into the native queue; success means pending.</summary>
+        /// <summary>Copy a canonical v2 command batch (the batch format is unchanged in ABI 3) into the native queue; success means pending.</summary>
         public void SubmitCommands(byte[] batch)
         {
             if(batch==null) throw new ArgumentNullException(nameof(batch));
@@ -139,7 +144,7 @@ namespace WorldSim.Bridge
             var batch=CommandBatch(1,12); WriteU32(batch,24,scale); SubmitCommands(batch);
         }
         /// <summary>One native fill, then complete decode into the reusable destination. No pointers escape.</summary>
-        public unsafe ulong FillSnapshot(UnityEngine.Matrix4x4[] destination)
+        public unsafe ulong FillSnapshot(RenderFrame destination)
         {
             lock (gate)
             {
@@ -147,7 +152,7 @@ namespace WorldSim.Bridge
                 // The buffer belongs to this object; lock excludes filling/disposing concurrently.
                 IntPtr pointer = (IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(bytes);
                 Check(NativeMethods.Fill(handle, pointer, (UIntPtr)bytes.Length, out var written));
-                return SnapshotDecoder.Decode(bytes, checked((int)written.ToUInt64()), destination, MarkerCount);
+                return SnapshotDecoder.Decode(bytes, checked((int)written.ToUInt64()), destination);
             }
         }
         public void Dispose()
