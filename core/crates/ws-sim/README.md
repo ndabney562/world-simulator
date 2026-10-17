@@ -70,3 +70,18 @@ Most of the step is the per-agent `SurfacePos::reexpress` (a cell lookup, about 
 The estimated incremental orchestration/publication difference is about 0.5%, with overlapping intervals; this does not establish a precise overhead percentage. Both paths include domain fact collection; the comparison does not isolate that collection's cost against pre-TP-008 code. Bounded 500-tick clones keep the benchmark from silently timing different growing histories. These are desktop observations, not iPhone acceptance evidence. At ×10 a few 3.2 ms ticks per frame can exceed the 8 ms high-priority budget; use L2 and measure on device in TP-011.
 
 The 100–150 MB world-tree/aggregate/index budget in architecture §16.4 is shared, not all available for history. At the measured minimum capacity, 100,000 such records alone would use 80.8 MB. Registry IDs, query buffers, domain state, allocator overhead, spare geometric capacity and process RSS are excluded. Long sessions exceed this budget without future retention/persistence. Sorted vector index insertion can move prior entries; short toy measurements do not prove long-history write scaling. No per-event heap payload is used; batch buffers and query results allocate separately. CLI per-operation journal hashing/serialization is debug work, outside the domain tick timing.
+
+Per-command journal outcomes store application metadata and effects, not before/after full-world hashes. The debug host still verifies simulation, queue, journal and event checkpoints at operation boundaries. The `history` Criterion benchmark includes maximum-batch NoOp flushes at toy and 5,000-agent populations; setup/submission/destruction are outside the timed flush. Actor-index write scaling is tracked separately in GitHub issue #49; no retention or index redesign is included here.
+
+### Command flush review measurement (2026-10-17)
+
+Same Apple M1 Pro, Rust 1.97.0 release, after all local suites finished; Criterion 10 samples, 1 s warm-up and 2 s requested measurement (extended for slow baseline). Same new benchmark source was compiled against baseline `041d891` and correction `2fa55ba`; isolated binaries ran sequentially.
+
+| 1,024 NoOps | Baseline 95% interval / estimate | Corrected 95% interval / estimate |
+|---|---|---|
+| Toy population, seed 1 | 6.8172–6.8832 ms / 6.8411 ms | 262.35–263.01 µs / 262.64 µs |
+| 5,000 agents | 794.67–795.48 ms / 795.06 ms | 269.90–272.25 µs / 271.27 µs |
+
+The maximum-batch flush is about 0.271 ms at 5,000 agents after removing the two full-world hashes per outcome. Setup, submission and destruction are outside timing; outcome/event publication remains inside. Per-operation checkpoint hashing and tape serialization remain separate debug-host work. This meets the requested few-ms desktop flush check, not a total frame or iPhone budget claim. Existing tick-overhead measurements above remain historical evidence; no physical-tick algorithm changed here.
+
+Reproduce from `core/`: `cargo bench --locked -p ws-sim --bench history -- flush_1024 --warm-up-time 1 --measurement-time 2`. For before/after comparison, copy this benchmark source into an isolated baseline checkout and preserve separate executables/target directories; do not run other local suites during timing. An earlier concurrent measurement is excluded; the table uses only the isolated runs.
