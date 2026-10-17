@@ -14,7 +14,7 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs 
 | Tier 1 golden tests | Linux (x86-64) and macOS 14 (arm64), inside the Rust core job's `cargo test` | `ws-math` cell IDs, sector membership, and re-expression against `core/crates/ws-math/tests/golden/cell_ids.txt`; `ws-rng` SipHash-2-4 reference vectors and derivation and draw values; `ws-world` procedural IDs, residents per building, and target choices against `core/crates/ws-world/tests/golden/toy_world.txt`. Any difference on either platform fails the build | Active (TP-005, TP-006) |
 | Tier 2 replay tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-sim` and `ws-world`: identical per-tick state hashes for 10,000 ticks with the same seed, with and without scripted LOD transitions, including a run in a separate process; insertion-order independence. Compared within one platform, never across | Active (TP-006, TP-007) |
 | Simulation LOD tests | Linux (x86-64) and macOS 14 (arm64), inside `cargo test` | `ws-world` `tests/lod.rs` and `src/lod_tests.rs` (ADR 0017 §14): zero-time round trips, conservation properties, L1/L2 equivalence over one simulated hour, the invariant checker against injected faults, and `lod_soak_short` (1,000 agents, 30 simulated minutes, about 3 minutes in a debug build) | Active (TP-007) |
-| Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Active in [nightly.yml](../../.github/workflows/nightly.yml). Both tests passed in the measured validation run; manual-dispatch confirmation tracked in #40 |
+| Long-running LOD tests | Linux (`ubuntu-latest`), daily at 07:23 UTC and manual dispatch: `cargo test --release --locked -p ws-world --test lod -- --ignored` | `l2_matches_l1_over_eight_hours` and `lod_soak_long` (3,000 agents, 24 simulated hours), marked `#[ignore]` as nightly tests ([testing-policy](testing-policy.md) §4) | Active in [nightly.yml](../../.github/workflows/nightly.yml). Both tests passed in push validation, manual dispatch and the scheduled run; evidence below (#40) |
 
 The repository is public, so GitHub-hosted Linux and macOS runners cost nothing (ADR 0007).
 
@@ -29,11 +29,11 @@ The temporary branch-only push trigger used for measurement was merged in #39; i
 The workflow now exists on `main`, satisfying GitHub's [manual-dispatch registration requirement](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow). Select a branch in **Actions → Nightly LOD tests → Run workflow**, or run:
 
 ```sh
-gh workflow run nightly.yml --repo ndabney562/world-simulator --ref codex/29-measured-timeout
-gh run list --repo ndabney562/world-simulator --workflow nightly.yml --branch codex/29-measured-timeout
+gh workflow run nightly.yml --repo ndabney562/world-simulator --ref main
+gh run list --repo ndabney562/world-simulator --workflow nightly.yml --branch main
 ```
 
-Manual-dispatch confirmation for the calibrated configuration is tracked in #40. Record the actual run URL, tested SHA, both test outcomes and job duration on its PR before marking that verification complete. Ordinary PR CI does not run ignored tests. No extra notification service is configured; GitHub's notification preferences apply.
+Manual dispatch is confirmed in [run 38930265659](https://github.com/ndabney562/world-simulator/actions/runs/38930265659), on `codex/29-measured-timeout` at `912a3827d8af623810d795c4050139f0da228235`: both `l2_matches_l1_over_eight_hours` and `lod_soak_long` passed (2 passed, 0 failed), with 3,095.55 seconds of tests and a 52m07s job. This is separate from the push validation above. The subsequent [scheduled run 39014956802](https://github.com/ndabney562/world-simulator/actions/runs/39014956802) on `main` at `de1a59eea49f2febfe65eec97213fa29ffab8526` also passed both tests: 2,916.30 seconds of tests, 49m04s for the job. These measurements complete the dispatch verification tracked in #40; retain run URLs, tested SHAs, test outcomes and job durations for future changes. Ordinary PR CI does not run ignored tests. No extra notification service is configured; GitHub's notification preferences apply.
 
 ## Running the checks locally
 
