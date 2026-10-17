@@ -23,3 +23,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0017](0017-simulation-lod-l1-l2-round-trip.md) | Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007) | Accepted |
 | [0018](0018-rust-unity-bridge.md) | TP-003 Rust–Unity bridge contract (S-3) | Accepted |
 | [0019](0019-command-journal-and-world-events.md) | TP-008 command journal and World Event contract (D-8) | Accepted |
+| [0020](0020-save-format-and-versioning.md) | TP-009 save container, serialization format (S-2) and version header (D-14) | Accepted |
