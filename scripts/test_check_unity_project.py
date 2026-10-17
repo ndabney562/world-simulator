@@ -85,17 +85,34 @@ class CheckUnityProjectTest(unittest.TestCase):
         self.edit_player_settings(lambda s: s.replace("m_BuildTarget: iOSSupport", "m_BuildTarget: Android"))
         self.assertReports("exactly one iOSSupport entry")
 
+    def insert_graphics_api_entry(self, platform, apis):
+        header = "  m_BuildTargetGraphicsAPIs:\n"
+        entry = f"  - m_BuildTarget: {platform}\n    m_APIs: {apis}\n    m_Automatic: 0\n"
+        self.edit_player_settings(lambda s: s.replace(header, header + entry, 1))
+
     def test_other_platform_graphics_apis_do_not_change_ios_requirement(self):
-        self.edit_player_settings(lambda s: s + "  - m_BuildTarget: Android\n    m_APIs: 0b000000\n    m_Automatic: 1\n")
-        self.assertEqual(self.errors(), [])
+        settings = self.path("ProjectSettings/ProjectSettings.asset")
+        original = settings.read_text()
+        for trailing in ("", "  m_BuildTargetGraphicsJobs: []\n  unrelatedSetting: 0\n"):
+            with self.subTest(trailing_fields=bool(trailing)):
+                settings.write_text(original + trailing)
+                self.insert_graphics_api_entry("Android", "0b000000")
+                self.assertEqual(self.errors(), [])
+                self.edit_player_settings(lambda s: s.replace("m_APIs: 10000000", "m_APIs: 0b000000"))
+                self.assertReports("iOSSupport graphics APIs must be exactly Metal")
 
     def test_ios_graphics_entry_cannot_come_from_another_section(self):
         self.edit_player_settings(lambda s: s.replace("m_BuildTargetGraphicsAPIs:", "unrelatedList:"))
         self.assertReports("one m_BuildTargetGraphicsAPIs list")
 
     def test_duplicate_ios_graphics_entries_fail(self):
-        self.edit_player_settings(lambda s: s + "  - m_BuildTarget: iOSSupport\n    m_APIs: 10000000\n    m_Automatic: 0\n")
-        self.assertReports("exactly one iOSSupport entry")
+        settings = self.path("ProjectSettings/ProjectSettings.asset")
+        original = settings.read_text()
+        for trailing in ("", "  m_BuildTargetGraphicsJobs: []\n  unrelatedSetting: 0\n"):
+            with self.subTest(trailing_fields=bool(trailing)):
+                settings.write_text(original + trailing)
+                self.insert_graphics_api_entry("iOSSupport", "10000000")
+                self.assertReports("exactly one iOSSupport entry")
 
     def test_duplicate_ios_api_fields_fail(self):
         self.edit_player_settings(lambda s: s.replace("    m_APIs: 10000000", "    m_APIs: 10000000\n    m_APIs: 0b000000"))
