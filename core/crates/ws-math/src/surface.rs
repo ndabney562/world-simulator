@@ -38,14 +38,15 @@ const INSIDE_ROUNDING_MARGIN: f64 = 1e-9;
 /// `CellFrame` once and passes it to [`SurfacePos::to_ecef_with`] and
 /// [`SurfacePos::from_ecef_in`]. Movement also shares it with
 /// [`SurfacePos::reexpress_with`]. Converting with a frame does not allocate.
-/// The frame also holds the cell's edge planes for the cheap
-/// [`CellFrame::certainly_contains`] test.
+/// [`CellFrame::with_inside_test`] also holds the cell's edge planes for
+/// the cheap [`CellFrame::certainly_contains`] test.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellFrame {
     cell: CellId,
     frame: EnuFrame,
-    /// [`CellId::edge_normals`], for [`CellFrame::certainly_contains`].
-    edges: [[f64; 3]; 4],
+    /// [`CellId::edge_normals`], for [`CellFrame::certainly_contains`];
+    /// only built by [`CellFrame::with_inside_test`].
+    edges: Option<[[f64; 3]; 4]>,
 }
 
 impl CellFrame {
@@ -55,7 +56,21 @@ impl CellFrame {
         Self {
             cell,
             frame: cell.enu_frame(),
-            edges: cell.edge_normals(),
+            edges: None,
+        }
+    }
+
+    /// Builds the frame of `cell` together with its edge planes, so that
+    /// [`CellFrame::certainly_contains`] can prove containment. That costs
+    /// a little more than [`CellFrame::new`] and makes the frame larger,
+    /// which measurably slows code that builds a frame per position (LOD
+    /// promotion), so only frames shared by many re-expressions (the
+    /// movement step) use it.
+    #[must_use]
+    pub fn with_inside_test(cell: CellId) -> Self {
+        Self {
+            edges: Some(cell.edge_normals()),
+            ..Self::new(cell)
         }
     }
 
@@ -74,7 +89,9 @@ impl CellFrame {
     /// Whether `p` certainly lies in this cell: `true` only when
     /// [`CellId::from_ecef`] is guaranteed to return a leaf in this cell.
     /// `false` means "not proven", not "outside"; callers then use the full
-    /// lookup. Cheap (no trigonometry), so movement asks it first.
+    /// lookup. Cheap (no trigonometry), so movement asks it first. Always
+    /// `false` for a frame built with [`CellFrame::new`] rather than
+    /// [`CellFrame::with_inside_test`].
     ///
     /// The full lookup puts `p` in the cell whose bounding planes (see
     /// [`CellId::edge_normals`]) contain `p`'s geodetic normal `n`. This
@@ -88,6 +105,9 @@ impl CellFrame {
     /// proven inside.
     #[must_use]
     pub fn certainly_contains(&self, p: Position<Ecef>) -> bool {
+        let Some(edges) = &self.edges else {
+            return false;
+        };
         let rho2 = p.x * p.x + p.y * p.y;
         let r = (rho2 + p.z * p.z).sqrt();
         // The ellipsoid's radius along `p`'s ray is A B r / s.
@@ -100,7 +120,7 @@ impl CellFrame {
         let q = [p.x, p.y, p.z * (1.0 + EP2)];
         let q_len = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt();
         let margin = q_len * (h_bound * INSIDE_HEIGHT_SLOPE + INSIDE_ROUNDING_MARGIN);
-        self.edges
+        edges
             .iter()
             .all(|n| q[0] * n[0] + q[1] * n[1] + q[2] * n[2] > margin)
     }
@@ -278,7 +298,9 @@ impl SurfacePos {
     /// The same result as [`Self::reexpress`], bit for bit, without
     /// rebuilding the source frame. Reuse one frame for all moving agents
     /// in a cell. A point that [`CellFrame::certainly_contains`] proves
-    /// inside its cell is returned unchanged without the full lookup, which
+    /// inside its cell (only possible with a frame from
+    /// [`CellFrame::with_inside_test`]) is returned unchanged without the
+    /// full lookup, which
     /// is what the full lookup would also do; every other point, including
     /// all points near an edge, takes the full Tier 1 lookup and ADR 0016
     /// edge settling.

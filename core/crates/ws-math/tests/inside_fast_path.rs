@@ -39,7 +39,7 @@ struct Counts {
 
 /// Checks the ray from `cell`'s centre in direction `angle`.
 fn sweep(cell: CellId, angle: f64, out: &mut Counts) {
-    let frame = CellFrame::new(cell);
+    let frame = CellFrame::with_inside_test(cell);
     let (dx, dy) = (angle.cos(), angle.sin());
     for up in HEIGHTS {
         let at = |t: f64| Position::new(dx * t, dy * t, up);
@@ -121,13 +121,21 @@ fn named_regions_are_conservative() {
 
 #[test]
 fn far_from_the_surface_is_never_proven() {
-    let frame = CellFrame::new(sector_at(10.0, 10.0));
+    let frame = CellFrame::with_inside_test(sector_at(10.0, 10.0));
     for up in [100_500.0, 1e6, -100_500.0, -6e6] {
         let p = frame.frame().to_ecef(Position::new(0.0, 0.0, up));
         assert!(!frame.certainly_contains(p), "up {up}");
     }
     let nan = Position::new(f64::NAN, 0.0, 0.0);
     assert!(!frame.certainly_contains(nan));
+}
+
+#[test]
+fn plain_frames_never_prove() {
+    let cell = sector_at(10.0, 10.0);
+    let p = CellFrame::new(cell).frame().origin_ecef();
+    assert!(CellFrame::with_inside_test(cell).certainly_contains(p));
+    assert!(!CellFrame::new(cell).certainly_contains(p));
 }
 
 fn config() -> Config {
@@ -170,7 +178,7 @@ proptest! {
     ) {
         let g = Geodetic::new(lat, lon, 0.0).unwrap();
         let cell = CellId::from_geodetic_at_level(&g, SECTOR_LEVEL).unwrap();
-        let frame = CellFrame::new(cell);
+        let frame = CellFrame::with_inside_test(cell);
         let p = SurfacePos::new(cell, [e, n, u]).unwrap();
         if frame.certainly_contains(p.to_ecef()) {
             prop_assert_eq!(p.occupied_cell(), Ok(cell));

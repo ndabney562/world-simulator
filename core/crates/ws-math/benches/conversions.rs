@@ -3,8 +3,9 @@
 //! Run with `cargo bench -p ws-math`. It measures the per-instance paths
 //! used when building snapshots: `SurfacePos` → ECEF with a prebuilt
 //! `CellFrame` (the hot path), without one, and ECEF → `SurfacePos`.
-//! It also measures re-expression and building a `CellFrame`. None of
-//! these allocate. Results are printed, not asserted: timings
+//! It also compares re-expression with and without the inside fast path
+//! (#48) and building frames with and without it. None of these
+//! allocate. Results are printed, not asserted: timings
 //! depend on the machine.
 
 // A benchmark is the one place in this crate that reads the wall clock; it
@@ -104,10 +105,19 @@ fn main() {
         }),
     );
     report(
-        "reexpress (prebuilt CellFrame, inside test)",
+        "reexpress (prebuilt CellFrame)",
         time(|| {
             for (b, p) in back.iter_mut().zip(&input) {
                 *b = black_box(p).reexpress_with(&frame).unwrap();
+            }
+        }),
+    );
+    let fast = CellFrame::with_inside_test(input[0].cell());
+    report(
+        "reexpress (prebuilt CellFrame, inside test)",
+        time(|| {
+            for (b, p) in back.iter_mut().zip(&input) {
+                *b = black_box(p).reexpress_with(&fast).unwrap();
             }
         }),
     );
@@ -126,5 +136,14 @@ fn main() {
             }
         }),
     );
-    black_box((&out, &back, &frames));
+    let mut fast_frames = vec![fast; N];
+    report(
+        "CellFrame::with_inside_test",
+        time(|| {
+            for (f, c) in fast_frames.iter_mut().zip(&cells) {
+                *f = CellFrame::with_inside_test(*black_box(c));
+            }
+        }),
+    );
+    black_box((&out, &back, &frames, &fast_frames));
 }
