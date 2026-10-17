@@ -20,7 +20,7 @@ pub mod commands;
 mod control;
 mod restore;
 use commands::{Command, Outcome};
-pub use control::{ControlError, FlushReport};
+pub use control::{ControlError, FlushReport, WhyIll};
 pub use ws_events;
 use ws_events::{EventError, EventStore};
 
@@ -32,8 +32,8 @@ pub use ws_ecs::EntityId;
 pub use ws_time::{SimTime, TimeOverflow};
 use ws_world::{Dataset, WalkParams};
 pub use ws_world::{
-    Lod, LodError, LodViolation, Population, TOY_DATASET_VERSION, ToyWorld, TransitionReport,
-    WorldError,
+    Illness, IllnessKind, Lod, LodError, LodViolation, Population, TOY_DATASET_VERSION, ToyWorld,
+    TransitionReport, WorldError,
 };
 
 /// Parameters a [`World`] is created from.
@@ -160,6 +160,8 @@ pub struct World {
     next_sequence: u64,
     boundary: u64,
     journal: Vec<Outcome>,
+    /// Interventions accepted for a later time, by journal sequence.
+    scheduled: std::collections::BTreeMap<u64, commands::Intervention>,
     #[cfg(test)]
     fail_after: Option<usize>,
     #[cfg(test)]
@@ -226,6 +228,7 @@ impl World {
             next_sequence: 1,
             boundary: 0,
             journal: Vec::new(),
+            scheduled: Default::default(),
             #[cfg(test)]
             fail_after: None,
             #[cfg(test)]

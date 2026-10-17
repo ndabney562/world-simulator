@@ -174,3 +174,54 @@ fn save_then_load_in_separate_processes_agree_and_never_overwrite() {
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn an_intervention_records_and_replays_to_identical_hashes() {
+    let root = std::env::temp_dir().join(format!("ws-cli-intervene-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let script = root.join("commands.txt");
+    let tape = root.join("run.wsjr");
+    // An immediate, a timed (3 s of simulated time, i.e. tick 30) and a
+    // rejected intervention, across a level change.
+    fs::write(
+        &script,
+        "step 10\nafflict building first 4\nafflict building first 7 at 3000000\nafflict building first 99\nlod all 2\nstep 800\nlod all 1\nflush\n",
+    )
+    .unwrap();
+    let out = cli(&[
+        "run",
+        "--seed",
+        "19",
+        "--ticks",
+        "3000",
+        "--hash-every",
+        "500",
+        "--script",
+        script.to_str().unwrap(),
+        "--journal",
+        tape.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let run = String::from_utf8(out.stdout).unwrap();
+    let out = cli(&["replay", "--journal", tape.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let verified = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        run.lines()
+            .last()
+            .unwrap()
+            .strip_prefix("complete ")
+            .unwrap(),
+        verified.trim().strip_prefix("verified ").unwrap()
+    );
+    fs::remove_dir_all(root).unwrap();
+}

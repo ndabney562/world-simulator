@@ -2,7 +2,7 @@
 //! the first save (D-14, ADR 0020).
 
 /// The newest save format this build writes and reads.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The header row of a save. Cheap to read without loading the world
 /// ([`crate::read_header`]).
@@ -42,6 +42,9 @@ pub struct Header {
     /// `EventStore::digest` at the save: detects a lost or altered event
     /// or causal link.
     pub events_digest: u64,
+    /// Version of the intervention effect vocabulary the writer knew
+    /// (ADR 0021 §7); zero in format-1 saves, which predate interventions.
+    pub effect_vocabulary: u32,
 }
 
 /// The build identifier written to new saves.

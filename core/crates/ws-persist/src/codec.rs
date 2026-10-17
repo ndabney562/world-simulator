@@ -13,13 +13,16 @@ use ws_events::{
     Related, Relation, Role, Small, Target,
 };
 use ws_math::{CellId, CoordError, SurfacePos};
-use ws_sim::commands::{Action, Command, IssuedBy, Outcome, Rejection};
+use ws_sim::commands::{
+    Action, Command, Effect, Intervention, InterventionTarget, IssuedBy, Outcome, Rejection, Timing,
+};
 use ws_sim::{Clock, LodError, LodViolation, SimTime, TimeOverflow, TimeScale};
 use ws_time::{Rate, SimDuration};
 use ws_world::{
     Activity, Background, Building, Lod, Origin, Quantity, Resident, ResidentAddress,
     ScheduleProblem, Walk,
 };
+use ws_world::{Illness, IllnessKind};
 
 /// Why bytes are not a valid record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,6 +400,35 @@ fn put_payload(w: &mut Writer, p: Payload) {
             w.id(destination);
             w.u32(leg);
         }
+        Payload::InterventionApplied {
+            sequence,
+            effect,
+            illness,
+            severity,
+            affected,
+        } => {
+            w.u8(4);
+            w.u64(sequence);
+            w.u8(effect);
+            w.u8(illness);
+            w.u8(severity);
+            w.u32(affected);
+        }
+        Payload::LifeIllness {
+            resident,
+            illness,
+            severity,
+        } => {
+            w.u8(5);
+            w.id(resident);
+            w.u8(illness);
+            w.u8(severity);
+        }
+        Payload::ReturnedHome { resident, home } => {
+            w.u8(6);
+            w.id(resident);
+            w.id(home);
+        }
     }
 }
 
@@ -428,6 +460,22 @@ fn get_payload(r: &mut Reader) -> Result<Payload> {
             resident: r.id()?,
             destination: r.id()?,
             leg: r.u32()?,
+        },
+        4 => Payload::InterventionApplied {
+            sequence: r.u64()?,
+            effect: r.u8()?,
+            illness: r.u8()?,
+            severity: r.u8()?,
+            affected: r.u32()?,
+        },
+        5 => Payload::LifeIllness {
+            resident: r.id()?,
+            illness: r.u8()?,
+            severity: r.u8()?,
+        },
+        6 => Payload::ReturnedHome {
+            resident: r.id()?,
+            home: r.id()?,
         },
         _ => return Err(CodecError("unknown payload tag")),
     })
@@ -908,6 +956,10 @@ pub(crate) fn put_outcome(o: &Outcome) -> Vec<u8> {
                 w.u8(level.as_u8());
             }
         }
+        Action::Intervene(i) => {
+            w.u8(3);
+            put_intervention(&mut w, i);
+        }
     }
     match o.result {
         Ok(()) => w.u8(0),
@@ -917,8 +969,101 @@ pub(crate) fn put_outcome(o: &Outcome) -> Vec<u8> {
             w.u8(3);
             put_lod_error(&mut w, e);
         }
+        Err(Rejection::UnknownTarget(id)) => {
+            w.u8(4);
+            w.id(id);
+        }
+        Err(Rejection::UnsupportedLevel(id)) => {
+            w.u8(5);
+            w.id(id);
+        }
+        Err(Rejection::SeverityOutOfRange(s)) => {
+            w.u8(6);
+            w.u8(s);
+        }
     }
     w.0
+}
+
+fn put_intervention(w: &mut Writer, i: &Intervention) {
+    match i.target {
+        InterventionTarget::Entity(id) => {
+            w.u8(0);
+            w.id(id);
+        }
+        InterventionTarget::ResidentsOf(id) => {
+            w.u8(1);
+            w.id(id);
+        }
+    }
+    let Effect::Afflict { illness, severity } = i.effect;
+    w.u8(0);
+    w.u8(illness.tag());
+    w.u8(severity);
+    match i.timing {
+        Timing::Now => w.u8(0),
+        Timing::At(t) => {
+            w.u8(1);
+            w.time(t);
+        }
+    }
+}
+
+fn get_intervention(r: &mut Reader) -> Result<Intervention> {
+    let target = match r.u8()? {
+        0 => InterventionTarget::Entity(r.id()?),
+        1 => InterventionTarget::ResidentsOf(r.id()?),
+        _ => return Err(CodecError("unknown intervention target")),
+    };
+    if r.u8()? != 0 {
+        return Err(CodecError("unknown effect tag"));
+    }
+    let illness = IllnessKind::from_tag(r.u8()?).ok_or(CodecError("unknown illness kind"))?;
+    let severity = r.u8()?;
+    let timing = match r.u8()? {
+        0 => Timing::Now,
+        1 => Timing::At(r.time()?),
+        _ => return Err(CodecError("unknown timing")),
+    };
+    Ok(Intervention {
+        target,
+        effect: Effect::Afflict { illness, severity },
+        timing,
+    })
+}
+
+pub(crate) fn put_illness(i: &Illness) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u8(i.kind.tag());
+    w.u8(i.severity);
+    w.u64(i.root_event);
+    w.0
+}
+
+pub(crate) fn get_illness(bytes: &[u8]) -> Result<Illness> {
+    let mut r = Reader::new(bytes);
+    let kind = IllnessKind::from_tag(r.u8()?).ok_or(CodecError("unknown illness kind"))?;
+    let severity = r.u8()?;
+    let root_event = r.u64()?;
+    r.finish()?;
+    Ok(Illness {
+        kind,
+        severity,
+        root_event,
+    })
+}
+
+pub(crate) fn put_scheduled(i: &Intervention) -> Vec<u8> {
+    let mut w = Writer::new();
+    put_intervention(&mut w, i);
+    w.0
+}
+
+pub(crate) fn get_scheduled(bytes: &[u8]) -> Result<Intervention> {
+    let mut r = Reader::new(bytes);
+    let i = get_intervention(&mut r)?;
+    r.finish()?;
+    Ok(i)
 }
 
 pub(crate) fn get_outcome(bytes: &[u8]) -> Result<Outcome> {
@@ -960,6 +1105,7 @@ pub(crate) fn get_outcome(bytes: &[u8]) -> Result<Outcome> {
             }
             Action::SetNodeLod(v)
         }
+        3 => Action::Intervene(get_intervention(&mut r)?),
         _ => return Err(CodecError("unknown action tag")),
     };
     let result = match r.u8()? {
@@ -967,6 +1113,9 @@ pub(crate) fn get_outcome(bytes: &[u8]) -> Result<Outcome> {
         1 => Err(Rejection::Schema),
         2 => Err(Rejection::TooManyNodes),
         3 => Err(Rejection::Lod(get_lod_error(&mut r)?)),
+        4 => Err(Rejection::UnknownTarget(r.id()?)),
+        5 => Err(Rejection::UnsupportedLevel(r.id()?)),
+        6 => Err(Rejection::SeverityOutOfRange(r.u8()?)),
         _ => return Err(CodecError("unknown result tag")),
     };
     r.finish()?;
@@ -1097,11 +1246,72 @@ mod tests {
             problems
                 .map(|problem| LodError::Invariant(LodViolation::BadSchedule { id: a, problem })),
         );
-        let mut results = vec![Ok(()), Err(Rejection::Schema), Err(Rejection::TooManyNodes)];
+        let mut results = vec![
+            Ok(()),
+            Err(Rejection::Schema),
+            Err(Rejection::TooManyNodes),
+            Err(Rejection::UnknownTarget(a)),
+            Err(Rejection::UnsupportedLevel(a)),
+            Err(Rejection::SeverityOutOfRange(0)),
+            Err(Rejection::SeverityOutOfRange(255)),
+        ];
         results.extend(errors.into_iter().map(|e| Err(Rejection::Lod(e))));
         for result in results {
             let o = outcome(result, Action::NoOp);
             assert_eq!(get_outcome(&put_outcome(&o)), Ok(o));
+        }
+    }
+
+    fn intervene(target: InterventionTarget, timing: Timing) -> Action {
+        Action::Intervene(Intervention {
+            target,
+            effect: Effect::Afflict {
+                illness: IllnessKind::Fever,
+                severity: 10,
+            },
+            timing,
+        })
+    }
+
+    #[test]
+    fn illness_scheduled_and_event_payloads_round_trip() {
+        let ill = Illness {
+            kind: IllnessKind::Fever,
+            severity: 3,
+            root_event: 77,
+        };
+        assert_eq!(get_illness(&put_illness(&ill)), Ok(ill));
+        let mut bad = put_illness(&ill);
+        bad[0] = 9;
+        assert!(get_illness(&bad).is_err());
+        let Action::Intervene(i) = intervene(
+            InterventionTarget::Entity(id(1)),
+            Timing::At(SimTime::EPOCH),
+        ) else {
+            unreachable!()
+        };
+        assert_eq!(get_scheduled(&put_scheduled(&i)), Ok(i));
+        for p in [
+            Payload::InterventionApplied {
+                sequence: 4,
+                effect: 0,
+                illness: 0,
+                severity: 5,
+                affected: 12,
+            },
+            Payload::LifeIllness {
+                resident: id(1),
+                illness: 0,
+                severity: 5,
+            },
+            Payload::ReturnedHome {
+                resident: id(1),
+                home: id(2),
+            },
+        ] {
+            let mut w = Writer::new();
+            put_payload(&mut w, p);
+            assert_eq!(get_payload(&mut Reader::new(&w.0)), Ok(p));
         }
     }
 
@@ -1115,6 +1325,11 @@ mod tests {
             Action::SetTimeScale(TimeScale::X100),
             Action::SetNodeLod(vec![]),
             Action::SetNodeLod(vec![(id(1), Lod::L1), (id(2), Lod::L2), (id(3), Lod::L7)]),
+            intervene(InterventionTarget::Entity(id(4)), Timing::Now),
+            intervene(
+                InterventionTarget::ResidentsOf(id(5)),
+                Timing::At(SimTime::from_micros_since_epoch(-9)),
+            ),
         ] {
             let o = outcome(Ok(()), action);
             assert_eq!(get_outcome(&put_outcome(&o)), Ok(o));

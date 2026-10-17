@@ -35,7 +35,14 @@ Event IDs are predicted from `EventStore::counters()` so `Illness.root` can be s
 
 **7. Save format.** Format version 2 adds table `illness` (entity ID → kind, severity, root) and journal action tag 3. The loader reads versions 1 and 2: a v1 file has no `illness` table and loads as an empty column; the v1 fixture must keep loading. Writers always write 2. The header records `EFFECT_VOCABULARY_VERSION`. Loading validates that every `root` names an existing `life.illness` event for that agent.
 
-**8. Cost.** Apply is O(targets · log N): building residents come from the existing building → residents order, each agent is a binary-search insert into the `illness` column, one event pair per target. No full-world scan. Per-step cost for ill agents is a column lookup at wait expiry only. The PR reports the 5,000-agent measurement.
+**8. Cost.** Apply is proportional to the targets: building residents come from a derived home → residents index, the new rows merge into the sorted `illness` column, one event per target. No full-world scan. Per-step cost for ill agents is a column lookup at wait expiry only. The PR reports the 5,000-agent measurement.
+
+**Implementation notes (TP-010).** Recorded where the code made a detail concrete; none changes a decision above.
+- Wire: opcode 3 carries 36 payload bytes; severity is a full word on the wire, so an out-of-range value is a journaled `SeverityOutOfRange`, not a framing error; an unknown illness kind is `Malformed` (so `UnknownEffect` is not a rejection). `Timing::Now` must carry a zero time.
+- `Timing::At(T)` with a future `T` is journaled as applied at once (outcome `Ok`, effect 0) and held in `World::scheduled`; it takes effect at the end of the first tick whose time is at least `T`, at that boundary's time (the next tick starts from it). The waiting set is part of the queue digest and of a save (`scheduled` table).
+- Event system numbers: root 10, `life.illness` 12, `agent.returned_home` 50 (after the arrivals of the same tick).
+- Cost: applying is O(targets + current illnesses) (the batch merges into the sorted column); 1,000 residents in a 5,000-agent world took 2.4 ms (release, Linux Xeon).
+- Hash and event IDs: `Illness.root_event` is part of the state hash, so worlds with different event histories (for example extra `lod.changed` events) hash differently even when every agent behaves the same; behaviour comparisons across such worlds compare agent state.
 
 **Out of scope:** other effects, L3+ application, FFI/Unity exposure, recovery, UI, undo.
 

@@ -4,8 +4,8 @@
 mod build_identity;
 use std::io::{Read, Write};
 use ws_sim::{
-    EntityId, Lod, SimTime, World, WorldConfig,
-    commands::{self, Action, Command, IssuedBy},
+    EntityId, IllnessKind, Lod, SimTime, World, WorldConfig,
+    commands::{self, Action, Command, Effect, Intervention, InterventionTarget, IssuedBy, Timing},
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const CAP: usize = 65_600;
@@ -210,6 +210,9 @@ fn outcome(o: &commands::Outcome) -> Result<Vec<u8>> {
         Err(commands::Rejection::Lod(ws_sim::LodError::DuplicateNode(id))) => (4, id.raw()),
         Err(commands::Rejection::Lod(ws_sim::LodError::UnsupportedLevel(l))) => (5, l as u64),
         Err(commands::Rejection::Lod(_)) => (6, 0),
+        Err(commands::Rejection::UnknownTarget(id)) => (7, id.raw()),
+        Err(commands::Rejection::UnsupportedLevel(id)) => (8, id.raw()),
+        Err(commands::Rejection::SeverityOutOfRange(v)) => (9, v as u64),
     };
     let mut b = words([
         o.schema_version as u64,
@@ -548,6 +551,37 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
                             &mut tape,
                             &mut w,
                             Action::SetNodeLod(vec![(id, parse_lod(l)?)]),
+                        )?;
+                    }
+                    ["afflict", kind, who, severity, rest @ ..] => {
+                        let id = if *who == "first" {
+                            *w.toy().buildings().ids().first().ok_or("no buildings")?
+                        } else {
+                            EntityId::from_raw(who.parse()?)?
+                        };
+                        let target = match *kind {
+                            "building" => InterventionTarget::ResidentsOf(id),
+                            "resident" => InterventionTarget::Entity(id),
+                            _ => return Err("afflict needs building or resident".into()),
+                        };
+                        let timing = match rest {
+                            [] => Timing::Now,
+                            ["at", micros] => {
+                                Timing::At(SimTime::from_micros_since_epoch(micros.parse::<i64>()?))
+                            }
+                            _ => return Err(format!("invalid script line: {line}").into()),
+                        };
+                        submit_action(
+                            &mut tape,
+                            &mut w,
+                            Action::Intervene(Intervention {
+                                target,
+                                effect: Effect::Afflict {
+                                    illness: IllnessKind::Fever,
+                                    severity: severity.parse()?,
+                                },
+                                timing,
+                            }),
                         )?;
                     }
                     _ => return Err(format!("invalid script line: {line}").into()),

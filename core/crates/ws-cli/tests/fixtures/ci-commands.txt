@@ -12,3 +12,11 @@ lod all 1
 flush
 scale 1
 flush
+# ADR 0021: an intervention in effect across a level change, and a rejected one.
+afflict building first 5
+step 300
+afflict building first 99
+lod all 2
+step 100
+lod all 1
+flush

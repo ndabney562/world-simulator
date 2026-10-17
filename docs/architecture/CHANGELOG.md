@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## TP-010 implementation of ADR 0021 (2026-10-17)
+
+Implements #11: the `Intervene` command and `afflict` effect, the `illness` column and the shared L1/L2 return-home rule in `ws-world`, three event payloads and `root_intervention` in `ws-events`, `World::why_ill` and timed interventions in `ws-sim`, save format 2 in `ws-persist` (format-1 files still load; `toy-v2.wssave` fixture), and the `afflict` script verb in `ws-cli`. ADR 0021 gained an implementation-notes paragraph (wire details, how a timed intervention waits, event system numbers, measured cost); no decision changed.
+
 ## ADR 0021: first god intervention (2026-10-17, Accepted)
 
 Design phase of TP-010 (#11): decides the `Intervene` command, effect vocabulary v1 (`afflict(illness, severity)`), validation, a single `illness` column that makes LOD and save/load persistence structural, the shared L1/L2 return-home rule, the three event types and links, the causal query, and save format 2 (v1 files still load). Docs only.
