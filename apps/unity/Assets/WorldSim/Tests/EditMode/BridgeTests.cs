@@ -70,14 +70,14 @@ namespace WorldSim.Tests.EditMode
                 Assert.Throws<ObjectDisposedException>(()=>{ var ignored=world.CommittedScale; });
             }
         }
-        static byte[] Synthetic()
+        static byte[] Synthetic(float heading=Mathf.PI/2)
         {
             var b=new byte[24+2*32];
             void U32(int o,uint v){ Array.Copy(BitConverter.GetBytes(v),0,b,o,4); }
             void F32(int o,float v){ Array.Copy(BitConverter.GetBytes(v),0,b,o,4); }
             U32(0,3);U32(4,24);Array.Copy(BitConverter.GetBytes(7UL),0,b,8,8);U32(16,2);U32(20,32);
             U32(24,1);U32(32,1);F32(36,1);F32(40,2);F32(44,3);F32(48,5);F32(52,8); // building
-            U32(56,2);U32(64,2);F32(68,4);F32(72,6);F32(76,0);F32(80,Mathf.PI/2);F32(84,0); // resident heading north
+            U32(56,2);U32(64,2);F32(68,4);F32(72,6);F32(76,0);F32(80,heading);F32(84,0); // resident, heading east towards north (default north)
             return b;
         }
         [Test]
@@ -98,10 +98,14 @@ namespace WorldSim.Tests.EditMode
                 Assert.Throws<ArgumentException>(()=>SnapshotDecoder.Decode(bytes,bytes.Length,new RenderFrame(5,4)));
             }
         }
-        [Test]
-        public void ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes()
+        // North is the identity rotation, so the other headings prove the decoder actually applies heading.
+        [TestCase(Mathf.PI/2,0f,1f)]  // north
+        [TestCase(0f,1f,0f)]          // east
+        [TestCase(Mathf.PI,-1f,0f)]   // west
+        [TestCase(-Mathf.PI/2,0f,-1f)]// south
+        public void ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(float heading,float east,float north)
         {
-            using(var bytes=new NativeArray<byte>(Synthetic(),Allocator.Temp))
+            using(var bytes=new NativeArray<byte>(Synthetic(heading),Allocator.Temp))
             {
                 var frame=new RenderFrame(1,1);
                 Assert.That(SnapshotDecoder.Decode(bytes,bytes.Length,frame),Is.EqualTo(7));
@@ -112,7 +116,7 @@ namespace WorldSim.Tests.EditMode
                 Assert.That(Vector3.Distance(frame.Residents[0].GetColumn(3),new Vector3(4,0.85f,6)),Is.LessThan(0.00001f));
                 // MultiplyVector includes the capsule's deliberate 0.5 forward scale; test heading and size independently.
                 var forward = frame.Residents[0].MultiplyVector(Vector3.forward);
-                Assert.That(Vector3.Distance(forward.normalized,Vector3.forward),Is.LessThan(0.00001f));
+                Assert.That(Vector3.Distance(forward.normalized,new Vector3(east,0,north)),Is.LessThan(0.00001f));
                 Assert.That(Vector3.Distance(frame.Residents[0].lossyScale,new Vector3(0.5f,0.85f,0.5f)),Is.LessThan(0.00001f));
             }
         }

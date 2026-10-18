@@ -6,12 +6,16 @@ namespace WorldSim.Rendering
     public sealed class OrbitCamera
     {
         readonly Camera camera;
-        float sceneRadius, maxDistance = 1500f;
+        float sceneRadius, maxDistance = 1500f, fitAspect;
         public Vector3 Target;
         public float Distance = 220f, Yaw = 30f, Pitch = 35f;
         Vector2 lastPointer;
         bool dragging;
         public OrbitCamera(Camera camera, Vector3 target) { this.camera = camera; Target = target; Apply(); }
+        /// <summary>Distance at which the last <see cref="FrameBounds"/> fit the bounds; 0 before the first fit.</summary>
+        public float FitDistance { get; private set; }
+        /// <summary>True once fitted and the camera's aspect is still the one it was fitted for.</summary>
+        public bool FitsAspect => FitDistance > 0 && Mathf.Abs(fitAspect - camera.aspect) <= 0.001f;
         /// <summary>Called every frame; <paramref name="blocked"/> is true while the pointer is over HUD controls.</summary>
         public void Update(bool blocked)
         {
@@ -39,9 +43,13 @@ namespace WorldSim.Rendering
             Distance = Mathf.Clamp(Distance, 20f, maxDistance);
             Apply();
         }
-        /// <summary>Fit every bounds corner inside the perspective view, including portrait aspect ratios.</summary>
-        public void FrameBounds(Bounds bounds)
+        /// <summary>
+        /// Fit every bounds corner inside the perspective view, including portrait aspect ratios. With
+        /// <paramref name="keepZoom"/> (screen rotation, window resize) the user's zoom relative to the fit is kept.
+        /// </summary>
+        public void FrameBounds(Bounds bounds, bool keepZoom = false)
         {
+            float zoom = keepZoom && FitDistance > 0 ? Distance / FitDistance : 1f;
             Target = bounds.center;
             sceneRadius = bounds.extents.magnitude;
             var inverse = Quaternion.Inverse(Quaternion.Euler(Pitch, Yaw, 0));
@@ -57,8 +65,10 @@ namespace WorldSim.Rendering
                 distance = Mathf.Max(distance, Mathf.Max(Mathf.Abs(local.x) / tanX - local.z,
                     Mathf.Abs(local.y) / tanY - local.z));
             }
-            Distance = distance + 1f;
-            maxDistance = Mathf.Max(1500f, Distance * 2f);
+            FitDistance = distance + 1f;
+            fitAspect = camera.aspect;
+            maxDistance = Mathf.Max(1500f, FitDistance * 2f);
+            Distance = Mathf.Clamp(FitDistance * zoom, 20f, maxDistance);
             Apply();
         }
 

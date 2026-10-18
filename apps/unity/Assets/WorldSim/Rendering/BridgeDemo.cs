@@ -27,8 +27,6 @@ namespace WorldSim.Rendering
         Rect hudRect;
         int scaleIndex;
         bool framed;
-        Camera viewCamera;
-        float framedAspect;
         // Metrics over the current half-second window and the last published window.
         float windowStart, windowFrameSum, windowFrameMax, windowFillSum;
         int windowFrames;
@@ -56,8 +54,7 @@ namespace WorldSim.Rendering
                 residentMaterial = new Material(shader) { enableInstancing = true };
                 residentMaterial.SetColor("_BaseColor", new Color(1f, 0.55f, 0.1f));
                 Application.targetFrameRate = 60;
-                viewCamera = Camera.main;
-                orbit = new OrbitCamera(viewCamera, Vector3.zero);
+                orbit = new OrbitCamera(Camera.main, Vector3.zero);
                 StartWorld(Mathf.Clamp(startScaleIndex, 0, Scales.Length - 1));
             }
             catch (Exception error) { Debug.LogError($"Toy world stopped: {error.Message}", this); Release(); enabled = false; }
@@ -98,7 +95,8 @@ namespace WorldSim.Rendering
                 if (host.Failure != null) throw host.Failure;
                 double fill = host.Fill(frame);
                 Tick = frame.Tick;
-                if (!framed || Mathf.Abs(framedAspect - viewCamera.aspect) > 0.001f) Frame();
+                // A new world gets the full overview; a rotation or resize refits but keeps the user's zoom.
+                if (!framed || !orbit.FitsAspect) { FrameBuildings(orbit, frame, framed); framed = true; }
                 orbit.Update(hudRect.Contains(HudPointer()));
                 Draw();
                 Sample(Time.unscaledDeltaTime * 1000f, (float)fill);
@@ -113,15 +111,17 @@ namespace WorldSim.Rendering
         }
         static float HudScale() => Mathf.Max(1f, Screen.dpi > 0 ? Screen.dpi / 160f : 1f);
 
-        void Frame()
+        /// <summary>Fit the overview to every building box (unrotated, so the scale is the exact extent).</summary>
+        internal static void FrameBuildings(OrbitCamera orbit, RenderFrame frame, bool keepZoom)
         {
             var bounds = new Bounds(frame.Buildings[0].GetColumn(3), frame.Buildings[0].lossyScale);
             for (int i = 1; i < frame.BuildingCount; i++)
                 bounds.Encapsulate(new Bounds(frame.Buildings[i].GetColumn(3), frame.Buildings[i].lossyScale));
-            orbit.FrameBounds(bounds);
-            framedAspect = viewCamera.aspect;
-            framed = true;
+            orbit.FrameBounds(bounds, keepZoom);
         }
+
+        /// <summary>The latest decoded snapshot, for the edit-mode render test.</summary>
+        internal RenderFrame CurrentFrame => frame;
 
         void Draw()
         {
