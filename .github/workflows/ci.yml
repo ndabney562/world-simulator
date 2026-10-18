@@ -27,6 +27,11 @@ jobs:
           python-version: "3.12"
       - name: Check links and ADR index
         run: python3 scripts/check_docs.py
+      - name: Vertical Slice block extract regenerates from its raw snapshot
+        run: python3 scripts/vs_block_extract.py check
+      - name: Vertical Slice block extract tests
+        working-directory: scripts
+        run: python3 -m unittest -v test_vs_block_extract
 
   unity:
     name: Unity project (static)
