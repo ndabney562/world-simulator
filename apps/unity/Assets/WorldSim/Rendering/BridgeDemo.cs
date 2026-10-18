@@ -41,12 +41,8 @@ namespace WorldSim.Rendering
         {
             try
             {
-                var primitive = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                boxMesh = Instantiate(primitive.GetComponent<MeshFilter>().sharedMesh);
-                DestroyImmediate(primitive);
-                primitive = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-                capsuleMesh = Instantiate(primitive.GetComponent<MeshFilter>().sharedMesh);
-                DestroyImmediate(primitive);
+                boxMesh = ToyMeshes.Box();
+                capsuleMesh = ToyMeshes.Capsule();
                 var shader = Shader.Find("Universal Render Pipeline/Unlit");
                 if (shader == null) throw new InvalidOperationException("URP Unlit shader missing.");
                 buildingMaterial = new Material(shader) { enableInstancing = true };
