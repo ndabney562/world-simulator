@@ -33,6 +33,7 @@ namespace WorldSim.EditorTools
             string bundleId = PlayerSettings.GetApplicationIdentifier(NamedBuildTarget.iOS);
             string minimumOs = PlayerSettings.iOS.targetOSVersionString;
             Shader added = null;
+            int instancingStripping = SetInstancingStripping(KeepAllInstancingVariants);
             try
             {
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, "org.worldsimulator.tp011");
@@ -55,7 +56,26 @@ namespace WorldSim.EditorTools
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, bundleId);
                 PlayerSettings.iOS.targetOSVersionString = minimumOs;
                 if (added != null) RemoveAlwaysIncluded(added);
+                SetInstancingStripping(instancingStripping);
             }
+        }
+
+        /// <summary>GraphicsSettings "Instancing Variants": 0 strip unused, 2 keep all.</summary>
+        const int KeepAllInstancingVariants = 2;
+
+        /// <summary>
+        /// The toy world's materials are created at runtime, so no asset in the build uses GPU instancing and
+        /// "strip unused" removes the instanced Unlit variant: RenderMeshInstanced then draws nothing on device.
+        /// Returns the previous value so the build can restore it.
+        /// </summary>
+        static int SetInstancingStripping(int value)
+        {
+            var serialized = new SerializedObject(AssetDatabase.LoadAssetAtPath<Object>("ProjectSettings/GraphicsSettings.asset"));
+            var property = serialized.FindProperty("m_InstancingStripping");
+            int previous = property.intValue;
+            property.intValue = value;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            return previous;
         }
 
         /// <summary>
