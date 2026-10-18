@@ -24,10 +24,10 @@ Both threads use the one native handle behind a single lock. The main thread's f
 Free personal-team signing only; nothing here needs a paid account.
 
 1. `git pull` the merged branch, then `scripts/build-native-ios.sh` from the repository root.
-2. Open `apps/unity` in Unity 6000.3.26f1 with iOS Build Support. Run **Window → General → Test Runner → EditMode → Run All**. Every test must pass (these are the first runs of the ABI-3 and worker tests; please paste any failure).
+2. Open `apps/unity` in Unity 6000.3.26f1 with iOS Build Support. Run **Window → General → Test Runner → EditMode → Run All**. Every test must pass (these are the first runs of the ABI-3 and worker tests; please paste any failure). Then check the **Console** for a warning that the legacy Input Manager (`UnityEngine.Input`, Active Input Handling **Input Manager (Old)**) is deprecated in Unity 6; paste it if there is one. The demo depends on it (#58), so a warning would need a follow-up issue.
 3. **WorldSim → Build iOS performance spike**.
 4. Open `Builds/iOS/Unity-iPhone.xcodeproj`, choose your personal team under Signing & Capabilities, select your iPhone, and Run. Trust the developer profile on the phone if asked.
-5. Per scale (50, 500, 5,000): let the phone cool to *nominal* thermal state, tap the scale, run at ×1 for **20 minutes** with the screen on and the phone not charging, orbiting the camera now and then. Try ×10 for one minute at the end. Note the room temperature and battery level at start and end.
+5. Per scale (50, 500, 5,000): let the phone cool to *nominal* thermal state, tap the scale, run at ×1 for **20 minutes** with the screen on and the phone not charging, orbiting the camera now and then. The run starts at the full overview, where residents are smaller than a pixel: **pinch in on a building until the orange residents are visible**, and rotate the phone once to check the zoom is kept. Try ×10 for one minute at the end. Note the room temperature and battery level at start and end.
 6. Copy the CSVs out: Files app → On My iPhone → the app, or Finder → iPhone → Files.
 7. Send the three CSVs and the Xcode Console output for any warning. I will fill in the tables below.
 
