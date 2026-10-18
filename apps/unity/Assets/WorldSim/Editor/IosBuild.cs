@@ -28,34 +28,64 @@ namespace WorldSim.EditorTools
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
             PlayerSettings.SetArchitecture(NamedBuildTarget.iOS, 1); // ARM64
             PlayerSettings.SetGraphicsAPIs(BuildTarget.iOS, new[] { GraphicsDeviceType.Metal });
-            PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, "org.worldsimulator.tp011");
-            PlayerSettings.iOS.targetOSVersionString = "17.0";
-            AlwaysInclude("Universal Render Pipeline/Unlit");
-            var options = new BuildPlayerOptions
+            // Build-only overrides; the finally block puts the committed project settings back so a build
+            // leaves ProjectSettings unchanged (the project skeleton tests pin the bundle id and minimum iOS).
+            string bundleId = PlayerSettings.GetApplicationIdentifier(NamedBuildTarget.iOS);
+            string minimumOs = PlayerSettings.iOS.targetOSVersionString;
+            Shader added = null;
+            try
             {
-                scenes = new[] { Scene },
-                target = BuildTarget.iOS,
-                locationPathName = OutputFolder,
-                options = BuildOptions.None,
-            };
-            BuildReport report = BuildPipeline.BuildPlayer(options);
-            if (report.summary.result != BuildResult.Succeeded)
-                throw new BuildFailedException($"iOS build {report.summary.result}: {report.summary.totalErrors} errors");
-            Debug.Log($"Xcode project written to {OutputFolder}. Open Unity-iPhone.xcodeproj, pick your personal team, and run on the device.");
+                PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, "org.worldsimulator.tp011");
+                PlayerSettings.iOS.targetOSVersionString = "17.0";
+                added = AlwaysInclude("Universal Render Pipeline/Unlit");
+                var options = new BuildPlayerOptions
+                {
+                    scenes = new[] { Scene },
+                    target = BuildTarget.iOS,
+                    locationPathName = OutputFolder,
+                    options = BuildOptions.None,
+                };
+                BuildReport report = BuildPipeline.BuildPlayer(options);
+                if (report.summary.result != BuildResult.Succeeded)
+                    throw new BuildFailedException($"iOS build {report.summary.result}: {report.summary.totalErrors} errors");
+                Debug.Log($"Xcode project written to {OutputFolder}. Open Unity-iPhone.xcodeproj, pick your personal team, and run on the device.");
+            }
+            finally
+            {
+                PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, bundleId);
+                PlayerSettings.iOS.targetOSVersionString = minimumOs;
+                if (added != null) RemoveAlwaysIncluded(added);
+            }
         }
 
-        /// <summary>Shader.Find in a player only sees shaders that are in the build; URP Unlit is not referenced by a scene asset.</summary>
-        static void AlwaysInclude(string shaderName)
+        /// <summary>
+        /// Shader.Find in a player only sees shaders that are in the build; URP Unlit is not referenced by a scene asset.
+        /// Returns the shader if this call added it (so it can be removed afterwards), otherwise null.
+        /// </summary>
+        static Shader AlwaysInclude(string shaderName)
         {
             var shader = Shader.Find(shaderName);
             if (shader == null) throw new BuildFailedException($"Shader {shaderName} not found.");
-            var settings = AssetDatabase.LoadAssetAtPath<Object>("ProjectSettings/GraphicsSettings.asset");
-            var serialized = new SerializedObject(settings);
+            var serialized = new SerializedObject(AssetDatabase.LoadAssetAtPath<Object>("ProjectSettings/GraphicsSettings.asset"));
             var list = serialized.FindProperty("m_AlwaysIncludedShaders");
             for (int i = 0; i < list.arraySize; i++)
-                if (list.GetArrayElementAtIndex(i).objectReferenceValue == shader) return;
+                if (list.GetArrayElementAtIndex(i).objectReferenceValue == shader) return null;
             list.InsertArrayElementAtIndex(list.arraySize);
             list.GetArrayElementAtIndex(list.arraySize - 1).objectReferenceValue = shader;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            return shader;
+        }
+
+        static void RemoveAlwaysIncluded(Shader shader)
+        {
+            var serialized = new SerializedObject(AssetDatabase.LoadAssetAtPath<Object>("ProjectSettings/GraphicsSettings.asset"));
+            var list = serialized.FindProperty("m_AlwaysIncludedShaders");
+            for (int i = list.arraySize - 1; i >= 0; i--)
+                if (list.GetArrayElementAtIndex(i).objectReferenceValue == shader)
+                {
+                    list.GetArrayElementAtIndex(i).objectReferenceValue = null; // first call clears the slot
+                    list.DeleteArrayElementAtIndex(i);
+                }
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
 
