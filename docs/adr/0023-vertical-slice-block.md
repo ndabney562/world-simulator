@@ -1,8 +1,8 @@
 # ADR 0023: Vertical Slice block is Brooklyn tax block 6049 (S-8)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-18
-- Decided by: proposed by Claude for VS-001; the Product Owner (Noah) confirms the block
+- Decided by: Noah (Product Owner) confirmed block 6049 on 2026-10-18; proposed by Claude for VS-001
 - Issue: #65 (VS-001)
 - Supersedes: none
 
