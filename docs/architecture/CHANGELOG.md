@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0026: provider spike frame/hash query (2026-10-19, Proposed)
+
+Docs-only TP-012/#13 proposal: coarse read-only native hash/absolute-frame query under the next unused ABI, isolated provider assembly, exact presentation package/registry pin and explicitly scoped replacements for the temporary no-provider/no-scoped-registry checks. Adds a pending pointer in provider architecture. No package, runtime, accepted ABI or test changes; device evidence remains required.
+
 ## ADR 0022: toy-world render snapshot and ABI 3 (2026-10-17, Accepted)
 
 Design phase of TP-011 (#12): ABI 3 replaces the debug markers with building and resident records (kinds 1 and 2) in a fixed-origin ENU frame, changes the config to a residents-per-building count, keeps the fill contract, and records the single-worker-thread host rule. Docs only.
