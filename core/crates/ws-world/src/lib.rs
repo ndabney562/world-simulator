@@ -1,4 +1,7 @@
-//! The Technical Prototype toy world (TP-006, #7; [ADR 0016]).
+//! World models: the Technical Prototype toy world and the VS-002 real block.
+//!
+//! [`slice::SliceWorld`] imports the four ADR 0023 buildings as an integer
+//! structural baseline. The toy model below remains available unchanged.
 //!
 //! A few box buildings at fixed offsets from the Bay Ridge reference point
 //! ([`dataset`]) and a few dozen residents who walk between them. It proves
@@ -32,6 +35,7 @@ pub mod dataset;
 pub mod ids;
 pub mod illness;
 pub mod lod;
+pub mod slice;
 
 use core::fmt;
 use std::collections::{BTreeMap, BTreeSet};
