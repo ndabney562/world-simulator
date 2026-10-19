@@ -29,4 +29,5 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0023](0023-vertical-slice-block.md) | Vertical Slice block is Brooklyn tax block 6049 (S-8) | Accepted |
 | [0024](0024-procedural-id-collision-resolution.md) | Frozen-roster procedural ID collision resolution | Accepted |
 | [0025](0025-baseline-plus-deltas-saves.md) | Version-pinned baseline plus canonical deltas in save format 3 | Accepted |
+| [0026](0026-provider-spike-read-only-frame-query.md) | Provider spike read-only frame query and isolated Unity providers | Accepted |
 | [0027](0027-slice-schedules-and-events.md) | Slice L2 schedule model, factual events and orchestration | Proposed |
