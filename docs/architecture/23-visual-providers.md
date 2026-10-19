@@ -75,3 +75,7 @@ The front end's **provider manager** then:
 - Simulation tests never instantiate a provider.
 - A front-end test asserts that switching providers mid-session leaves the core's state hash unchanged.
 - Provider quota enforcement and fallback are tested with a fake provider that simulates network loss and quota exhaustion.
+
+## Accepted TP-012 implementation contract
+
+[ADR 0026](../adr/0026-provider-spike-read-only-frame-query.md), tracked by [#13](https://github.com/ndabney562/world-simulator/issues/13), proposes a read-only native hash/frame query, isolated provider assembly, exact Cesium registry/package pin and explicit replacements for the pre-provider test prohibitions. It is **Accepted** under Noah’s 2026-10-19 standing approval, including the named validation replacements. ABI 3 and the existing checks remain active until their separately reviewed implementation lands.
