@@ -8,6 +8,22 @@ Noah’s direct standing approval, recorded on #77 and PR #84, accepts ADR 0026 
 
 Docs-only TP-012/#13 proposal: coarse read-only native hash/absolute-frame query under the next unused ABI, isolated provider assembly, exact presentation package/registry pin and explicitly scoped replacements for the temporary no-provider/no-scoped-registry checks. Adds a pending pointer in provider architecture. No package, runtime, accepted ABI or test changes; device evidence remains required.
 
+## ADR 0025 accepted (2026-10-19)
+
+Noah’s direct standing technical approval is recorded on #77 and PR #83. ADR 0025 and its index now say Accepted. No runtime format changes ship here; #53 remains open for code, fixture/continuation/migration coverage and measurements, with #75 retaining whole-slice integration.
+
+## ADR 0025: baseline-plus-deltas saves (2026-10-19, Proposed)
+
+Docs-only proposal for #53: pin full baseline identity, store complete canonical component replacements/notables/runtime state, validate and rebuild before publication, and preserve format-1/2 fixtures through explicit migration. Adds a pending-proposal pointer in persistence architecture. No format or behavior changes; accepted ADRs 0020/0021 remain active. VS-011 keeps whole-slice integration/background-write scope.
+
+## ADR 0024 accepted (2026-10-19)
+
+Noah’s direct “Always approve” instruction delegates technical acceptance and merges for the current backlog, recorded on #77 and PR #82. ADR 0024 and its index now say Accepted. Implementation, City-scale feasibility measurements and versioned save integration remain separate work; current generators are not silently changed.
+
+## ADR 0024: procedural ID collisions (2026-10-19, Proposed)
+
+Docs-only proposal for #30: allocate over a frozen complete generation roster, reserve all primary IDs before canonical retries, and persist sparse losing-address overrides. Preserves collision-free IDs and records the explicit cost/streaming limitation. Adds a pending-proposal pointer in entity architecture; accepted ADR 0016 and runtime behavior remain unchanged. City-scale feasibility and format migration require separate evidence and acceptance.
+
 ## ADR 0022: toy-world render snapshot and ABI 3 (2026-10-17, Accepted)
 
 Design phase of TP-011 (#12): ABI 3 replaces the debug markers with building and resident records (kinds 1 and 2) in a fixed-origin ENU frame, changes the config to a residents-per-building count, keeps the fill contract, and records the single-worker-thread host rule. Docs only.

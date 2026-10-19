@@ -80,3 +80,7 @@ Rough per-agent memory targets (to be measured): L2 ≈ 64–128 bytes, L1 ≈ 0
 ## 10.10 Calibration to real data
 
 The synthetic population for an area is generated from Census and American Community Survey tables (age, household size, income bands, occupations, commute modes), assigned to real residential buildings in proportion to their units or floor area. Workplaces are assigned to real commercial and institutional buildings from land use and points of interest; jobs outside the simulated area are reached through edge points (for example the R train stations on 4th Avenue in Bay Ridge). Calibration targets are recorded with the dataset version.
+
+## Accepted future collision policy
+
+[ADR 0024](../adr/0024-procedural-id-collision-resolution.md), tracked by [#30](https://github.com/ndabney562/world-simulator/issues/30), proposes a frozen generation roster, canonical retry allocation and sparse saved overrides before City-scale populations. It is **Accepted** under Noah’s 2026-10-19 standing approval; existing generators retain their recorded fail-on-collision policy until a separately reviewed implementation adopts the new policy. No save-format or runtime change ships in the ADR PR.
