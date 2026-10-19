@@ -488,7 +488,8 @@ impl std::error::Error for EventError {}
 pub struct EventStore {
     events: Vec<Event>,
     time: Vec<(SimTime, EventId)>,
-    actors: Vec<(EntityId, EventId)>,
+    // One append-only ID list per sorted registered actor; never shift history.
+    actors: Vec<Vec<EventId>>,
     known: Vec<EntityId>,
     ordinal: u64,
     digest: u64,
@@ -499,6 +500,7 @@ impl EventStore {
         known.sort_unstable();
         known.dedup();
         Self {
+            actors: vec![Vec::new(); known.len()],
             known,
             ..Self::default()
         }
@@ -530,7 +532,12 @@ impl EventStore {
     pub fn capacity_bytes(&self) -> usize {
         self.events.capacity() * size_of::<Event>()
             + self.time.capacity() * size_of::<(SimTime, EventId)>()
-            + self.actors.capacity() * size_of::<(EntityId, EventId)>()
+            + self.actors.capacity() * size_of::<Vec<EventId>>()
+            + self
+                .actors
+                .iter()
+                .map(|ids| ids.capacity() * size_of::<EventId>())
+                .sum::<usize>()
     }
     /// Validates and reserves a complete transaction before any publication.
     pub fn prepare(
@@ -678,9 +685,38 @@ impl EventStore {
         self.time
             .try_reserve(records.len())
             .map_err(|_| EventError::Resource)?;
-        self.actors
-            .try_reserve(records.iter().map(|e| e.record.actors.len()).sum())
+        // Reserve only touched actors, once per transaction, without scanning
+        // the whole registered population. The temporary list scales with this
+        // batch, not total history. Duplicate roles count once per event.
+        let count = records.iter().try_fold(0usize, |n, e| {
+            n.checked_add(e.record.actors.len())
+                .ok_or(EventError::Limit)
+        })?;
+        let mut touched = Vec::new();
+        touched
+            .try_reserve(count)
             .map_err(|_| EventError::Resource)?;
+        for e in &records {
+            for (i, actor) in e.record.actors.iter().enumerate() {
+                if !e.record.actors.iter().take(i).any(|a| a.id == actor.id) {
+                    touched.push(
+                        self.known
+                            .binary_search(&actor.id)
+                            .expect("validated actor"),
+                    );
+                }
+            }
+        }
+        touched.sort_unstable();
+        let mut at = 0;
+        while at < touched.len() {
+            let actor = touched[at];
+            let end = at + touched[at..].partition_point(|i| *i == actor);
+            self.actors[actor]
+                .try_reserve(end - at)
+                .map_err(|_| EventError::Resource)?;
+            at = end;
+        }
         Ok(PreparedEvents {
             store: self,
             records,
@@ -692,11 +728,12 @@ impl EventStore {
             return Vec::new();
         }
         if let Some(actor) = actor {
-            let start = self.actors.partition_point(|(a, _)| *a < actor);
-            let end = self.actors.partition_point(|(a, _)| *a <= actor);
-            let mut result: Vec<_> = self.actors[start..end]
+            let Ok(index) = self.known.binary_search(&actor) else {
+                return Vec::new();
+            };
+            let mut result: Vec<_> = self.actors[index]
                 .iter()
-                .filter_map(|(_, id)| self.get(*id))
+                .filter_map(|id| self.get(*id))
                 .filter(|e| e.record.time >= from && e.record.time <= to)
                 .collect();
             result.sort_unstable_by_key(|e| (e.record.time, e.id));
@@ -836,10 +873,14 @@ impl PreparedEvents<'_> {
             let i = self.store.time.partition_point(|v| *v <= time);
             self.store.time.insert(i, time);
             for a in e.record.actors.iter() {
-                let key = (a.id, e.id);
-                let i = self.store.actors.partition_point(|v| *v < key);
-                if self.store.actors.get(i) != Some(&key) {
-                    self.store.actors.insert(i, key);
+                let i = self
+                    .store
+                    .known
+                    .binary_search(&a.id)
+                    .expect("validated actor");
+                let ids = &mut self.store.actors[i];
+                if ids.last() != Some(&e.id) {
+                    ids.push(e.id);
                 }
             }
             self.store.ordinal = e.ordinal;
@@ -852,6 +893,62 @@ impl PreparedEvents<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preparation_reserves_all_actor_lists_and_capacity_includes_spare_storage() {
+        let ids: Vec<_> = (0..3).map(|i| EntityId::spawned(i).unwrap()).collect();
+        let mut store = EventStore::new(ids.clone());
+        let candidates: Vec<_> = (0..20)
+            .map(|i| {
+                let mut c = Candidate::new(
+                    SimTime::EPOCH,
+                    10,
+                    i,
+                    Payload::CommandApplied {
+                        sequence: i,
+                        kind: 0,
+                        effect: 0,
+                        demoted: 0,
+                        promoted: 0,
+                    },
+                    Origin::Command(i),
+                );
+                for (id, role) in [
+                    (ids[0], Role::Subject),
+                    (ids[1], Role::Object),
+                    (ids[0], Role::Object),
+                ] {
+                    c.actors.push(Actor { id, role }).unwrap();
+                }
+                c
+            })
+            .collect();
+        let prepared = store.prepare(0, &candidates).unwrap();
+        let reserved = prepared.store.capacity_bytes();
+        assert!(prepared.store.actors[0].capacity() >= 20);
+        assert!(prepared.store.actors[1].capacity() >= 20);
+        assert_eq!(prepared.store.actors[2].capacity(), 0);
+        prepared.commit();
+        assert_eq!(
+            store.capacity_bytes(),
+            reserved,
+            "commit must not grow any buffer"
+        );
+        for list in &store.actors[..2] {
+            assert_eq!(list, &(1..=20).map(EventId).collect::<Vec<_>>());
+        }
+        assert_eq!(
+            store.capacity_bytes(),
+            store.events.capacity() * size_of::<Event>()
+                + store.time.capacity() * size_of::<(SimTime, EventId)>()
+                + store.actors.capacity() * size_of::<Vec<EventId>>()
+                + store
+                    .actors
+                    .iter()
+                    .map(|v| v.capacity() * size_of::<EventId>())
+                    .sum::<usize>()
+        );
+    }
+
     #[test]
     fn exhausted_commit_counter_reports_error_without_publication() {
         let mut store = EventStore {

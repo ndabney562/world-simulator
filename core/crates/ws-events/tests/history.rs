@@ -119,3 +119,62 @@ proptest! {
   let from=SimTime::from_micros_since_epoch(lo as i64);let to=SimTime::from_micros_since_epoch(hi as i64);let expected:Vec<_>=s.records().iter().filter(|e|e.record.time>=from&&e.record.time<=to).collect();prop_assert_eq!(s.query(Some(actor()),from,to),expected.clone());prop_assert_eq!(s.query(None,from,to),expected);prop_assert_eq!(EventStore::from_records(vec![actor()],s.records()).unwrap(),s);
  }
 }
+
+#[test]
+fn multi_actor_queries_match_arena_after_dropped_preparation_and_rebuild() {
+    let ids: Vec<_> = (1..=5).map(|n| EntityId::spawned(n).unwrap()).collect();
+    // Canonical registration must not depend on caller order or duplicates.
+    let mut store = EventStore::new(vec![ids[4], ids[2], ids[0], ids[1], ids[2], ids[3]]);
+    for batch in 0..12 {
+        let mut candidates = Vec::new();
+        for i in 0..16 {
+            let mut c = candidate((batch * 16 + i) as u64);
+            // Occurrence order differs from publication/ID order, including ties
+            // and negative times. Actor lists include non-adjacent duplicate roles.
+            c.time = SimTime::from_micros_since_epoch(((i * 7 + batch) % 13) - 6);
+            let a = ids[(i as usize + batch as usize) % 4];
+            for (id, role) in [
+                (a, Role::Subject),
+                (ids[4], Role::Object),
+                (a, Role::Object),
+            ] {
+                c.actors.push(Actor { id, role }).unwrap();
+            }
+            candidates.push(c);
+        }
+        let before = store.clone();
+        drop(store.prepare(batch as u64, &candidates).unwrap());
+        assert_eq!(store, before);
+        store.prepare(batch as u64, &candidates).unwrap().commit();
+    }
+    let rebuilt = EventStore::from_records(ids.clone(), store.records()).unwrap();
+    assert_eq!(rebuilt, store);
+    for actor in ids
+        .into_iter()
+        .map(Some)
+        .chain([None, Some(EntityId::spawned(999).unwrap())])
+    {
+        for (lo, hi) in [(-6, 6), (-2, 3), (0, 0), (7, 9), (3, -2)] {
+            let from = SimTime::from_micros_since_epoch(lo);
+            let to = SimTime::from_micros_since_epoch(hi);
+            let mut expected: Vec<_> = store
+                .records()
+                .iter()
+                .filter(|e| {
+                    e.record.time >= from
+                        && e.record.time <= to
+                        && actor.is_none_or(|id| e.record.actors.iter().any(|a| a.id == id))
+                })
+                .collect();
+            expected.sort_unstable_by_key(|e| (e.record.time, e.id));
+            assert_eq!(store.query(actor, from, to), expected);
+            assert_eq!(rebuilt.query(actor, from, to), expected);
+        }
+    }
+    // Publication after reconstruction keeps IDs/counters/digests in sync.
+    let c = candidate(999);
+    store.prepare(12, &[c]).unwrap().commit();
+    let mut rebuilt = rebuilt;
+    rebuilt.prepare(12, &[c]).unwrap().commit();
+    assert_eq!(store, rebuilt);
+}
