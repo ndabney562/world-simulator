@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0025: baseline-plus-deltas saves (2026-10-19, Proposed)
+
+Docs-only proposal for #53: pin full baseline identity, store complete canonical component replacements/notables/runtime state, validate and rebuild before publication, and preserve format-1/2 fixtures through explicit migration. Adds a pending-proposal pointer in persistence architecture. No format or behavior changes; accepted ADRs 0020/0021 remain active. VS-011 keeps whole-slice integration/background-write scope.
+
 ## ADR 0022: toy-world render snapshot and ABI 3 (2026-10-17, Accepted)
 
 Design phase of TP-011 (#12): ABI 3 replaces the debug markers with building and resident records (kinds 1 and 2) in a fixed-origin ENU frame, changes the config to a residents-per-building count, keeps the fill contract, and records the single-worker-thread host rule. Docs only.
