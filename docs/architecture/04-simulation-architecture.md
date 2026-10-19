@@ -83,3 +83,7 @@ Most of the world is in the background most of the time. Background agents with 
 This list is conceptual and will be finalised as an ADR in the Technical Prototype. It is shown here because its shape (commands in, snapshots and query results out) is a decision made now.
 
 The TP-003 synchronous prototype subset is specified in [Accepted ADR 0018](../adr/0018-rust-unity-bridge.md); the conceptual API above remains the long-term shape.
+
+## Accepted real-slice schedule contract
+
+[ADR 0027](../adr/0027-slice-schedules-and-events.md) defines the VS-004/#68 `ws-life` domain and `SliceSimulation` path, with integer schedule phase, typed transitions and atomic event publication. It is Accepted under Noah's recorded standing approval; separate implementation remains #68. Current toy behavior and existing formats are unchanged.
