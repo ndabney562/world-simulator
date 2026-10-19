@@ -28,3 +28,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0022](0022-toy-world-render-snapshot-abi-3.md) | TP-011 toy-world render snapshot and ABI 3 | Accepted |
 | [0023](0023-vertical-slice-block.md) | Vertical Slice block is Brooklyn tax block 6049 (S-8) | Accepted |
 | [0024](0024-procedural-id-collision-resolution.md) | Frozen-roster procedural ID collision resolution | Accepted |
+| [0025](0025-baseline-plus-deltas-saves.md) | Version-pinned baseline plus canonical deltas in save format 3 | Accepted |

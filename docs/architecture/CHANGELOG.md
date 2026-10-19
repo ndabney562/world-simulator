@@ -1,5 +1,13 @@
 # Architecture Proposal Changelog
 
+## ADR 0025 accepted (2026-10-19)
+
+Noah’s direct standing technical approval is recorded on #77 and PR #83. ADR 0025 and its index now say Accepted. No runtime format changes ship here; #53 remains open for code, fixture/continuation/migration coverage and measurements, with #75 retaining whole-slice integration.
+
+## ADR 0025: baseline-plus-deltas saves (2026-10-19, Proposed)
+
+Docs-only proposal for #53: pin full baseline identity, store complete canonical component replacements/notables/runtime state, validate and rebuild before publication, and preserve format-1/2 fixtures through explicit migration. Adds a pending-proposal pointer in persistence architecture. No format or behavior changes; accepted ADRs 0020/0021 remain active. VS-011 keeps whole-slice integration/background-write scope.
+
 ## ADR 0024 accepted (2026-10-19)
 
 Noah’s direct “Always approve” instruction delegates technical acceptance and merges for the current backlog, recorded on #77 and PR #82. ADR 0024 and its index now say Accepted. Implementation, City-scale feasibility measurements and versioned save integration remain separate work; current generators are not silently changed.
