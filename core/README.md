@@ -55,3 +55,5 @@ buildings, their exact integer geometry and source identities, plus all 58
 context footprints. See the [ws-world contract](crates/ws-world/README.md#real-block-baseline-vs-002).
 The toy world remains the input to the existing simulator, CLI and bridge until
 the corresponding resident/render/save slice issues integrate those layers.
+
+VS-003 adds `ws_world::slice::population::PopulatedSlice::new(seed)` for the ten-home/10–30-person synthetic baseline. It retains independent structural/population generator versions and deterministic household/home/work/school references; toy simulation and the existing bridge remain available. See the [world crate contracts](crates/ws-world/README.md#synthetic-block-population-vs-003).

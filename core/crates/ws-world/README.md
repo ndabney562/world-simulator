@@ -134,3 +134,26 @@ are needed: real-data building keys are already allowed by ADR 0016.
 
 Load time is negligible at 58 validated source rows and four inserted entities
 (#66); there is no tick-loop change and no separate performance measurement.
+
+
+## Synthetic block population (VS-003)
+
+`ws_world::slice::population::PopulatedSlice::new(seed)` wraps the validated real-building `SliceWorld` with an immutable synthetic population. The original building-only constructor and all toy constructors are unchanged. No CLI, save, FFI, schedules, movement or Unity switch-over is included; those belong to subsequent slice issues.
+
+The four selected source classes/residential-unit counts (S1=1, A5=1, B2=2, C2=6) give exactly ten occupied homes. One household is generated per home; each gets 1–3 people from its own counter-based stream, guaranteeing 10–30 people for every seed. The first member is an adult aged 22–80; other members are 0–90. This is a small explicit synthetic policy, not a Census-calibrated demographic model or a claim about actual occupants. Ages 0–4 are preschool, 5–21 students, 22–64 employed, 65–90 retired. Names come from small hand-authored tables; no real-person dataset is used. Household members share a generated family name.
+
+Household IDs use `ws-world/id/household` with `[dataset_version, BIN, unit]`. Resident IDs reuse ADR 0016's purpose/address, with BIN as building key and flat slot `unit*3 + member_slot`. Workplace IDs use `ws-world/id/workplace` with `[dataset_version, BIN, 0]` for the shop and `[dataset_version, 0, 0|1]` for off-map work/school. New IDs are checked against **every** existing building/household/resident/workplace ID; any collision fails without renumbering or a partial result. Adoption of ADR 0024's City collision policy remains a separate implementation, not a silent change to these generators.
+
+Random attributes use separate `Stream(seed, purpose, [stable_id]).draw(0)` choices and integer `below`; source order and unrelated draws cannot shift identities. The immutable columns iterate by ascending ID. The shop's synthetic job capacity comes from its floor count (clamped 1–3). Canonical lowest-ID employed residents fill that capacity; other employed residents use an off-map employment destination, and all students use an off-map school. Preschool/retired residents have no workplace. Every resident has exactly one home and household.
+
+Two exact-integer synthetic gateways sit on the west/east edges of the pinned extract's footprint extent, halfway between its north/south extremes. They are coarse map exits, **not surveyed sidewalks, road intersections or converted ground elevations**. Employment/school records reference their exit index; no resident disappears simply because the destination is off-map. VS-005 supplies the actual sidewalk graph.
+
+`PopulationBaseline` retains the unchanged structural seed/dataset/loader version and a separate population generator version (1). Changes to address mapping, size/age/assignment policy or name tables require a population-version bump and normal golden review. Existing building/toy Tier 1 fixtures are unchanged. An independent Python SipHash oracle, first checked against every existing real-building ID golden, freezes all household/resident/workplace IDs, names/ages/roles, memberships, assignments and gateway coordinates for seeds 0, 42 and u64::MAX. Rust compares the entire canonical output on both CI platforms. Regenerate only after an authorized version change:
+
+```sh
+python3 scripts/vs_population_golden.py check
+# After version/fixture review approval only:
+python3 scripts/vs_population_golden.py build
+```
+
+Fixed-seed property tests verify the home/unit/member counts, adult head, exact role ranges, cross-kind unique IDs, accepted resident address derivation, family/name attributes, destination/capacity references and regeneration. Unit tests force cross-kind collisions, reverse source order, reject changed source-home counts and verify purpose separation. No tick-path cost is added; measurements are unnecessary at this baseline's scale per #67. No new dependency or data source.
