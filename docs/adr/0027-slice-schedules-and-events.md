@@ -1,10 +1,10 @@
 # ADR 0027: slice L2 schedule model, factual events and orchestration
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-19
-- Decided by: pending application of Noah's recorded standing approval after independent review; proposed by Codex
+- Decided by: Noah, direct standing approval on 2026-10-19, recorded on #77 and PR #86; proposed by Codex
 - Issue: #68 (VS-004 design phase)
-- Supersedes: none; extends ADRs 0017/0019 for the real slice after acceptance
+- Supersedes: none; extends ADRs 0017/0019 for the real slice
 
 ## Context
 
@@ -16,9 +16,9 @@ This docs-only proposal makes the necessary event-vocabulary/domain-boundary dec
 
 1. Reuse toy arrivals for every activity change. Rejected: sleeping or waking is not a physical arrival, and inventing arrivals contradicts ADR 0019.
 2. Add mutable schedules and rendering logic to the structural `ws-world` baseline. Rejected: conflates immutable generation with driving state/presentation.
-3. A small `ws-life` domain plus `ws-sim::slice::SliceSimulation`, using the existing clock/event infrastructure and a typed factual extension. Chosen for proposal: the toy path remains compatible and later L1/LOD work extends this domain.
+3. A small `ws-life` domain plus `ws-sim::slice::SliceSimulation`, using the existing clock/event infrastructure and a typed factual extension. Chosen: the toy path remains compatible and later L1/LOD work extends this domain.
 
-## Proposed decision
+## Decision
 
 ### Boundaries and canonical time
 
@@ -80,4 +80,4 @@ Payload tags 7/8 are reserved for new slice-capable record schemas/formats (form
 
 The slice gets an explicit schedulable core instead of silently extending the toy model. Activity/location semantics are inspectable, integer-time based and compatible with later L1/LOD reconciliation. Two event tags and a new domain module add code/codec validation obligations, while preserving old save/wire meanings. Real calendar alignment, L1 utility/pathfinding, camera LOD, interventions, rendering and persistence stay in their existing issues.
 
-Proposed docs only. No new domain/event code or accepted behavior changes until review/acceptance and separate implementation. Revisit when the real-calendar phase is integrated, L1 overrides need reconciliation, or measurement shows the chosen queue/step approach exceeds budget.
+Noah accepted this docs-only contract under his 2026-10-19 standing approval, recorded on #77 and PR #86, after independent review. No new domain/event code ships here; #68 remains open for separate implementation and its required evidence. Revisit when the real-calendar phase is integrated, L1 overrides need reconciliation, or measurement shows the chosen queue/step approach exceeds budget.
