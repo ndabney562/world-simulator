@@ -131,3 +131,7 @@ These queries run over structured data. An LLM may later phrase the answer ([16]
 3. Aggregate events equal the sum of the individual events they replaced (counts by type, region, and period).
 4. Event IDs are unique and stable across save and load.
 5. The event log never influences the simulation except through declared reads: agent memory references, and systems that explicitly query recent events, such as "avoid the street where the fire was". These reads are deterministic.
+
+## Pending slice schedule facts
+
+[ADR 0027](../adr/0027-slice-schedules-and-events.md) proposes typed schedule-transition/creation payloads while retaining existing event IDs, order, bounded metadata and causal honesty. Legacy save formats retain their vocabulary; new-format persistence remains #53/#75. The proposal is not implemented or accepted by this pointer.

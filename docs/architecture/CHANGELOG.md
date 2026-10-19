@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0027: slice schedules/events (2026-10-19, Proposed)
+
+VS-004/#68 docs-only contract for the ws-life domain, real-slice orchestration, model-week schedule phase and two typed factual event tags. Explicitly protects old save vocabularies, deterministic event-bearing tick order and atomic failure/replay behavior. Adds pending pointers in simulation/events architecture. No code, format or accepted decision changes.
+
 ## ADR 0025 accepted (2026-10-19)
 
 Noah’s direct standing technical approval is recorded on #77 and PR #83. ADR 0025 and its index now say Accepted. No runtime format changes ship here; #53 remains open for code, fixture/continuation/migration coverage and measurements, with #75 retaining whole-slice integration.
