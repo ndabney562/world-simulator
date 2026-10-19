@@ -28,3 +28,11 @@ python3 -m unittest discover -s scripts -p 'test_vs_*.py' -v
 ## Attribution
 
 Building footprints: NYC Office of Technology and Innovation, NYC Open Data. Tax lot data: PLUTO, NYC Department of City Planning, NYC Open Data. Used under the NYC Open Data terms (free, no restrictions on use, no warranty).
+
+## Rust structural baseline (VS-002)
+
+The normalized GeoJSON is compiled into exact integer Rust constants by
+`python3 scripts/vs_core_buildings.py build`; `check` verifies regeneration.
+The original extract and raw snapshots are not changed by that adapter. See
+[ws-world](../../../core/crates/ws-world/README.md#real-block-baseline-vs-002)
+for precision, versioning, identity and vertical-datum contracts.
