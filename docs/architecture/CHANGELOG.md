@@ -1,5 +1,13 @@
 # Architecture Proposal Changelog
 
+## ADR 0024 accepted (2026-10-19)
+
+Noah’s direct “Always approve” instruction delegates technical acceptance and merges for the current backlog, recorded on #77 and PR #82. ADR 0024 and its index now say Accepted. Implementation, City-scale feasibility measurements and versioned save integration remain separate work; current generators are not silently changed.
+
+## ADR 0024: procedural ID collisions (2026-10-19, Proposed)
+
+Docs-only proposal for #30: allocate over a frozen complete generation roster, reserve all primary IDs before canonical retries, and persist sparse losing-address overrides. Preserves collision-free IDs and records the explicit cost/streaming limitation. Adds a pending-proposal pointer in entity architecture; accepted ADR 0016 and runtime behavior remain unchanged. City-scale feasibility and format migration require separate evidence and acceptance.
+
 ## ADR 0022: toy-world render snapshot and ABI 3 (2026-10-17, Accepted)
 
 Design phase of TP-011 (#12): ABI 3 replaces the debug markers with building and resident records (kinds 1 and 2) in a fixed-origin ENU frame, changes the config to a residents-per-building count, keeps the fill contract, and records the single-worker-thread host rule. Docs only.
