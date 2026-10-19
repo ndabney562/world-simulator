@@ -47,3 +47,11 @@ These are the same checks CI runs ([ci.md](../docs/process/ci.md)).
 ## TP-008 adapter prerequisite
 
 [ADR 0019](../docs/adr/0019-command-journal-and-world-events.md) is accepted; its documentation PR must land first. The command/event implementation stays independent of the unmerged TP-003 bridge. It implements the Rust core and headless acceptance path. If PR #42 lands, its final ABI must be reconciled with ADR 0019 §8 before the command system reaches Unity; ABI v1 transport NoOp must not be described as a journaled semantic command. No C#/ABI upgrade is claimed here.
+
+## Vertical Slice building baseline
+
+VS-002 adds `ws_world::slice::SliceWorld::new(seed)`: the four real block 6049
+buildings, their exact integer geometry and source identities, plus all 58
+context footprints. See the [ws-world contract](crates/ws-world/README.md#real-block-baseline-vs-002).
+The toy world remains the input to the existing simulator, CLI and bridge until
+the corresponding resident/render/save slice issues integrate those layers.

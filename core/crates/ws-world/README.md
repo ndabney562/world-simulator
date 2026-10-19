@@ -2,10 +2,11 @@
 
 ## Responsibility
 
-The world model. As of TP-006 (#7) it holds the Technical Prototype **toy world**: five box buildings at fixed offsets from the Bay Ridge reference point and a few dozen residents who walk between them ([ADR 0016](../../../docs/adr/0016-entity-identity-storage-and-randomness.md)). It proves identity, storage, randomness, movement across cell edges, and state hashing; it is not content. As of TP-007 (#8) residents run at one of two simulation levels, L1 (stepped) or L2 (a discrete-event background schedule), chosen per building ([ADR 0017](../../../docs/adr/0017-simulation-lod-l1-l2-round-trip.md)). The world tree, aggregates, and real data arrive in later stages.
+The world model. As of TP-006 (#7) it holds the Technical Prototype **toy world**: five box buildings at fixed offsets from the Bay Ridge reference point and a few dozen residents who walk between them ([ADR 0016](../../../docs/adr/0016-entity-identity-storage-and-randomness.md)). It proves identity, storage, randomness, movement across cell edges, and state hashing; it is not content. As of TP-007 (#8) residents run at one of two simulation levels, L1 (stepped) or L2 (a discrete-event background schedule), chosen per building ([ADR 0017](../../../docs/adr/0017-simulation-lod-l1-l2-round-trip.md)). VS-002 (#66) adds the real block structural baseline described below; the world tree and aggregates arrive later.
 
 | Module | Provides |
 |---|---|
+| `slice` | `SliceWorld`, fixed-point source geometry, four detailed buildings and the 58-footprint context baseline (VS-002) |
 | `dataset` | `TOY_BUILDINGS` (constant, `TOY_DATASET_VERSION = 1`); `Dataset` and `BuildingSite` |
 | `ids` | Procedural IDs and generator decisions: `building_id`, `resident_id`, `resident_count`, `residents`, `next_target`; the crate's `Purpose` labels |
 | `lod` | Simulation LOD (ADR 0017): `Lod`, `Background`, `Activity`, `Origin`; `ToyWorld::set_lod` (the transition transaction), `tick` (reconcile, L1 movement, L2 drain), `advance_background`, `check_lod_invariants`, `conservation_summary`; `LodError`, `LodViolation`, `TransitionReport` |
@@ -63,3 +64,73 @@ The L1 planner reuses one exact frame per occupied cell per step for target proj
 ### Inside-cell fast path (#48, 2026-10-17)
 
 The movement step's per-cell frames are built with `CellFrame::with_inside_test`, so an agent that stays well inside its cell skips the full cell lookup (see the ws-math README). Results are unchanged: the issue-31 replay probe (four seeds, all-L1 and mixed LOD, 80,000 tick rows) gives byte-identical output on `main` and with this change (SHA-256 `7a0d6e46…dce7b`, the same value Codex recorded on macOS for #31). On the Linux Xeon of the #31 review, `world_step/5000` is 2.65–2.79 ms on `main` and 0.35–0.38 ms with this change. The numbers and the frame budget are in the ws-sim README.
+
+## Real block baseline (VS-002)
+
+`slice::SliceWorld::new(seed)` builds the four detailed buildings selected in
+[ADR 0023](../../../docs/adr/0023-vertical-slice-block.md). Its immutable
+`buildings()` column iterates in ascending `EntityId` order. Every row retains
+BIN, BBL, lot, address, PLUTO use class, lot-level floors and residential units,
+roof height above ground, source ground elevation, centroid and full footprint.
+`slice::BLOCK_BUILDINGS` retains all 58 source footprints (including 6 garages)
+for surrounding context; only the four `featured` rows become entities here.
+No synthetic residents or events are emitted by this structural constructor.
+
+The reviewed [VS-001 extract](../../../data/vertical-slice/bay-ridge-block-6049/README.md)
+is compiled offline by `scripts/vs_core_buildings.py` into `src/block_6049.rs`.
+This small adapter only reads the normalized extract, never the raw upstream
+snapshots. It has no runtime I/O, new dependencies, simplification, projection,
+or generic simulation-tile pipeline. Refresh with `python3 scripts/vs_core_buildings.py build`
+and verify with `python3 scripts/vs_core_buildings.py check` from the repo root.
+The existing CI Python discovery checks exact regeneration for every source row.
+
+**Exact geometry (Tier 1):** coordinates retain all twelve decimal places as
+signed picodegrees; roof heights and original NAVD88 ground elevations use
+integer millimetres. MultiPolygon parts, holes, winding, source vertex order,
+and closing vertices are retained. The centroid retains the extract's six
+places (about 0.1 m); it is not recomputed from a simplified box. Validation
+checks coordinate range, closure, minimum ring length, nonzero integer area,
+and positive height; it does not claim general polygon-topology validation.
+
+**Coordinates and vertical datum:** `GeoPoint::surface_position(ellipsoidal_height_mm)`
+projects to ADR 0015's `SurfacePos` through portable `ws-math`. The caller must
+explicitly supply WGS84 ellipsoidal ground height. Passing zero means the
+ellipsoid, not real street elevation. The source `ground_navd88_mm` is retained
+as NAVD88 metadata and is never implicitly treated as ellipsoidal; terrain and
+a geoid conversion are outside VS-002 (ADR 0023). Roof height remains relative
+to ground and does not get added to the footprint location.
+
+**Identity and baseline:** `baseline()` retains seed, dataset version
+`0x85183751d4f793b9` and structural generator version 1 for the later save header.
+The dataset version is the first 64 bits (big-endian) of the exact GeoJSON's
+SHA-256, whose full value is exported as `EXTRACT_SHA256`. Building IDs reuse
+ADR 0016's existing purpose and integer address `[dataset_version, BIN]`;
+BIN replaces the toy's ordinal, so source order cannot renumber buildings.
+No float, address string, centroid, or runtime allocation enters ID derivation.
+A changed extract gives a new version; migration between dataset versions is
+not currently supported. Later slice persistence must pin/validate its version
+before regenerating (#53 / #75); no codec or older save fixture changes here.
+
+**Collisions (#30):** duplicate BINs are rejected before hashing, and duplicate
+entity IDs fail the whole constructor with `SliceError::Collision`. There is no
+silent overwrite, salt, renumbering, or chosen resolution policy. Unit tests
+inject a collision between distinct addresses. The existing City-stage ADR
+follow-up remains open; it is not a dependency of a four-building slice.
+
+**Verification:** `tests/golden/block_6049.txt` freezes IDs, integer centroids,
+heights and use for seeds 0, 42 and `u64::MAX`; the ID oracle was an independent
+Python SipHash-2-4 implementation checked against every existing toy building
+golden. Both Rust CI platforms run it. New tests also cover exact extract
+regeneration, nested geometry/closure, rejected malformed data, source-order
+independence, 10,000 seeds (40,000 building IDs), and fixed-seed properties for
+`SurfacePos` containment, idempotence and ECEF error below 0.1 mm at explicit
+ellipsoidal heights. Existing toy goldens remain unchanged.
+
+This constructor owns only structural baseline data. `ws-sim::World`, the CLI,
+save formats 1/2 and Unity ABI 3 continue using the toy world. Resident domain
+integration belongs to #67; real-footprint snapshots and rendering belong to
+#72, and slice save/migration support to #53 / #75. No ADR decision changes
+are needed: real-data building keys are already allowed by ADR 0016.
+
+Load time is negligible at 58 validated source rows and four inserted entities
+(#66); there is no tick-loop change and no separate performance measurement.
