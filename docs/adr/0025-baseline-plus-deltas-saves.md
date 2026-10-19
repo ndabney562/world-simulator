@@ -1,8 +1,8 @@
 # ADR 0025: version-pinned baseline plus canonical deltas in save format 3
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-19
-- Decided by: pending Noah approval; proposed by Codex
+- Decided by: Noah, direct standing approval on 2026-10-19, recorded on #77 and PR #83; proposed by Codex
 - Issue: #53
 - Supersedes: none; would extend ADR 0020 after acceptance
 
@@ -82,4 +82,4 @@ Updates do not replace a saved dataset or generator automatically. Keep compatib
 
 Immutable structure stops being duplicated in every new save, while mutable state and history remain directly restorable. Baseline version retention and full validation become required infrastructure. Most moving residents may still require runtime rows, so baseline omission does not guarantee a dramatic overall size reduction. Sparse collision overrides are conditional on a separately accepted policy, keeping #30 from silently blocking the small slice's existing fail-on-collision rule.
 
-This is a docs-only proposal; ADRs 0020/0021 and format-1/2 behavior remain active. No crate, dependency, data source, service, FFI or runtime state changes. Acceptance and implementation remain separate gates. Revisit if generator retention becomes unaffordable, component schemas multiply, partial/lazy loading needs a new integrity model, or measurements require compression/compaction under separately scoped issues.
+Noah accepted this docs-only contract under his 2026-10-19 standing approval, recorded on #77 and PR #83. Runtime format-1/2 behavior remains active until separate implementation. No crate, dependency, data source, service, FFI or runtime state changes. Acceptance and implementation remain separate gates. Revisit if generator retention becomes unaffordable, component schemas multiply, partial/lazy loading needs a new integrity model, or measurements require compression/compaction under separately scoped issues.

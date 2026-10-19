@@ -58,6 +58,6 @@ Load time depends on the area around the camera, not on world size.
 - **Shareable worlds**: a world is a seed, a dataset version, and deltas, so sharing a world or scenario is small.
 - **Replays and timelines** as a player feature, built on snapshots, journal, and events.
 
-## Pending baseline-plus-deltas proposal
+## Accepted baseline-plus-deltas contract
 
-[ADR 0025](../adr/0025-baseline-plus-deltas-saves.md), tracked by [#53](https://github.com/ndabney562/world-simulator/issues/53), proposes exact baseline identity, typed canonical replacements, direct runtime-state restoration and explicit legacy migration for save format 3. It is **Proposed**; accepted ADRs 0020/0021 and the format-1/2 implementation remain active. Whole-slice background writing and Unity integration remain VS-011 (#75).
+[ADR 0025](../adr/0025-baseline-plus-deltas-saves.md), tracked by [#53](https://github.com/ndabney562/world-simulator/issues/53), proposes exact baseline identity, typed canonical replacements, direct runtime-state restoration and explicit legacy migration for save format 3. It is **Accepted** under Noah’s 2026-10-19 standing approval. Runtime format-1/2 behavior remains active until the separately reviewed format-3 implementation lands. Whole-slice background writing and Unity integration remain VS-011 (#75).
