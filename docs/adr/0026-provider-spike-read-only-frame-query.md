@@ -1,8 +1,8 @@
 # ADR 0026: provider spike read-only frame query and isolated Unity providers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-19
-- Decided by: pending Noah approval; proposed by Codex
+- Decided by: Noah, direct standing approval on 2026-10-19, recorded on #77 and PR #84; proposed by Codex
 - Issue: #13 (TP-012 design phase)
 - Supersedes: none; would extend ADRs 0018/0022 after acceptance
 
@@ -78,4 +78,4 @@ This proposal is the concrete justification required by the test/CI and architec
 
 The spike gains an honest core-hash independence test and a precise seed-dependent geospatial transform without transferring simulation authority to a provider. It consumes a bridge ABI version, adds a pinned presentation dependency and replaces two temporary prohibitions with positive architectural checks. Hashing is a diagnostic/context operation outside the per-frame path; device overhead and Cesium memory cost are measured before any budget claim.
 
-Docs only. No test/check/package/native layout/runtime behavior changes until Noah accepts the ADR and the named validation replacements. #13 remains open for its separate implementation and device report. No new credentials, paid service, Apple signing, device run or stage-exit declaration is authorized here. Revisit when real slice snapshots/floating origins land, package/platform support changes or measured backdrop cost exceeds the device budget.
+Noah accepted this docs-only contract and its named validation replacements under his 2026-10-19 standing approval, recorded on #77 and PR #84. No test/check/package/native layout/runtime changes ship in this ADR PR; separate implementation and evidence remain required. #13 remains open for its separate implementation and device report. No new credentials, paid service, Apple signing, device run or stage-exit declaration is authorized here. Revisit when real slice snapshots/floating origins land, package/platform support changes or measured backdrop cost exceeds the device budget.

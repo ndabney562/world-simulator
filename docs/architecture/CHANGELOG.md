@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0026 accepted (2026-10-19)
+
+Noah’s direct standing approval, recorded on #77 and PR #84, accepts ADR 0026 and its specifically justified validation replacements. Status/index now say Accepted. Current ABI/packages/checks remain unchanged until separate implementation; signing, credentials and device evidence are not waived.
+
 ## ADR 0026: provider spike frame/hash query (2026-10-19, Proposed)
 
 Docs-only TP-012/#13 proposal: coarse read-only native hash/absolute-frame query under the next unused ABI, isolated provider assembly, exact presentation package/registry pin and explicitly scoped replacements for the temporary no-provider/no-scoped-registry checks. Adds a pending pointer in provider architecture. No package, runtime, accepted ABI or test changes; device evidence remains required.
