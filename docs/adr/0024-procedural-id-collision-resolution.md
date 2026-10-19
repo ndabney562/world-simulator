@@ -1,8 +1,8 @@
 # ADR 0024: procedural ID collision resolution over a frozen generation roster
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-19
-- Decided by: pending Noah approval; proposed by Codex
+- Decided by: Noah, direct standing approval on 2026-10-19, recorded on tracking issue #77 and PR #82; proposed by Codex
 - Issue: #30
 - Supersedes: none; would extend ADR 0016's deferred collision rule after acceptance
 
@@ -65,4 +65,4 @@ This policy chooses determinism over cheap lazy allocation. Before implementatio
 
 The winner and every retry are deterministic functions of a complete frozen baseline, not its load order. Existing collision-free IDs and the 64-bit namespace layout survive. Sparse overrides should be small at the issue's population scale, but peak construction storage can be large and remains an explicit adoption risk. Unknown or expanding procedural universes are unsupported, rather than given a false order-independence guarantee.
 
-No new service, credential, dependency, data source or implementation ships here. ADR 0016 remains the active rule until Noah accepts this proposal; acceptance does not itself implement it or authorize a silent save migration. Revisit if the roster is unbounded, streaming must expose entities before full allocation, new kinds depend on resolved IDs, measured initialization exceeds device budgets, or planetary identity scale makes a wider namespace preferable.
+No new service, credential, dependency, data source or implementation ships here. Noah accepted this contract under his 2026-10-19 standing approval, recorded on #77 and PR #82. Existing runtime generators retain their fail-on-collision policy until a separately reviewed implementation adopts this versioned policy; acceptance does not implement it or authorize a silent save migration. Revisit if the roster is unbounded, streaming must expose entities before full allocation, new kinds depend on resolved IDs, measured initialization exceeds device budgets, or planetary identity scale makes a wider namespace preferable.
