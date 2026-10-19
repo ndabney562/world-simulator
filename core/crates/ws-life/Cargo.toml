@@ -1,0 +1,20 @@
+[package]
+name = "ws-life"
+version = "0.1.0"
+description = "Integer real-slice schedules and pure L2 activity/location queries."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ws-ecs = { path = "../ws-ecs" }
+ws-events = { path = "../ws-events" }
+ws-rng = { path = "../ws-rng" }
+ws-time = { path = "../ws-time" }
+ws-world = { path = "../ws-world" }
+
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

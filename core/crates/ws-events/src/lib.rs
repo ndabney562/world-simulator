@@ -137,6 +137,37 @@ pub enum Origin {
     /// Applied journal command sequence.
     Command(u64),
 }
+/// Stable schedule activity vocabulary (ADR 0027); integer Tier 1 tags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Activity {
+    /// Sleeping at home.
+    Sleep = 0,
+    /// A coarse journey between two explicit endpoints.
+    Commute = 1,
+    /// Employment at a local or off-map workplace.
+    Work = 2,
+    /// Education off-map.
+    School = 3,
+    /// Shopping at the synthetic shop.
+    Errands = 4,
+    /// Awake at home.
+    Home = 5,
+}
+impl Activity {
+    /// Decodes only the six assigned activity tags.
+    pub const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Sleep),
+            1 => Some(Self::Commute),
+            2 => Some(Self::Work),
+            3 => Some(Self::School),
+            4 => Some(Self::Errands),
+            5 => Some(Self::Home),
+            _ => None,
+        }
+    }
+}
 /// Initial typed event subset; numbers and fields are explicitly serialized by users.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Payload {
@@ -213,6 +244,32 @@ pub enum Payload {
         /// Severity.
         severity: u8,
     },
+    /// A real schedule boundary, not a fabricated physical arrival.
+    ScheduleChanged {
+        /// Resident whose activity changed.
+        resident: EntityId,
+        /// New activity's destination building or off-map workplace.
+        destination: EntityId,
+        /// Activity immediately before the boundary.
+        previous: Activity,
+        /// Activity owning the boundary and following interval.
+        next: Activity,
+    },
+    /// Version-pinned real-slice creation, without invented past facts.
+    SliceCreated {
+        /// World seed.
+        seed: u64,
+        /// Registered source version.
+        dataset: u64,
+        /// Structural generator version.
+        structural: u32,
+        /// Population generator version.
+        population: u32,
+        /// Schedule rules version.
+        schedules: u32,
+        /// Monday midnight in the model week, in absolute simulation microseconds.
+        schedule_epoch: i64,
+    },
     /// An ill resident arrived at its home.
     ReturnedHome {
         /// The resident.
@@ -232,6 +289,8 @@ impl Payload {
             Self::InterventionApplied { .. } => "intervention.applied",
             Self::LifeIllness { .. } => "life.illness",
             Self::ReturnedHome { .. } => "agent.returned_home",
+            Self::ScheduleChanged { .. } => "agent.schedule_changed",
+            Self::SliceCreated { .. } => "sim.slice_created",
         }
     }
     /// Stable initial payload tag (schema version is separate).
@@ -244,6 +303,8 @@ impl Payload {
             Self::InterventionApplied { .. } => 4,
             Self::LifeIllness { .. } => 5,
             Self::ReturnedHome { .. } => 6,
+            Self::ScheduleChanged { .. } => 7,
+            Self::SliceCreated { .. } => 8,
         }
     }
     /// Initial quantized importance, without floating relevance calculation.
@@ -256,6 +317,8 @@ impl Payload {
             Self::InterventionApplied { .. } => 32768,
             Self::LifeIllness { .. } => 24576,
             Self::ReturnedHome { .. } => 8192,
+            Self::ScheduleChanged { .. } => 4096,
+            Self::SliceCreated { .. } => 65535,
         }
     }
 }
@@ -428,6 +491,32 @@ impl Event {
                 severity,
             } => sink(&[resident.raw(), illness as u64, severity as u64]),
             Payload::ReturnedHome { resident, home } => sink(&[resident.raw(), home.raw()]),
+            Payload::ScheduleChanged {
+                resident,
+                destination,
+                previous,
+                next,
+            } => sink(&[
+                resident.raw(),
+                destination.raw(),
+                previous as u64,
+                next as u64,
+            ]),
+            Payload::SliceCreated {
+                seed,
+                dataset,
+                structural,
+                population,
+                schedules,
+                schedule_epoch,
+            } => sink(&[
+                seed,
+                dataset,
+                structural as u64,
+                population as u64,
+                schedules as u64,
+                schedule_epoch as u64,
+            ]),
         }
         one(&mut sink, self.record.actors.len() as u64);
         for a in self.record.actors.iter() {
@@ -618,6 +707,55 @@ impl EventStore {
                         return Err(EventError::UnknownActor);
                     }
                     if !matches!((c.system, c.lod), (50, 1 | 2)) {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::ScheduleChanged {
+                    resident,
+                    destination,
+                    previous,
+                    next,
+                } => {
+                    if !known(resident) || !known(destination) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    let expected = [
+                        Actor {
+                            id: resident,
+                            role: Role::Subject,
+                        },
+                        Actor {
+                            id: destination,
+                            role: Role::Object,
+                        },
+                    ];
+                    if c.system != 60
+                        || c.lod != 2
+                        || c.origin != Origin::System(60)
+                        || previous == next
+                        || !c.actors.iter().copied().eq(expected)
+                        || !c.causes.is_empty()
+                        || !c.related.is_empty()
+                    {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::SliceCreated {
+                    structural,
+                    population,
+                    schedules,
+                    ..
+                } => {
+                    if c.system != 0
+                        || c.lod != 0
+                        || c.origin != Origin::System(0)
+                        || structural == 0
+                        || population == 0
+                        || schedules == 0
+                        || !c.actors.is_empty()
+                        || !c.causes.is_empty()
+                        || !c.related.is_empty()
+                    {
                         return Err(EventError::Order);
                     }
                 }

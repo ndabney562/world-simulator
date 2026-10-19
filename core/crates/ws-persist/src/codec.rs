@@ -344,8 +344,11 @@ pub(crate) fn get_clock(bytes: &[u8]) -> Result<ClockRow> {
 
 // ---- events --------------------------------------------------------------
 
-fn put_payload(w: &mut Writer, p: Payload) {
+fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
     match p {
+        Payload::ScheduleChanged { .. } | Payload::SliceCreated { .. } => {
+            return Err(CodecError("slice payload requires a slice save format"));
+        }
         Payload::WorldCreated {
             seed,
             dataset,
@@ -430,6 +433,7 @@ fn put_payload(w: &mut Writer, p: Payload) {
             w.id(home);
         }
     }
+    Ok(())
 }
 
 fn get_payload(r: &mut Reader) -> Result<Payload> {
@@ -495,7 +499,7 @@ pub(crate) struct Link {
 }
 
 /// An event row without its links.
-pub(crate) fn put_event(e: &Event) -> Vec<u8> {
+pub(crate) fn put_event(e: &Event) -> Result<Vec<u8>> {
     let rec = &e.record;
     let mut w = Writer::new();
     w.u32(e.schema_version);
@@ -515,7 +519,7 @@ pub(crate) fn put_event(e: &Event) -> Vec<u8> {
             w.u64(n);
         }
     }
-    put_payload(&mut w, rec.payload);
+    put_payload(&mut w, rec.payload)?;
     w.u8(rec.actors.len() as u8);
     for a in rec.actors.iter() {
         w.id(a.id);
@@ -542,7 +546,7 @@ pub(crate) fn put_event(e: &Event) -> Vec<u8> {
     w.u8(rec.lod);
     w.u16(e.importance);
     w.u8(u8::from(e.aggregate));
-    w.0
+    Ok(w.0)
 }
 
 /// The links of a committed event, or `None` if a cause is still a local
@@ -1310,7 +1314,7 @@ mod tests {
             },
         ] {
             let mut w = Writer::new();
-            put_payload(&mut w, p);
+            put_payload(&mut w, p).unwrap();
             assert_eq!(get_payload(&mut Reader::new(&w.0)), Ok(p));
         }
     }
@@ -1379,5 +1383,38 @@ mod tests {
         let flag = 8 + 12 + 12 + 8;
         bytes[flag] = 2;
         assert_eq!(get_l1(&bytes), Err(CodecError("flag is not 0 or 1")));
+    }
+}
+
+#[cfg(test)]
+mod slice_vocabulary_tests {
+    use super::*;
+    #[test]
+    fn legacy_payload_codec_rejects_slice_tags_and_returns_typed_encode_error() {
+        for tag in [7, 8] {
+            assert!(get_payload(&mut Reader::new(&[tag])).is_err());
+        }
+        let resident = EntityId::procedural(1);
+        let destination = EntityId::procedural(2);
+        for payload in [
+            Payload::ScheduleChanged {
+                resident,
+                destination,
+                previous: ws_events::Activity::Home,
+                next: ws_events::Activity::Commute,
+            },
+            Payload::SliceCreated {
+                seed: 42,
+                dataset: 1,
+                structural: 1,
+                population: 1,
+                schedules: 1,
+                schedule_epoch: 0,
+            },
+        ] {
+            let mut writer = Writer::new();
+            assert!(put_payload(&mut writer, payload).is_err());
+            assert!(writer.0.is_empty());
+        }
     }
 }

@@ -769,6 +769,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ws-life"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "ws-ecs",
+ "ws-events",
+ "ws-rng",
+ "ws-time",
+ "ws-world",
+]
+
+[[package]]
 name = "ws-math"
 version = "0.1.0"
 dependencies = [
@@ -804,6 +816,7 @@ dependencies = [
  "proptest",
  "ws-ecs",
  "ws-events",
+ "ws-life",
  "ws-rng",
  "ws-time",
  "ws-world",
