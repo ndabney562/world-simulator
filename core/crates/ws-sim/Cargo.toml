@@ -46,3 +46,7 @@ harness = false
 [[bench]]
 name = "camera"
 harness = false
+
+[[bench]]
+name = "calendar"
+harness = false

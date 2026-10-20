@@ -18,6 +18,7 @@
 mod clock;
 pub mod commands;
 mod control;
+mod environment;
 mod restore;
 pub mod slice;
 use commands::{Command, Outcome};
@@ -28,9 +29,13 @@ use ws_events::{EventError, EventStore};
 use core::fmt;
 
 pub use clock::{Clock, InvalidClock, TimeScale};
+pub use environment::CalendarSky;
 pub use restore::{RestoreError, WorldParts};
 pub use ws_ecs::EntityId;
-pub use ws_time::{SimTime, TimeOverflow};
+pub use ws_time::{CivilError, SimTime, TimeOverflow, UtcDateTime};
+pub use ws_world::environment::{
+    LEAP_SECOND_TABLE_VERSION, NY_POLICY_VERSION, SITE_DATASET_VERSION, SOLAR_VERSION,
+};
 use ws_world::{Dataset, WalkParams};
 pub use ws_world::{
     Illness, IllnessKind, Lod, LodError, LodViolation, Population, RenderInstance, RenderKind,

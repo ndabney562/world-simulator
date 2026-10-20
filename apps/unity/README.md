@@ -2,7 +2,7 @@
 
 The Unity 6 / URP application shell. Unity owns rendering, presentation, input, and platform integration; it never owns simulation state, which stays in the Rust core (`core/`). See [03-rendering-architecture.md](../../docs/architecture/03-rendering-architecture.md) §4.1.
 
-The Bootstrap scene loads the Rust native bridge and draws the toy world (TP-011, ABI 3): five buildings as boxes and residents as capsules from one snapshot per frame, with an orbit camera and a debug HUD. The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Providers and gameplay UI are not implemented.
+The Bootstrap scene loads the Rust native bridge and draws the toy world (TP-011 plus VS-007, ABI4): five buildings as boxes and residents as capsules from one snapshot per frame, with an orbit camera and a debug HUD. The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Providers and gameplay UI are not implemented.
 
 ## Editor version
 
@@ -95,7 +95,7 @@ The static CI checker also requires the serialized `iOSSupport` API list to cont
 
 ## Running the native demo
 
-Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. Cyan boxes (buildings) and orange capsules (residents, 50 at start; the HUD switches to 500 or 5,000) are rendered from ABI-3 snapshots; positions come from the Rust core, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
+Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. Cyan boxes (buildings) and orange capsules (residents,30 at start; the HUD also offers50,500 or5,000) are rendered from ABI4 snapshots; positions come from the Rust core, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
 
 Bridge owns one persistent NativeArray and one SafeHandle; it serializes calls and disposal. Only Bridge enables unsafe C# to lend the buffer pointer for a synchronous call. Rendering uses safe decoded matrices in reusable storage and instanced draws. Fixed-step catch-up is capped at 100 ticks per frame; excess whole steps after a stall are dropped and only the sub-step remainder is retained, matching the Rust host clock. No per-entity native calls or callbacks occur. Disable/scene teardown disposes the world, buffer, material and mesh.
 
@@ -107,10 +107,16 @@ EditMode tests now include native load/version/create/advance/fill/dispose, v1-c
 
 `NativeWorld.SubmitNoOp()`, `SubmitTimeScale(0|1|10|100)` and `SubmitCommands(byte[])` enqueue owned commands; they do not apply them. `CommittedScale` reads current native state without applying pending work. `FlushCommands()` invokes zero-step native advance and returns the committed scale even while paused. Positive `Advance(n)` flushes then requests exactly n ticks, independent of scale.
 
-The demo flushes every frame before choosing ticks and multiplies host elapsed time by that returned scale once. No local independent scale or second native multiplier is applied. Zero/paused frames still fill the render snapshot; catch-up keeps its existing 100-tick cap/drop policy. Inputs and disposal remain serialized by the same managed lock. Command helpers allocate only on submission; warmed per-frame flush/control read and snapshot decode tests check zero managed allocation on the calling thread.
+The worker flushes every pacing iteration before choosing ticks and multiplies host elapsed time by that returned scale once. No local independent scale or second native multiplier is applied. Zero/paused frames still fill the render snapshot; catch-up keeps its existing 100-tick cap/drop policy. Inputs and disposal remain serialized by the same managed lock. Command helpers allocate only on submission; warmed per-frame flush/control read and snapshot decode tests check zero managed allocation on the calling thread.
 
 After switching branches, close Unity, rebuild the native plugin with `scripts/build-native-macos.sh`, and reopen with 6000.3.26f1. Run the full EditMode suite with graphics enabled, then open Bootstrap and press Play. A previously loaded ABI-v1 plugin must be replaced/reloaded: mismatched native/config/snapshot versions fail clearly. No device signing or real-entity rendering is added here.
 
 ## iPhone spike (TP-011)
 
 Run `scripts/build-native-ios.sh`, then **WorldSim → Build iOS performance spike**, then run the generated Xcode project with your personal team. The simulation advances on a worker thread; the main thread submits time commands and decodes one snapshot per frame. The HUD and one-second CSV logs are described in the [TP-011 note](../../docs/spikes/tp-011-iphone-performance.md).
+
+## VS-007 calendar and sun
+
+Bootstrap exposes an explicit UTC start in the BridgeDemo Inspector (default2026-06-21T17:00:00Z). `NativeWorld.UtcToSim` delegates civil validation and epoch/leap conversion to Rust; the integer start config is never inferred from Unity frame time. The HUD presents paired core UTC/New York labels, offset and committed speed; pause/1×/10×/100× all submit the existing structured command. A30-resident option matches the maximum slice population for measurement, while the native backend remains explicitly toy until#72.
+
+One serialized render fill plus calendar query publishes a matching tick, with caller-owned buffers and value structs. `CalendarPresentation` caches labels by core UTC second/committed scale and directs the existing directional light opposite the core toward-sun vector (ENU→Unity axes only). Lit materials respond to it; at night/unavailable dates direct sunlight is off, with fixed ambient presentation illumination. No renderer solar model or second clock exists. New tests preserve the previous pixel/allocation/control coverage and add layout, leap conversion, pairing, HUD/light, old-client refusal, pause and actual100× Editor measurement. The Editor CSV is `worldsim71-editor-100x.csv` in the OS temp directory, with backend/population/scale/frame/fill/worker timing. [Verification and device limitations](../../docs/verification/issue-71/README.md).

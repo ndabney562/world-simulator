@@ -1,0 +1,22 @@
+   Compiling ws-sim v0.1.0 (/Users/noahdabney/.codex/.chatgpt-projects/g-p-6ad24ebdfa708191b16f3c23ce0edb2a/world-simulator-71/core/crates/ws-sim)
+    Finished `bench` profile [optimized] target(s) in 1.35s
+     Running benches/calendar.rs (target/release/deps/calendar-48680149df771e91)
+Benchmarking calendar/toy30_committed_query_with_hash
+Benchmarking calendar/toy30_committed_query_with_hash: Warming up for 3.0000 s
+Benchmarking calendar/toy30_committed_query_with_hash: Collecting 100 samples in estimated 5.0109 s (1.6M iterations)
+Benchmarking calendar/toy30_committed_query_with_hash: Analyzing
+calendar/toy30_committed_query_with_hash
+                        time:   [3.1197 µs 3.1241 µs 3.1293 µs]
+Found 8 outliers among 100 measurements (8.00%)
+  5 (5.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking calendar/real_slice30_100x_host_frame_with_calendar_and_hash
+Benchmarking calendar/real_slice30_100x_host_frame_with_calendar_and_hash: Warming up for 3.0000 s
+Benchmarking calendar/real_slice30_100x_host_frame_with_calendar_and_hash: Collecting 100 samples in estimated 5.1662 s (86k iterations)
+Benchmarking calendar/real_slice30_100x_host_frame_with_calendar_and_hash: Analyzing
+calendar/real_slice30_100x_host_frame_with_calendar_and_hash
+                        time:   [49.110 µs 49.256 µs 49.428 µs]
+Found 2 outliers among 100 measurements (2.00%)
+  2 (2.00%) high severe
+

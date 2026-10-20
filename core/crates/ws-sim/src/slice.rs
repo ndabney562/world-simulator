@@ -18,6 +18,24 @@ pub struct SliceConfig {
     /// Monday midnight in the model week; civil calendar alignment is VS-007.
     pub schedule_epoch: SimTime,
 }
+impl SliceConfig {
+    /// Construct explicit civil-phase configuration under NY policy1 (ADR0030).
+    /// Store the returned epoch in configuration; do not recompute it while
+    /// stepping. Subsequent appointments retain elapsed model-week semantics.
+    /// Existing raw construction remains available, including extreme times.
+    /// # Errors
+    /// Creation outside UTC2000–2099. Grid validation remains [`SliceSimulation::new`]'s responsibility.
+    pub fn calendar_aligned_v1(
+        seed: u64,
+        start: SimTime,
+    ) -> Result<Self, ws_time::UnsupportedAlignment> {
+        Ok(Self {
+            seed,
+            start,
+            schedule_epoch: ws_time::model_monday_v1(start)?,
+        })
+    }
+}
 /// Typed construction, time, reservation or history failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SliceError {
@@ -131,6 +149,11 @@ pub struct SliceSimulation {
     fail_controller_tick: Option<u64>,
 }
 impl SliceSimulation {
+    /// Immutable explicit creation/model-epoch configuration. Querying never
+    /// recomputes civil alignment or changes elapsed schedule phase.
+    pub const fn config(&self) -> SliceConfig {
+        self.config
+    }
     /// Creates one slice with one creation fact and no false initial transitions.
     /// # Errors
     /// Invalid grid/baseline/destinations or failed history preparation.

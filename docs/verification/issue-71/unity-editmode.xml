@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="44" result="Passed" total="44" passed="44" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.8437868">
+  <test-suite type="TestSuite" id="1000" name="World Simulator" fullname="World Simulator" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.843787" total="44" passed="44" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1057" name="WorldSim.Tests.EditMode.dll" fullname="/private/tmp/worldsim71-unity-implementation.st5jwan2/apps/unity/Library/ScriptAssemblies/WorldSim.Tests.EditMode.dll" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.807568" total="44" passed="44" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="90828" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1058" name="WorldSim" fullname="WorldSim" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.807220" total="44" passed="44" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1059" name="Tests" fullname="WorldSim.Tests" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.806981" total="44" passed="44" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1060" name="EditMode" fullname="WorldSim.Tests.EditMode" runstate="Runnable" testcasecount="44" result="Passed" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.806383" total="44" passed="44" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1006" name="BridgePlayTests" fullname="WorldSim.Tests.EditMode.BridgePlayTests" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-10-20 19:06:20Z" end-time="2026-10-20 19:06:22Z" duration="1.222386" total="9" passed="9" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1016" name="BootstrapRendersAndAdvancesFromNativeSnapshots" fullname="WorldSim.Tests.EditMode.BridgePlayTests.BootstrapRendersAndAdvancesFromNativeSnapshots" methodname="BootstrapRendersAndAdvancesFromNativeSnapshots" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="634655636" result="Passed" start-time="2026-10-20 19:06:19Z" end-time="2026-10-20 19:06:21Z" duration="2.618579" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                </properties>
+              </test-case>
+              <test-case id="1013" name="CatchUpPreservesOnlySubStepRemainder" fullname="WorldSim.Tests.EditMode.BridgePlayTests.CatchUpPreservesOnlySubStepRemainder" methodname="CatchUpPreservesOnlySubStepRemainder" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="908343057" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:21Z" duration="0.001397" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1011" name="CodeBuiltMeshesMatchPrimitiveSizesAndFaceOutwards" fullname="WorldSim.Tests.EditMode.BridgePlayTests.CodeBuiltMeshesMatchPrimitiveSizesAndFaceOutwards" methodname="CodeBuiltMeshesMatchPrimitiveSizesAndFaceOutwards" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="134182" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:21Z" duration="0.002332" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1007" name="DemoInputBackendSupportsLegacyMouseAndTouch" fullname="WorldSim.Tests.EditMode.BridgePlayTests.DemoInputBackendSupportsLegacyMouseAndTouch" methodname="DemoInputBackendSupportsLegacyMouseAndTouch" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="238672494" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:21Z" duration="0.000529" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1014" name="HostUsesCommittedScaleOnceAndRetainsPausedFraction" fullname="WorldSim.Tests.EditMode.BridgePlayTests.HostUsesCommittedScaleOnceAndRetainsPausedFraction" methodname="HostUsesCommittedScaleOnceAndRetainsPausedFraction" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="1628568290" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:21Z" duration="0.000157" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1012" name="LongStallDropsExcessWholeSteps" fullname="WorldSim.Tests.EditMode.BridgePlayTests.LongStallDropsExcessWholeSteps" methodname="LongStallDropsExcessWholeSteps" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="1110679368" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:21Z" duration="0.000496" asserts="0">
+                <properties />
+              </test-case>
+              <test-suite type="ParameterizedMethod" id="1010" name="OverviewFitsEveryBuildingAndRotationKeepsZoom" fullname="WorldSim.Tests.EditMode.BridgePlayTests.OverviewFitsEveryBuildingAndRotationKeepsZoom" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:22Z" duration="0.003425" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1008" name="OverviewFitsEveryBuildingAndRotationKeepsZoom(1.777778f,0.5625f)" fullname="WorldSim.Tests.EditMode.BridgePlayTests.OverviewFitsEveryBuildingAndRotationKeepsZoom(1.777778f,0.5625f)" methodname="OverviewFitsEveryBuildingAndRotationKeepsZoom" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="115611732" result="Passed" start-time="2026-10-20 19:06:21Z" end-time="2026-10-20 19:06:22Z" duration="0.001686" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1009" name="OverviewFitsEveryBuildingAndRotationKeepsZoom(0.5625f,1.777778f)" fullname="WorldSim.Tests.EditMode.BridgePlayTests.OverviewFitsEveryBuildingAndRotationKeepsZoom(0.5625f,1.777778f)" methodname="OverviewFitsEveryBuildingAndRotationKeepsZoom" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="962434719" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000503" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-case id="1015" name="WorkerThreadAdvancesTheWorldAndStopsCleanly" fullname="WorldSim.Tests.EditMode.BridgePlayTests.WorkerThreadAdvancesTheWorldAndStopsCleanly" methodname="WorkerThreadAdvancesTheWorldAndStopsCleanly" classname="WorldSim.Tests.EditMode.BridgePlayTests" runstate="Runnable" seed="783357478" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.013653" asserts="0">
+                <properties />
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1017" name="BridgeTests" fullname="WorldSim.Tests.EditMode.BridgeTests" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" testcasecount="19" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.078837" total="19" passed="19" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1020" name="CommandsStayPendingUntilFlushAndResumeAtTheSameTick" fullname="WorldSim.Tests.EditMode.BridgeTests.CommandsStayPendingUntilFlushAndResumeAtTheSameTick" methodname="CommandsStayPendingUntilFlushAndResumeAtTheSameTick" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1423351944" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.001259" asserts="0">
+                <properties />
+              </test-case>
+              <test-suite type="ParameterizedMethod" id="1034" name="CorruptFrameDoesNotPublishTransforms" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.005125" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1027" name="CorruptFrameDoesNotPublishTransforms(0,2)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(0,2)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1464825920" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.003519" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1028" name="CorruptFrameDoesNotPublishTransforms(4,1)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(4,1)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1968017759" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000180" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1029" name="CorruptFrameDoesNotPublishTransforms(16,2)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(16,2)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1565224909" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000130" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1030" name="CorruptFrameDoesNotPublishTransforms(20,1)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(20,1)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="966409680" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000130" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1031" name="CorruptFrameDoesNotPublishTransforms(32,7)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(32,7)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1667187988" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000123" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1032" name="CorruptFrameDoesNotPublishTransforms(32,2)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(32,2)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1908024428" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000122" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1033" name="CorruptFrameDoesNotPublishTransforms(212,1)" fullname="WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(212,1)" methodname="CorruptFrameDoesNotPublishTransforms" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="925074092" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000120" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-case id="1038" name="MacPluginCreatesAdvancesAndDecodesSnapshots" fullname="WorldSim.Tests.EditMode.BridgeTests.MacPluginCreatesAdvancesAndDecodesSnapshots" methodname="MacPluginCreatesAdvancesAndDecodesSnapshots" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1732422283" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.003876" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1018" name="NativeConfigLayoutMatchesHeader" fullname="WorldSim.Tests.EditMode.BridgeTests.NativeConfigLayoutMatchesHeader" methodname="NativeConfigLayoutMatchesHeader" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="755289398" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000258" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1019" name="NativeControlStateLayoutMatchesHeaderAndOldClientIsRefused" fullname="WorldSim.Tests.EditMode.BridgeTests.NativeControlStateLayoutMatchesHeaderAndOldClientIsRefused" methodname="NativeControlStateLayoutMatchesHeaderAndOldClientIsRefused" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1928074570" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.001428" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1035" name="NonfiniteAndNonpositiveRecordsAreRejected" fullname="WorldSim.Tests.EditMode.BridgeTests.NonfiniteAndNonpositiveRecordsAreRejected" methodname="NonfiniteAndNonpositiveRecordsAreRejected" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1106674755" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000420" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1021" name="SharedFixtureDecodesBuildingsThenResidents" fullname="WorldSim.Tests.EditMode.BridgeTests.SharedFixtureDecodesBuildingsThenResidents" methodname="SharedFixtureDecodesBuildingsThenResidents" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1408418640" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000582" asserts="0">
+                <properties />
+              </test-case>
+              <test-suite type="ParameterizedMethod" id="1026" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.001579" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1022" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(1.570796f,0.0f,1.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(1.570796f,0.0f,1.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="751044849" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000815" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1023" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(0.0f,1.0f,0.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(0.0f,1.0f,0.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1675329773" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000051" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1024" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(3.141593f,-1.0f,0.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(3.141593f,-1.0f,0.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1519645006" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000045" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1025" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(-1.570796f,0.0f,-1.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(-1.570796f,0.0f,-1.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1467819968" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000044" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-case id="1037" name="WarmedFillAndDecodeHaveNoManagedAllocations" fullname="WorldSim.Tests.EditMode.BridgeTests.WarmedFillAndDecodeHaveNoManagedAllocations" methodname="WarmedFillAndDecodeHaveNoManagedAllocations" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1393015739" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.062546" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1036" name="WarmedFlushAndControlReadHaveNoManagedAllocations" fullname="WorldSim.Tests.EditMode.BridgeTests.WarmedFlushAndControlReadHaveNoManagedAllocations" methodname="WarmedFlushAndControlReadHaveNoManagedAllocations" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1531616614" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:22Z" duration="0.000203" asserts="0">
+                <properties />
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1039" name="CalendarTests" fullname="WorldSim.Tests.EditMode.CalendarTests" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-10-20 19:06:23Z" end-time="2026-10-20 19:06:48Z" duration="24.787425" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1046" name="ActualHudControlsPauseAndHundredTimesKeepUpAtSlicePopulation" fullname="WorldSim.Tests.EditMode.CalendarTests.ActualHudControlsPauseAndHundredTimesKeepUpAtSlicePopulation" methodname="ActualHudControlsPauseAndHundredTimesKeepUpAtSlicePopulation" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="1565601742" result="Passed" start-time="2026-10-20 19:06:22Z" end-time="2026-10-20 19:06:48Z" duration="26.107301" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[VS007 Editor toy30 scale1: fps=643.057, ticks/s=9.999, csv=/var/folders/xh/8txg_60151s2r14_j5t3k6yr0000gn/T/worldsim71-editor-100x.csv
+VS007 Editor toy30 scale100: fps=633.248, ticks/s=999.917, csv=/var/folders/xh/8txg_60151s2r14_j5t3k6yr0000gn/T/worldsim71-editor-100x.csv
+]]></output>
+              </test-case>
+              <test-case id="1041" name="CalendarAndUtcLayoutsMatchEveryNativeOffset" fullname="WorldSim.Tests.EditMode.CalendarTests.CalendarAndUtcLayoutsMatchEveryNativeOffset" methodname="CalendarAndUtcLayoutsMatchEveryNativeOffset" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="358199366" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.001744" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1043" name="CalendarSnapshotPairIsReadOnlyAndPendingCommandsStayPending" fullname="WorldSim.Tests.EditMode.CalendarTests.CalendarSnapshotPairIsReadOnlyAndPendingCommandsStayPending" methodname="CalendarSnapshotPairIsReadOnlyAndPendingCommandsStayPending" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="822840122" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000993" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1042" name="PureUtcConfigurationPreservesLeapLabelsAndDoesNotSnapGrid" fullname="WorldSim.Tests.EditMode.CalendarTests.PureUtcConfigurationPreservesLeapLabelsAndDoesNotSnapGrid" methodname="PureUtcConfigurationPreservesLeapLabelsAndDoesNotSnapGrid" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="782928258" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000920" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1040" name="SharedUtcAndSkyByteFixturesMatchNativeLayoutAndInvalidRecordsAreRejected" fullname="WorldSim.Tests.EditMode.CalendarTests.SharedUtcAndSkyByteFixturesMatchNativeLayoutAndInvalidRecordsAreRejected" methodname="SharedUtcAndSkyByteFixturesMatchNativeLayoutAndInvalidRecordsAreRejected" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="1468502029" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.003518" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1044" name="SunLightAndHudPresentCoreValuesIncludingNightAndUnavailableStatus" fullname="WorldSim.Tests.EditMode.CalendarTests.SunLightAndHudPresentCoreValuesIncludingNightAndUnavailableStatus" methodname="SunLightAndHudPresentCoreValuesIncludingNightAndUnavailableStatus" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="1600960344" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.001718" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1045" name="WarmedCalendarFillAndPresentationReuseManagedStorage" fullname="WorldSim.Tests.EditMode.CalendarTests.WarmedCalendarFillAndPresentationReuseManagedStorage" methodname="WarmedCalendarFillAndPresentationReuseManagedStorage" classname="WorldSim.Tests.EditMode.CalendarTests" runstate="Runnable" seed="1258998127" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.002697" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+            </test-suite>
+            <test-suite type="TestFixture" id="1047" name="ProjectSkeletonTests" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.011198" total="9" passed="9" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1054" name="AssetsAreTextSerializedWithVisibleMetaFiles" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.AssetsAreTextSerializedWithVisibleMetaFiles" methodname="AssetsAreTextSerializedWithVisibleMetaFiles" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="1129217157" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000312" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1055" name="BootstrapIsTheOnlyBuildScene" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.BootstrapIsTheOnlyBuildScene" methodname="BootstrapIsTheOnlyBuildScene" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="1642674532" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000431" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1056" name="BootstrapSceneHoldsCameraLightAndBridgeDemo" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.BootstrapSceneHoldsCameraLightAndBridgeDemo" methodname="BootstrapSceneHoldsCameraLightAndBridgeDemo" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="1786497722" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.003755" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Unloading the last loaded scene Assets/WorldSim/Scenes/Bootstrap.unity(build index: 0), is not supported. Please use SceneManager.LoadScene()/EditorSceneManager.OpenScene() to switch to another scene.
+]]></output>
+              </test-case>
+              <test-case id="1051" name="IosPlayerSettingsMatchTheIssue" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.IosPlayerSettingsMatchTheIssue" methodname="IosPlayerSettingsMatchTheIssue" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="1560719971" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.001772" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1050" name="ProvidersFolderContainsNoCode" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.ProvidersFolderContainsNoCode" methodname="ProvidersFolderContainsNoCode" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="825766320" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000507" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1049" name="RenderingReferencesBridgeAndBridgeReferencesNoWorldSimAssembly" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.RenderingReferencesBridgeAndBridgeReferencesNoWorldSimAssembly" methodname="RenderingReferencesBridgeAndBridgeReferencesNoWorldSimAssembly" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="1755916480" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.001264" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1053" name="UrpAssetUsesConservativeMobileDefaults" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.UrpAssetUsesConservativeMobileDefaults" methodname="UrpAssetUsesConservativeMobileDefaults" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="9041588" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000437" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1052" name="UrpIsTheActiveRenderPipeline" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.UrpIsTheActiveRenderPipeline" methodname="UrpIsTheActiveRenderPipeline" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="982545196" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.000267" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+              </test-case>
+              <test-case id="1048" name="WorldSimAssembliesAreCompiled" fullname="WorldSim.Tests.EditMode.ProjectSkeletonTests.WorldSimAssembliesAreCompiled" methodname="WorldSimAssembliesAreCompiled" classname="WorldSim.Tests.EditMode.ProjectSkeletonTests" runstate="Runnable" seed="1921813071" result="Passed" start-time="2026-10-20 19:06:48Z" end-time="2026-10-20 19:06:48Z" duration="0.001067" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Saving results to: /Users/noahdabney/Library/Application Support/World Simulator/World Simulator/TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

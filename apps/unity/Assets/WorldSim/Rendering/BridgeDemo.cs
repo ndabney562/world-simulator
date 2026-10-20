@@ -11,19 +11,25 @@ namespace WorldSim.Rendering
 {
     /// <summary>
     /// TP-011 toy-world host: starts a worker-driven native world, draws buildings as boxes and residents as
-    /// capsules with instancing, and shows the debug HUD. The scale buttons rebuild the world at 50, 500 or 5,000
+    /// capsules with instancing, and shows the debug HUD. The population buttons rebuild the world at30,50,500 or5,000
     /// residents. The class keeps its TP-003 name so the Bootstrap scene reference stays valid.
     /// </summary>
     public sealed class BridgeDemo : MonoBehaviour
     {
-        static readonly int[] Scales = { 50, 500, 5000 };
+        static readonly int[] Scales = { 30, 50, 500, 5000 };
         const int Chunk = 256;
         [SerializeField] int startScaleIndex = 0;
+        // Explicit world configuration, converted by the core (including its
+        // epoch/leap table). Tests and the default verification scene use this
+        // fixed date; a host can supply another date before creating a world.
+        [SerializeField] int startUtcYear = 2026, startUtcMonth = 6, startUtcDay = 21;
+        [SerializeField] int startUtcHour = 17, startUtcMinute = 0, startUtcSecond = 0;
         SimHost host;
         RenderFrame frame;
         Mesh boxMesh, capsuleMesh;
         Material buildingMaterial, residentMaterial;
         OrbitCamera orbit;
+        CalendarPresentation calendar;
         Rect hudRect;
         int scaleIndex;
         bool framed;
@@ -36,6 +42,11 @@ namespace WorldSim.Rendering
         string logPath = "";
         public ulong Tick { get; private set; }
         public bool Running => host != null;
+        public uint CommittedScale => frame == null ? 0 : frame.Sky.ScaleTag;
+        public string CalendarText => calendar == null ? "" : calendar.Text;
+        internal double LastFillMs { get; private set; }
+        internal double AdvanceMeanMs => advanceMean;
+        internal double AdvanceMaxMs => advanceMax;
 
         void OnEnable()
         {
@@ -43,12 +54,16 @@ namespace WorldSim.Rendering
             {
                 boxMesh = ToyMeshes.Box();
                 capsuleMesh = ToyMeshes.Capsule();
-                var shader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (shader == null) throw new InvalidOperationException("URP Unlit shader missing.");
+                var shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null) throw new InvalidOperationException("URP Lit shader missing.");
                 buildingMaterial = new Material(shader) { enableInstancing = true };
                 buildingMaterial.SetColor("_BaseColor", new Color(0.15f, 0.8f, 0.9f));
                 residentMaterial = new Material(shader) { enableInstancing = true };
                 residentMaterial.SetColor("_BaseColor", new Color(1f, 0.55f, 0.1f));
+                buildingMaterial.SetFloat("_Smoothness", 0); residentMaterial.SetFloat("_Smoothness", 0);
+                RenderSettings.ambientMode = AmbientMode.Flat;
+                RenderSettings.ambientLight = new Color(0.8f, 0.8f, 0.8f);
+                calendar = new CalendarPresentation(FindFirstObjectByType<Light>());
                 Application.targetFrameRate = 60;
                 orbit = new OrbitCamera(Camera.main, Vector3.zero);
                 StartWorld(Mathf.Clamp(startScaleIndex, 0, Scales.Length - 1));
@@ -62,10 +77,13 @@ namespace WorldSim.Rendering
             StopWorld();
             scaleIndex = index;
             int residents = Scales[index];
-            host = new SimHost(7, residents / NativeWorld.BuildingCount);
+            long start = NativeWorld.UtcToSim(startUtcYear, checked((uint)startUtcMonth), checked((uint)startUtcDay),
+                checked((uint)startUtcHour), checked((uint)startUtcMinute), checked((uint)startUtcSecond));
+            host = new SimHost(7, residents / NativeWorld.BuildingCount, start);
             frame = new RenderFrame(NativeWorld.BuildingCount, residents);
             framed = false;
             host.Fill(frame); Tick = frame.Tick;
+            calendar.Apply(frame.Sky);
             OpenLog(residents);
             windowStart = Time.realtimeSinceStartup; windowFrames = 0; windowFrameSum = windowFrameMax = windowFillSum = 0;
         }
@@ -77,7 +95,7 @@ namespace WorldSim.Rendering
             {
                 logPath = Path.Combine(Application.persistentDataPath, $"tp011-{residents}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
                 log = new StreamWriter(logPath, false, new UTF8Encoding(false));
-                log.WriteLine("t_s,residents,fps,frame_ms_mean,frame_ms_max,fill_ms,advance_ms_mean,advance_ms_max,instances,managed_mb,native_footprint_mb,thermal");
+                log.WriteLine("t_s,residents,fps,frame_ms_mean,frame_ms_max,fill_ms,advance_ms_mean,advance_ms_max,instances,managed_mb,native_footprint_mb,thermal,backend,scale,tick");
             }
             catch (Exception error) { Debug.LogWarning($"Run log unavailable: {error.Message}"); log = null; logPath = "(none)"; }
             runStart = Time.realtimeSinceStartup; nextLog = runStart + 1f;
@@ -90,7 +108,9 @@ namespace WorldSim.Rendering
             {
                 if (host.Failure != null) throw host.Failure;
                 double fill = host.Fill(frame);
+                LastFillMs = fill;
                 Tick = frame.Tick;
+                calendar.Apply(frame.Sky);
                 // A new world gets the full overview; a rotation or resize refits but keeps the user's zoom.
                 if (!framed || !orbit.FitsAspect) { FrameBuildings(orbit, frame, framed); framed = true; }
                 orbit.Update(hudRect.Contains(HudPointer()));
@@ -153,7 +173,7 @@ namespace WorldSim.Rendering
                     frameMean.ToString("F2", c), frameMax.ToString("F2", c), fillMean.ToString("F3", c),
                     advanceMean.ToString("F3", c), advanceMax.ToString("F3", c), host.InstanceCount,
                     (GC.GetTotalMemory(false) / 1048576.0).ToString("F1", c), (PlatformStats.FootprintBytes / 1048576.0).ToString("F1", c),
-                    PlatformStats.ThermalState));
+                    PlatformStats.ThermalState, "toy", frame.Sky.ScaleTag, Tick));
                 log.Flush();
             }
         }
@@ -163,18 +183,20 @@ namespace WorldSim.Rendering
             if (host == null) return;
             float scale = HudScale();
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1));
-            hudRect = new Rect(8, 8, 330, 224);
+            hudRect = new Rect(8, 8, 380, 270);
             GUI.Box(hudRect, GUIContent.none);
-            GUILayout.BeginArea(new Rect(14, 12, 318, 216));
+            GUILayout.BeginArea(new Rect(14, 12, 368, 262));
+            GUILayout.Label(calendar.Text);
             GUILayout.Label($"{fps:F0} fps   frame {frameMean:F1} ms (max {frameMax:F1})");
             GUILayout.Label($"core step {advanceMean:F2} ms (max {advanceMax:F2})   fill {fillMean:F2} ms");
             GUILayout.Label($"{host.ResidentCount} residents, {host.InstanceCount} instances, tick {Tick}");
             GUILayout.Label($"mem managed {GC.GetTotalMemory(false) / 1048576.0:F0} MB, unity {Profiler.GetTotalAllocatedMemoryLong() / 1048576.0:F0} MB, process {PlatformStats.FootprintBytes / 1048576.0:F0} MB");
             GUILayout.Label($"thermal {PlatformStats.ThermalName(PlatformStats.ThermalState)}   log {Path.GetFileName(logPath)}");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Pause")) host.SetScale(0);
-            if (GUILayout.Button("x1")) host.SetScale(1);
-            if (GUILayout.Button("x10")) host.SetScale(10);
+            if (GUILayout.Button("Pause")) SetSpeed(0);
+            if (GUILayout.Button("x1")) SetSpeed(1);
+            if (GUILayout.Button("x10")) SetSpeed(10);
+            if (GUILayout.Button("x100")) SetSpeed(100);
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
             for (int i = 0; i < Scales.Length; i++)
@@ -182,6 +204,13 @@ namespace WorldSim.Rendering
                 { StartWorld(i); break; }
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
+        }
+
+        /// <summary>The same structured command path used by every HUD speed button.</summary>
+        public void SetSpeed(uint scale)
+        {
+            if (host == null) throw new InvalidOperationException("No active world.");
+            host.SetScale(scale);
         }
 
         /// <summary>Take at most 100 ticks; discard excess whole steps and retain sub-step time.</summary>

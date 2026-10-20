@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## VS-007 implementation (2026-10-20)
+
+Implements accepted ADR0030: integer UTC/local/model-Monday helpers, deterministic libm block sun, immutable committed calendar/sky and ABI4 native/managed pairing, explicit start configuration and Unity date/time/speed/light plus100× controls. New rule1 bit/reference/layout/replay/Editor checks preserve previous fixtures and behavioral properties; only the accepted obsolete ABI expectations/consumer entrypoint advance. No new dependency/service, real-slice native adapter, device/signing or stage-exit claim.
+
 ## ADR0030 accepted (2026-10-20)
 
 Independent review of the immutable published design approved with zero open findings after the predecessor-Monday range clarification. Applied Noah’s named technical delegation recorded on#77: status/index/pointers now say Accepted. Final-head review and green CI remain merge gates. #71 stays open for its separate implementation, reference goldens and actual Editor evidence. The narrowly described ABI-version migration is accepted; unrelated tests, device actions and stage-exit gates are unchanged.

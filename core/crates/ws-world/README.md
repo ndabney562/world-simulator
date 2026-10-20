@@ -127,7 +127,7 @@ independence, 10,000 seeds (40,000 building IDs), and fixed-seed properties for
 ellipsoidal heights. Existing toy goldens remain unchanged.
 
 This constructor owns only structural baseline data. `ws-sim::World`, the CLI,
-save formats 1/2 and Unity ABI 3 continue using the toy world. Resident domain
+save formats 1/2 and Unity ABI4 continues using the toy world. Resident domain
 integration belongs to #67; real-footprint snapshots and rendering belong to
 #72, and slice save/migration support to #53 / #75. No ADR decision changes
 are needed: real-data building keys are already allowed by ADR 0016.
@@ -157,3 +157,7 @@ python3 scripts/vs_population_golden.py build
 ```
 
 Fixed-seed property tests verify the home/unit/member counts, adult head, exact role ranges, cross-kind unique IDs, accepted resident address derivation, family/name attributes, destination/capacity references and regeneration. Unit tests force cross-kind collisions, reverse source order, reject changed source-home counts and verify purpose separation. No tick-path cost is added; measurements are unnecessary at this baseline's scale per #67. No new dependency or data source.
+
+## VS-007 derived calendar/sky
+
+`environment` composes exact UTC, bounded New York policy1 and pure solar rule1. `SOLAR_SITE` is computed at compile time from the complete58-source-footprint envelope with i128 midpoint/floor arithmetic; the pinned registered dataset supplies its version. `calendar_sky(time, render_basis)` returns exact UTC throughout SimTime and explicit unavailable local/sun status outside UTC2000–2099. The sun is rotated site ENU→ECEF→the supplied render ENU basis; azimuth/elevation remain fixed-site values. `ToyWorld::render_basis` returns precisely the basis already used by render records, without treating navigation millimetres as ENU. The dedicated query direction has new exact Tier1 goldens across four seeds; general coordinate policy stays Tier3. This owns no mutable state/events and consumes no RNG.
