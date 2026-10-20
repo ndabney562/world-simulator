@@ -64,7 +64,7 @@ graph LR
 | VS-001 | S-8 which block; D-22 data-source register entries |
 | VS-005 | L1 behaviour model (Proposed ADR if locked in) |
 | VS-006 | Camera-interest command (ADR if the command format changes) |
-| VS-008 | Render snapshot ABI 4 |
+| VS-008 | Real-slice render transport; proposed ABI5 in ADR0031 after VS-007 consumes ABI4 |
 | VS-011 | Save format version bump (ADR 0020 amendment or new ADR) |
 | VS-012 | S-5 frame-rate target, re-made on the slice's load |
 
