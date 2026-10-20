@@ -86,3 +86,5 @@ Each level emits world events at its own granularity: individual events at L0–
 ## Accepted real-slice reconciliation
 
 [ADR 0028](../adr/0028-slice-l1-needs-and-navigation.md) defines the VS-005 real-slice L1/L2 state classification and exact need/decision/path reconciliation alongside the unchanged toy rules of ADR 0017. The contract preserves schedule deadlines and off-map identities; camera interests, hysteresis and transition budgeting remain VS-006/#70. It is **Accepted** under the standing technical delegation recorded on #77 and PR #88 after independent review, and ships no runtime behavior.
+
+[Proposed ADR 0029](../adr/0029-slice-camera-interest-and-aggregates.md) specifies VS-006/#70's coarse camera input, deterministic building policy, retained-resident L3 summaries, exact count checks and new slice-only LOD facts. Its bounded real-slice refinement and implementation remain pending acceptance; existing toy LOD/event formats are unchanged.

@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0029: real-slice camera policy and aggregates (2026-10-20, Proposed)
+
+Docs-only VS-006/#70 proposal for a coarse camera-interest operation, integer building selection/hysteresis, retained-resident L3 occupancy/activity summaries, deterministic observation continuity, transactional invariants and a separate slice-only LOD event. Adds pending architecture pointers. Existing runtime, toy event/save/FFI formats and tests remain unchanged; Unity integration remains #72 and actual device evidence #76.
+
 ## ADR 0028 accepted (2026-10-20)
 
 Independent actual-diff review approved the proposed contract with zero findings. Applied Noah's standing technical acceptance delegation recorded on #77 and PR #88; status, index and pointers now record Accepted. Final-head review and green CI remain merge gates. #69 remains open for the separate runtime implementation and its required tests/benchmarks; no runtime, fixture or device claim is introduced.
