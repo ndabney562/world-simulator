@@ -82,3 +82,7 @@ The player must never be able to "catch" the LOD system lying about something th
 ## 6.8 Events across levels
 
 Each level emits world events at its own granularity: individual events at L0–L2, and **aggregate events** at L3 and coarser ("14 births in this district in March"). The aggregation contract in 6.3 extends to events: individual events of a type roll up into the aggregate events of the next level, and aggregate counts must match ([24 §24.10](24-world-events-and-causality.md)). Causal attribution at coarse levels is statistical ([24 §24.6](24-world-events-and-causality.md)).
+
+## Proposed real-slice reconciliation
+
+[ADR 0028](../adr/0028-slice-l1-needs-and-navigation.md) proposes the VS-005 real-slice L1/L2 state classification and exact need/decision/path reconciliation alongside the unchanged toy rules of ADR 0017. The proposal preserves schedule deadlines and off-map identities; camera interests, hysteresis and transition budgeting remain VS-006/#70. It is **Proposed** and ships no runtime behavior.
