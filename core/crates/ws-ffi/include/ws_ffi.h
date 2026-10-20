@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 3
+#define ABI_VERSION 4
 
 /**
  * Most residents per building a config may ask for.
@@ -69,7 +69,7 @@ typedef struct WsHandle WsHandle;
  */
 typedef struct {
   /**
-   * Must equal 3.
+   * Must equal 4.
    */
   uint32_t abi_version;
   /**
@@ -104,7 +104,7 @@ typedef uint32_t WsStatus;
  */
 typedef struct {
   /**
-   * Caller requests ABI 3; returned as 3 on success.
+   * Caller requests ABI4; returned as4 on success.
    */
   uint32_t abi_version;
   /**
@@ -122,7 +122,184 @@ typedef struct {
 } WsControlState;
 
 /**
- * Snapshot v3 header, serialized little-endian without alignment assumptions.
+ * Validated UTC input label, exactly40 bytes aligned to4.
+ */
+typedef struct {
+  /**
+   * ABI4.
+   */
+  uint32_t abi_version;
+  /**
+   * Exactly40.
+   */
+  uint32_t struct_size;
+  /**
+   * Astronomical Gregorian year; conversion separately checks SimTime range.
+   */
+  int32_t year;
+  /**
+   * Month1..=12.
+   */
+  uint32_t month;
+  /**
+   * Day of month.
+   */
+  uint32_t day;
+  /**
+   * Hour0..=23.
+   */
+  uint32_t hour;
+  /**
+   * Minute0..=59.
+   */
+  uint32_t minute;
+  /**
+   * Second0..=60,60 only at a tabulated UTC leap second.
+   */
+  uint32_t second;
+  /**
+   * Microsecond0..=999999.
+   */
+  uint32_t microsecond;
+  /**
+   * Must be zero.
+   */
+  uint32_t reserved;
+} WsUtcLabel;
+
+/**
+ * Coherent environment output, exactly160 bytes aligned to8. Initialize only
+ * abi_version/struct_size before the call; all fields are written on success.
+ */
+typedef struct {
+  /**
+   * ABI4.
+   */
+  uint32_t abi_version;
+  /**
+   * Exactly160.
+   */
+  uint32_t struct_size;
+  /**
+   * Committed physical tick; pair with the render snapshot under one gate.
+   */
+  uint64_t tick;
+  /**
+   * Committed uniform-SI microseconds from the simulation epoch.
+   */
+  int64_t sim_time_us;
+  /**
+   * Canonical state hash; querying never changes it.
+   */
+  uint64_t state_hash;
+  /**
+   * Exact UTC astronomical Gregorian year.
+   */
+  int32_t utc_year;
+  /**
+   * UTC month.
+   */
+  uint32_t utc_month;
+  /**
+   * UTC day.
+   */
+  uint32_t utc_day;
+  /**
+   * UTC hour.
+   */
+  uint32_t utc_hour;
+  /**
+   * UTC minute.
+   */
+  uint32_t utc_minute;
+  /**
+   * UTC second, including60.
+   */
+  uint32_t utc_second;
+  /**
+   * UTC microsecond.
+   */
+  uint32_t utc_microsecond;
+  /**
+   * New York Gregorian year; zero if unavailable.
+   */
+  int32_t local_year;
+  /**
+   * New York month; zero if unavailable.
+   */
+  uint32_t local_month;
+  /**
+   * New York day; zero if unavailable.
+   */
+  uint32_t local_day;
+  /**
+   * New York hour; zero if unavailable.
+   */
+  uint32_t local_hour;
+  /**
+   * New York minute; zero if unavailable.
+   */
+  uint32_t local_minute;
+  /**
+   * New York second, preserving60; zero if unavailable.
+   */
+  uint32_t local_second;
+  /**
+   * New York microsecond; zero if unavailable.
+   */
+  uint32_t local_microsecond;
+  /**
+   * EST−18000/EDT−14400, or zero if unavailable.
+   */
+  int32_t utc_offset_seconds;
+  /**
+   * Committed scale0/1/10/100, never pending commands.
+   */
+  uint32_t scale_tag;
+  /**
+   * Pinned solar rule version.
+   */
+  uint32_t solar_version;
+  /**
+   * Pinned New York rule version.
+   */
+  uint32_t ny_policy_version;
+  /**
+   * Bit0=supported local/solar; all other bits zero.
+   */
+  uint32_t flags;
+  /**
+   * Embedded UTC leap table version.
+   */
+  uint32_t leap_table_version;
+  /**
+   * Registered block dataset providing the solar site.
+   */
+  uint64_t site_dataset_version;
+  /**
+   * Toward-sun east in the paired render ENU basis; zero if unavailable.
+   */
+  double sun_east;
+  /**
+   * Toward-sun north in the paired render ENU basis; zero if unavailable.
+   */
+  double sun_north;
+  /**
+   * Toward-sun up in the paired render ENU basis; zero if unavailable.
+   */
+  double sun_up;
+  /**
+   * Geometric azimuth clockwiseNorth at the fixed site; zero if unavailable.
+   */
+  double azimuth_deg;
+  /**
+   * Geometric elevation at the fixed site; zero if unavailable.
+   */
+  double elevation_deg;
+} WsCalendarSky;
+
+/**
+ * Snapshot v4 header, serialized little-endian without alignment assumptions.
  */
 typedef struct {
   /**
@@ -240,5 +417,25 @@ WsStatus ws_fill_render_snapshot(WsHandle *handle, uint8_t *buf, size_t cap, siz
 size_t ws_last_error(WsHandle *handle,
                      char *buf,
                      size_t cap);
+
+/**
+ * Pure UTC configuration conversion; no world, clock read or grid rounding.
+ * Only success writes output. World creation separately enforces100-ms grid.
+ * Errors and caught unwinds use thread-local diagnostics; no handle is poisoned.
+ * # Safety
+ * Non-null input points to one initialized aligned40-byte label; non-null
+ * output points to writable aligned i64 storage, disjoint from input.
+ */
+WsStatus ws_utc_to_sim(const WsUtcLabel *input, int64_t *out_time);
+
+/**
+ * Pure committed-boundary calendar/sky query. Does not flush pending commands.
+ * Invalid input/version/size, poison and caught panic leave output untouched.
+ * # Safety
+ * Handle must be live/exclusive; non-null output is aligned writable160-byte
+ * storage disjoint from the handle, with only its first two u32 fields required
+ * initialized. Raw callers serialize this query with render fill and mutation.
+ */
+WsStatus ws_get_calendar_sky(WsHandle *handle, WsCalendarSky *out_sky);
 
 #endif  /* WS_FFI_H */

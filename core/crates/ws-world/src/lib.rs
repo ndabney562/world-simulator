@@ -32,6 +32,7 @@
 //! [ADR 0017]: https://github.com/ndabney562/world-simulator/blob/main/docs/adr/0017-simulation-lod-l1-l2-round-trip.md
 
 pub mod dataset;
+pub mod environment;
 pub mod ids;
 pub mod illness;
 pub mod lod;
@@ -491,6 +492,16 @@ impl ToyWorld {
     #[must_use]
     pub fn render_instance_count(&self) -> usize {
         self.buildings.len() + self.walks.len()
+    }
+
+    /// Exact ENU basis used by [`Self::render_instances`], independent of its
+    /// translational origin. None only for a world with no buildings.
+    #[must_use]
+    pub fn render_basis(&self) -> Option<ws_math::EnuFrame> {
+        self.buildings
+            .iter()
+            .next()
+            .map(|(_, first)| *CellFrame::new(first.pos.cell()).frame())
     }
 
     /// Calls `f` with the render record of every building (ascending ID),

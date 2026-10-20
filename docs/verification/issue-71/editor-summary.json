@@ -1,0 +1,28 @@
+[
+  {
+    "scale": 1,
+    "frames": 6431,
+    "wall_s": 10.000599,
+    "fps": 643.0614806173111,
+    "frame_ms_mean": 1.55506129171202,
+    "frame_ms_p95": 2.374917,
+    "frame_ms_max": 5.09575,
+    "fill_ms_mean": 0.02361763333851656,
+    "render_fenced_ms_mean": 0.7608905630539574,
+    "advance_ms_mean": 0.013743943399160317,
+    "advance_ms_max": 0.0491
+  },
+  {
+    "scale": 100,
+    "frames": 6333,
+    "wall_s": 10.000815,
+    "fps": 633.2483902561942,
+    "frame_ms_mean": 1.5791591201642192,
+    "frame_ms_p95": 2.486375,
+    "frame_ms_max": 6.119125,
+    "fill_ms_mean": 0.023582614874467077,
+    "render_fenced_ms_mean": 0.7690174954997632,
+    "advance_ms_mean": 0.004704878414653403,
+    "advance_ms_max": 0.0457
+  }
+]

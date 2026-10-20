@@ -18,6 +18,7 @@ mod civil;
 mod duration;
 mod error;
 mod leap;
+mod local;
 mod rate;
 mod time;
 
@@ -25,6 +26,9 @@ pub use civil::UtcDateTime;
 pub use duration::SimDuration;
 pub use error::{CivilError, InvalidStep, TimeOverflow};
 pub use leap::LEAP_SECOND_TABLE_VERSION;
+pub use local::{
+    LocalDateTime, NY_POLICY_VERSION, UnsupportedAlignment, model_monday_v1, new_york,
+};
 pub use rate::Rate;
 pub use time::SimTime;
 

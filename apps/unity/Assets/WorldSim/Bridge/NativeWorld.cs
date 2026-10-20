@@ -46,6 +46,10 @@ namespace WorldSim.Bridge
         internal static extern uint Advance(WorldHandle handle, uint steps);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_get_control_state")]
         internal static extern uint ControlState(WorldHandle handle, ref NativeControlState state);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_utc_to_sim")]
+        internal static extern uint UtcToSim(in NativeUtcLabel label, out long time);
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_get_calendar_sky")]
+        internal static extern uint CalendarSky(WorldHandle handle, ref CalendarSky sky);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_submit")]
         internal static extern uint Submit(WorldHandle handle, byte[] bytes, UIntPtr length);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_fill_render_snapshot")]
@@ -57,7 +61,7 @@ namespace WorldSim.Bridge
     /// <summary>Owns one serialized native world and a persistent caller-owned snapshot buffer.</summary>
     public sealed class NativeWorld : IDisposable
     {
-        public const uint AbiVersion = 3;
+        public const uint AbiVersion = 4;
         /// <summary>The toy world has five buildings (ADR 0022).</summary>
         public const int BuildingCount = 5;
         public const int MaxResidentsPerBuilding = 2000;
@@ -72,6 +76,15 @@ namespace WorldSim.Bridge
         internal static void RequireVersion(uint actual)
         {
             if (actual != AbiVersion) throw new InvalidOperationException($"Native ABI {actual}; expected {AbiVersion}. Restart Unity after rebuilding the plugin.");
+        }
+        /// <summary>Pure core UTC/leap conversion, without grid rounding. No world is created or advanced.</summary>
+        public static long UtcToSim(int year, uint month, uint day, uint hour, uint minute, uint second, uint microsecond = 0)
+        {
+            RequireVersion(NativeMethods.Version()); // refuse stale libraries before calling their missing symbol
+            var label = new NativeUtcLabel { Version = AbiVersion, Size = 40, Year = year, Month = month, Day = day, Hour = hour, Minute = minute, Second = second, Microsecond = microsecond };
+            uint status = NativeMethods.UtcToSim(in label, out long time);
+            if (status != 0) throw new InvalidOperationException($"Native status {status}: {ReadError(IntPtr.Zero)}");
+            return time;
         }
         public NativeWorld(ulong seed, int residentsPerBuilding, long startMicroseconds = 0)
         {
@@ -118,7 +131,7 @@ namespace WorldSim.Bridge
         {
             lock(gate) { RequireLive(); Check(NativeMethods.Advance(handle,0)); return ReadControlState(); }
         }
-        /// <summary>Copy a canonical v2 command batch (the batch format is unchanged in ABI 3) into the native queue; success means pending.</summary>
+        /// <summary>Copy a canonical v2 command batch (unchanged in ABI4) into the native queue; success means pending.</summary>
         public void SubmitCommands(byte[] batch)
         {
             if(batch==null) throw new ArgumentNullException(nameof(batch));
@@ -143,6 +156,18 @@ namespace WorldSim.Bridge
             if(!ValidScale(scale)) throw new ArgumentOutOfRangeException(nameof(scale));
             var batch=CommandBatch(1,12); WriteU32(batch,24,scale); SubmitCommands(batch);
         }
+        CalendarSky ReadSky()
+        {
+            var sky = new CalendarSky { Version = AbiVersion, Size = 160 };
+            Check(NativeMethods.CalendarSky(handle, ref sky));
+            sky.Validate();
+            return sky;
+        }
+        /// <summary>Read the committed boundary without flushing pending commands or advancing.</summary>
+        public CalendarSky GetCalendarSky()
+        {
+            lock (gate) { RequireLive(); return ReadSky(); }
+        }
         /// <summary>One native fill, then complete decode into the reusable destination. No pointers escape.</summary>
         public unsafe ulong FillSnapshot(RenderFrame destination)
         {
@@ -152,7 +177,14 @@ namespace WorldSim.Bridge
                 // The buffer belongs to this object; lock excludes filling/disposing concurrently.
                 IntPtr pointer = (IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(bytes);
                 Check(NativeMethods.Fill(handle, pointer, (UIntPtr)bytes.Length, out var written));
-                return SnapshotDecoder.Decode(bytes, checked((int)written.ToUInt64()), destination);
+                var sky = ReadSky();
+                if (written.ToUInt64() < 24) throw new InvalidOperationException("Truncated native snapshot.");
+                ulong tick = 0;
+                for (int i = 0; i < 8; i++) tick |= (ulong)bytes[8 + i] << (i * 8);
+                if (tick != sky.Tick) throw new InvalidOperationException("Calendar/render boundary mismatch.");
+                SnapshotDecoder.Decode(bytes, checked((int)written.ToUInt64()), destination);
+                destination.Sky = sky;
+                return tick;
             }
         }
         public void Dispose()

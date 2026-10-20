@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace WorldSim.Bridge
 {
-    /// <summary>Alignment-independent little-endian ABI-v3 decoding (ADR 0022); no managed allocation on success.</summary>
+    /// <summary>Alignment-independent little-endian ABI4 decoding (ADRs0022/0030); no managed allocation on success.</summary>
     public static class SnapshotDecoder
     {
         public const uint KindBuilding = 1, KindResident = 2;

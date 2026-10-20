@@ -22,9 +22,9 @@ namespace WorldSim.Rendering
         public uint CommittedScale => world.CommittedScale;
         /// <summary>Total simulation steps taken by the worker.</summary>
         public long Steps => Interlocked.Read(ref tickTotal);
-        public SimHost(ulong seed, int residentsPerBuilding)
+        public SimHost(ulong seed, int residentsPerBuilding, long startMicroseconds = 0)
         {
-            world = new NativeWorld(seed, residentsPerBuilding);
+            world = new NativeWorld(seed, residentsPerBuilding, startMicroseconds);
             worker = new Thread(Run) { Name = "WorldSim core", IsBackground = true };
             worker.Start();
         }
