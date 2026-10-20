@@ -1,8 +1,8 @@
 # ADR 0028: slice L1 needs, sidewalk proxy paths and L2 reconciliation
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-20
-- Decided by: pending independent review; proposed by Codex under Noah's standing technical delegation on #77
+- Decided by: Noah, standing technical delegation on #77, applied after independent review on PR #88; proposed by Codex
 - Issue: #69 (VS-005 design phase)
 - Supersedes: none; details the real-slice extension of ADRs 0017 and 0027
 
@@ -12,7 +12,7 @@ VS-004 is merged. [Issue #69](https://github.com/ndabney562/world-simulator/issu
 
 The pinned extract contains footprints, not surveyed sidewalk topology or entrance locations. The issue permits a simple derived graph. Existing off-map workplaces refer to two registered synthetic gateways, not simulated roads outside the block. Those distinctions must remain explicit instead of inventing street data or allowing fine simulation to miss a timetable deadline.
 
-This PR is docs only. Proposed policy does not change runtime behavior, old goldens, APIs or formats. Implementation follows acceptance in a separate PR against #69.
+This PR is docs only. The accepted policy does not itself change runtime behavior, old goldens, APIs or formats. Independent review of the proposed contract approved with zero findings; acceptance is recorded under the standing delegation on #77 and PR #88. Merge still requires green final-head CI and clean final-head review. Implementation follows the merged contract in a separate PR against #69.
 
 ## Options considered
 
