@@ -38,3 +38,7 @@ harness = false
 [[bench]]
 name = "slice"
 harness = false
+
+[[bench]]
+name = "active"
+harness = false

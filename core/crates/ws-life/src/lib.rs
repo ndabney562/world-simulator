@@ -1,4 +1,4 @@
-//! Pure integer L2 schedules for the populated real slice (ADR 0027).
+//! Integer real-slice schedules (ADR 0027), needs and proxy navigation (ADR 0028).
 //! No clock ownership, mutable RNG, event-store reads, I/O or presentation.
 use core::num::NonZeroU64;
 use ws_ecs::EntityId;
@@ -7,6 +7,11 @@ use ws_events::{Actor, Candidate, EventError, Origin, Payload, Role as ActorRole
 use ws_rng::{Purpose, SipHasher24, Stream, below};
 use ws_time::SimTime;
 use ws_world::slice::population::{PopulatedSlice, Role, WorkplaceLocation};
+
+/// Integer need/utility state and conservative fine/coarse advancement.
+pub mod behavior;
+/// Versioned synthetic perimeter navigation; not surveyed sidewalk geometry.
+pub mod navigation;
 
 /// Frozen tables and household jitter policy.
 pub const RULES_VERSION: u32 = 1;

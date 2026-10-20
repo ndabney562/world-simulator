@@ -14,7 +14,7 @@ The headless simulation core of the World Simulator: a Cargo workspace that owns
 | `crates/ws-math/` | Coordinates and frames: WGS84, ECEF, ENU, S2-style cell IDs, surface positions ([README](crates/ws-math/README.md)) |
 | `crates/ws-rng/` | SipHash-2-4 derivations and counter-based random streams ([README](crates/ws-rng/README.md)) |
 | `crates/ws-time/` | Simulation time, durations, UTC calendar, system steps ([README](crates/ws-time/README.md)) |
-| `crates/ws-life/` | Integer real-slice L2 schedules and unique activity/location queries ([README](crates/ws-life/README.md)) |
+| `crates/ws-life/` | Real-slice schedules, needs/utility, unique locations and integer proxy paths ([README](crates/ws-life/README.md)) |
 | `crates/ws-events/` | Typed factual history, causal references and read-only indexed queries ([README](crates/ws-events/README.md)) |
 | `crates/ws-cli/` | Headless command/event recorder and independent debug-tape replay ([README](crates/ws-cli/README.md)) |
 | `crates/ws-sim/` | The world, its clock, command queue, journal and tick loop ([README](crates/ws-sim/README.md)) |
@@ -60,3 +60,5 @@ the corresponding resident/render/save slice issues integrate those layers.
 VS-003 adds `ws_world::slice::population::PopulatedSlice::new(seed)` for the ten-home/10–30-person synthetic baseline. It retains independent structural/population generator versions and deterministic household/home/work/school references; toy simulation and the existing bridge remain available. See the [world crate contracts](crates/ws-world/README.md#synthetic-block-population-vs-003).
 
 VS-004 adds `ws_sim::slice::SliceSimulation` and the `ws-life` schedule domain under [ADR 0027](../docs/adr/0027-slice-schedules-and-events.md). It has typed Rust-side operations, atomic schedule-fact publication and separate state/event/operation digests. Existing World/CLI/FFI and save formats remain the toy path; slice persistence is #53/#75.
+
+VS-005 extends that path under [ADR 0028](../docs/adr/0028-slice-l1-needs-and-navigation.md) with common canonical need/action/counter state, manual typed detail requests, synthetic perimeter navigation and exact fine/coarse reconciliation. It retains old payload/save/FFI contracts. New graph/behavior rule goldens have an independent offline Python oracle; current measurement evidence is in [issue-69 verification](../docs/verification/issue-69/README.md).
