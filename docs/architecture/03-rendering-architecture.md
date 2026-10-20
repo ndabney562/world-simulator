@@ -81,4 +81,4 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 
 ## Proposed core calendar and light input
 
-[Proposed ADR0030](../adr/0030-calendar-sun-and-sky-query.md) describes a coherent read-only native calendar/sun record paired with the render tick, an explicitly transformed direction in the snapshot's ENU basis, and a Unity HUD/light that only presents core output. Its ABI migration preserves prior behavioral checks and old-client refusal. The design is pending acceptance; the current ABI/render path is unchanged by this docs-only proposal.
+[Accepted ADR0030](../adr/0030-calendar-sun-and-sky-query.md) describes a coherent read-only native calendar/sun record paired with the render tick, an explicitly transformed direction in the snapshot's ENU basis, and a Unity HUD/light that only presents core output. Its ABI migration preserves prior behavioral checks and old-client refusal. The accepted design precedes separate implementation; the current ABI/render path is unchanged by this docs-only change.

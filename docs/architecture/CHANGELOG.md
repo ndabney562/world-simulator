@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR0030 accepted (2026-10-20)
+
+Independent review of the immutable published design approved with zero open findings after the predecessor-Monday range clarification. Applied Noah’s named technical delegation recorded on#77: status/index/pointers now say Accepted. Final-head review and green CI remain merge gates. #71 stays open for its separate implementation, reference goldens and actual Editor evidence. The narrowly described ABI-version migration is accepted; unrelated tests, device actions and stage-exit gates are unchanged.
+
 ## ADR0030: calendar, sun and coarse environment query (2026-10-20, Proposed)
 
 Docs-only VS-007/#71 proposal for exact UTC/start conversion, bounded New York labels, deterministic block sun, a coherent ABI4 calendar/sky query and preserved behavioral coverage during native/managed migration. Coordinates ADR0026's conditional ABI reservation and retains existing model-week phase semantics. Adds pending time/rendering pointers. No runtime, fixture/check weakening, dependency or device/stage-exit result ships here.

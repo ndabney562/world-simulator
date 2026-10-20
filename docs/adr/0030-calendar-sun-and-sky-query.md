@@ -1,8 +1,8 @@
 # ADR 0030: real calendar labels, deterministic block sun and coarse sky query
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-20
-- Decided by: Noah under the named technical delegation on#77, after independent review; proposed by Codex
+- Decided by: Noah under the named technical delegation on#77, after clean independent review; proposed by Codex
 - Issue: #71 (VS-007 design phase)
 - Supersedes: none; extends ADRs0014/0018/0022 and coordinates ADR0026's conditional ABI reservation
 

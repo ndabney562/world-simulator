@@ -87,4 +87,4 @@ A single universal frame in 64-bit integers (for example 1/1024 m resolution, co
 
 ## Proposed slice calendar and sun contract
 
-[Proposed ADR0030](../adr/0030-calendar-sun-and-sky-query.md) specifies VS-007/#71's core UTC/start conversion, bounded versioned New York labels, libm solar calculation at the pinned block and coherent coarse environment query. It preserves uniform SimTime/leap semantics and explicitly distinguishes civil display labels from the existing synthetic model-week timetable. The proposal awaits review/acceptance and introduces no runtime or accepted ABI change.
+[Accepted ADR0030](../adr/0030-calendar-sun-and-sky-query.md) specifies VS-007/#71's core UTC/start conversion, bounded versioned New York labels, libm solar calculation at the pinned block and coherent coarse environment query. It preserves uniform SimTime/leap semantics and explicitly distinguishes civil display labels from the existing synthetic model-week timetable. The accepted design precedes separate implementation; this docs-only change introduces no runtime ABI change.
