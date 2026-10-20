@@ -69,6 +69,8 @@ python3 ../scripts/check_core_deps.py
 
 Domain crates do not depend on each other (same-layer edges fail); they share types through `ws-world` and `ws-events`. A workspace crate missing from the table fails the check, so each new crate gets a deliberate place. The script also fails on any dependency (of any kind) on Unity, rendering, windowing, platform-API, or visual-provider crates (`wgpu`, `bevy*`, `winit`, `objc*`, `cesium*`, `web-sys`, `windows*`, and others listed in the script). The table lives in the script and here; change both together.
 
+VS-005 adds new navigation/behavior-rule-v1 goldens in `ws-life/tests/golden/behavior.txt`, checked by both Rust platforms and the independent Python source/path/need oracle. Workspace tests also cover an actual fine-simulation week, physical-tick needs, mixed-level conservation, domain/history failure rollback and separate-process active-slice replay. Existing goldens, tolerances, nightly paths and checks are unchanged.
+
 ## Planned additions
 
 Each is added by the issue that introduces what it checks.

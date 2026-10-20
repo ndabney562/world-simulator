@@ -1,6 +1,8 @@
 //! Real-slice L2 orchestration (ADR 0027), separate from the compatible toy World.
 use crate::{Clock, SimTime, TimeScale};
+use ws_ecs::EntityId;
 use ws_events::{Candidate, EventError, EventStore, Origin, Payload};
+use ws_life::behavior::{Behavior, BehaviorError, Detail, Snapshot};
 use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
@@ -22,6 +24,8 @@ pub enum SliceError {
     Population(PopulationError),
     /// Required schedule destination is missing.
     Destination(InvalidPopulation),
+    /// Behavior/route/detail validation or planning failure.
+    Behavior(BehaviorError),
     /// Start or epoch is not on the fixed-step grid.
     Grid,
     /// The attempted clock advance is outside SimTime.
@@ -46,6 +50,13 @@ pub enum Operation {
     SetScale(TimeScale),
     /// Host elapsed microseconds, using the existing cap/drop/remainder contract.
     HostElapsed(u64),
+    /// Manual Rust-side fine/coarse request; camera/node policy remains VS-006.
+    SetDetail {
+        /// Existing resident identity.
+        resident: EntityId,
+        /// Requested implemented detail level.
+        level: Detail,
+    },
 }
 /// Result of an operation after operation-log reservation succeeds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +109,7 @@ pub struct SliceSimulation {
     config: SliceConfig,
     population: PopulatedSlice,
     schedules: Schedules,
+    behavior: Behavior,
     clock: Clock,
     events: EventStore,
     next_change: Option<SimTime>,
@@ -105,6 +117,10 @@ pub struct SliceSimulation {
     operation_hash: SipHasher24,
     #[cfg(test)]
     fail_tick: Option<u64>,
+    #[cfg(test)]
+    fail_behavior_tick: Option<u64>,
+    #[cfg(test)]
+    fail_after_behavior_tick: Option<u64>,
 }
 impl SliceSimulation {
     /// Creates one slice with one creation fact and no false initial transitions.
@@ -120,6 +136,8 @@ impl SliceSimulation {
         let population = PopulatedSlice::new(config.seed).map_err(SliceError::Population)?;
         let schedules =
             Schedules::new(&population, config.schedule_epoch).map_err(SliceError::Destination)?;
+        let behavior =
+            Behavior::new(&population, &schedules, config.start).map_err(SliceError::Behavior)?;
         let known = population
             .world()
             .buildings()
@@ -155,6 +173,7 @@ impl SliceSimulation {
             config,
             population,
             schedules,
+            behavior,
             clock,
             events,
             next_change,
@@ -162,6 +181,10 @@ impl SliceSimulation {
             operation_hash: SipHasher24::new(0, Purpose::new("ws-sim/slice-operations").value()),
             #[cfg(test)]
             fail_tick: None,
+            #[cfg(test)]
+            fail_behavior_tick: None,
+            #[cfg(test)]
+            fail_after_behavior_tick: None,
         })
     }
     /// Immutable baseline.
@@ -171,6 +194,18 @@ impl SliceSimulation {
     /// Immutable pure schedule domain.
     pub const fn schedules(&self) -> &Schedules {
         &self.schedules
+    }
+    /// Read-only retained need/utility state and navigation proxy.
+    pub const fn behavior(&self) -> &Behavior {
+        &self.behavior
+    }
+    /// One current read-only resident view; no stepping or materialization side effect.
+    /// # Errors
+    /// Unknown resident or a violated committed-domain invariant.
+    pub fn resident(&self, id: EntityId) -> Result<Snapshot, SliceError> {
+        self.behavior
+            .snapshot(id, self.clock.now())
+            .map_err(SliceError::Behavior)
     }
     /// Immutable committed clock.
     pub const fn clock(&self) -> &Clock {
@@ -208,6 +243,7 @@ impl SliceSimulation {
                 self.clock.now().as_micros_since_epoch() as u64,
                 u64::from(self.clock.scale().multiplier()),
                 self.schedules.state_hash(self.clock.now()),
+                self.behavior.state_hash(),
             ],
         )
     }
@@ -243,6 +279,15 @@ impl SliceSimulation {
             error: None,
         };
         match operation {
+            Operation::SetDetail { resident, level } => {
+                self.operation_hash
+                    .write_words(&[5, resident.raw(), level as u64]);
+                report.error = self
+                    .behavior
+                    .set_detail(resident, level, self.clock.now())
+                    .err()
+                    .map(SliceError::Behavior);
+            }
             Operation::SetScale(scale) => {
                 self.clock.set_scale(scale);
                 self.operation_hash
@@ -351,7 +396,13 @@ impl SliceSimulation {
             if record.report.error.is_some() && index + 1 != records.len() {
                 return Err(ReplayError::Record(index));
             }
-            if record.report.error == Some(SliceError::History(EventError::Resource)) {
+            if matches!(
+                record.report.error,
+                Some(
+                    SliceError::History(EventError::Resource)
+                        | SliceError::Behavior(BehaviorError::Resource)
+                )
+            ) {
                 match record.operation {
                     Operation::Steps(requested) if record.report.committed < requested => {
                         let report = world
@@ -388,7 +439,7 @@ impl SliceSimulation {
                 }
                 world.operation_hash.write_words(&[
                     4,
-                    error_tag(SliceError::History(EventError::Resource)),
+                    error_tag(record.report.error.unwrap()),
                     checkpoint.tick,
                     checkpoint.state,
                     checkpoint.events,
@@ -418,6 +469,18 @@ impl SliceSimulation {
         if self.fail_tick == Some(clock.steps()) {
             return Err(SliceError::History(EventError::Resource));
         }
+        let behavior = self
+            .behavior
+            .prepare(clock.now())
+            .map_err(SliceError::Behavior)?;
+        #[cfg(test)]
+        if self.fail_behavior_tick == Some(clock.steps()) {
+            return Err(SliceError::Behavior(BehaviorError::Resource));
+        }
+        #[cfg(test)]
+        if self.fail_after_behavior_tick == Some(clock.steps()) {
+            return Err(SliceError::History(EventError::Resource));
+        }
         if self.next_change.is_some_and(|t| t <= clock.now()) {
             let facts = self
                 .schedules
@@ -430,6 +493,7 @@ impl SliceSimulation {
                 .commit();
             self.next_change = next;
         }
+        behavior.commit();
         self.clock = clock;
         Ok(())
     }
@@ -441,6 +505,22 @@ fn error_tag(error: SliceError) -> u64 {
         SliceError::Grid => 3,
         SliceError::TimeOverflow => 4,
         SliceError::Resource => 5,
+        SliceError::Behavior(e) => {
+            20 + match e {
+                BehaviorError::Navigation(e) => match e {
+                    ws_life::navigation::NavError::Geometry => 0,
+                    ws_life::navigation::NavError::Endpoint => 1,
+                    ws_life::navigation::NavError::Disconnected => 2,
+                    ws_life::navigation::NavError::Resource => 3,
+                },
+                BehaviorError::InfeasibleRoute => 4,
+                BehaviorError::Grid => 5,
+                BehaviorError::Time => 6,
+                BehaviorError::Counter => 7,
+                BehaviorError::UnknownResident => 8,
+                BehaviorError::Resource => 9,
+            }
+        }
         SliceError::History(e) => {
             10 + match e {
                 EventError::Limit => 0,
@@ -452,5 +532,7 @@ fn error_tag(error: SliceError) -> u64 {
         }
     }
 }
+#[cfg(test)]
+mod active_tests;
 #[cfg(test)]
 mod tests;

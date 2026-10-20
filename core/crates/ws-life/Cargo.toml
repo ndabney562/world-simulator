@@ -1,7 +1,7 @@
 [package]
 name = "ws-life"
 version = "0.1.0"
-description = "Integer real-slice schedules and pure L2 activity/location queries."
+description = "Real-slice integer schedules, needs, utility and proxy navigation."
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
