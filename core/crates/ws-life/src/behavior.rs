@@ -1,0 +1,559 @@
+//! ADR 0028 integer deficits, minute utility decisions and exact L1/L2 projection.
+use crate::{
+    Activity, Location, Place, Schedules,
+    navigation::{MM_PER_TICK, NavError, Navigation, Point},
+};
+use core::num::NonZeroU64;
+use ws_ecs::EntityId;
+use ws_rng::{Purpose, SipHasher24, Stream, below};
+use ws_time::SimTime;
+use ws_world::slice::population::PopulatedSlice;
+
+/// Need/rate/action/decision policy version, independent of schedule/navigation versions.
+pub const VERSION: u32 = 1;
+/// Maximum integer deficit for each need.
+pub const MAX_DEFICIT: u32 = 100_000;
+/// New independent initial-need stream; draw index identifies the four needs.
+pub const INITIAL: Purpose = Purpose::new("ws-life/needs/initial");
+/// New independent equal-utility tie stream; address is resident and action.
+pub const TIE: Purpose = Purpose::new("ws-life/utility/tie");
+const STEP: i128 = 100_000;
+const MINUTE: i128 = 60_000_000;
+
+/// Held micro-action; no movement override, food inventory or relationship creation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Action {
+    /// Stay idle at home.
+    Idle = 0,
+    /// Reduce the rest deficit at home.
+    Rest = 1,
+    /// Reduce hunger at home, without modelling inventory.
+    Eat = 2,
+    /// A synthetic local social activity, without crowds/relationships.
+    Socialize = 3,
+    /// Fulfil work/school/errands or home obligations.
+    Duties = 4,
+    /// Follow the mandatory scheduled journey.
+    Travel = 5,
+    /// Follow mandatory sleep.
+    Sleep = 6,
+}
+impl Action {
+    /// Base deficit drift plus this action's effect per 100-ms tick.
+    pub const fn rates(self) -> [i32; 4] {
+        match self {
+            Self::Idle | Self::Travel => [1, 2, 1, 2],
+            Self::Rest => [-3, 2, 1, 2],
+            Self::Eat => [1, -10, 1, 2],
+            Self::Socialize => [1, 2, -7, 2],
+            Self::Duties => [1, 2, 1, -6],
+            Self::Sleep => [-7, 2, 1, 2],
+        }
+    }
+}
+/// Bounded deficits in rest/hunger/social/duty order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Needs([u32; 4]);
+impl Needs {
+    /// Constructs only deficits inside the versioned range.
+    pub fn checked(values: [u32; 4]) -> Option<Self> {
+        values
+            .iter()
+            .all(|v| *v <= MAX_DEFICIT)
+            .then_some(Self(values))
+    }
+    /// Four explicit integer quantities.
+    pub const fn values(self) -> [u32; 4] {
+        self.0
+    }
+    /// Initial deterministic needs, addressed by resident ID and four fixed draws.
+    pub fn initial(seed: u64, resident: EntityId) -> Self {
+        let stream = Stream::new(seed, INITIAL, &[resident.raw()]);
+        Self(core::array::from_fn(|i| {
+            below(
+                stream.draw(i as u64),
+                NonZeroU64::new(u64::from(MAX_DEFICIT) + 1).unwrap(),
+            ) as u32
+        }))
+    }
+    /// Exact saturated integration for a held action. Wide arithmetic never wraps.
+    pub fn advanced(self, action: Action, ticks: u64) -> Self {
+        let rates = action.rates();
+        Self(core::array::from_fn(|i| {
+            (i128::from(self.0[i]) + i128::from(rates[i]) * i128::from(ticks))
+                .clamp(0, i128::from(MAX_DEFICIT)) as u32
+        }))
+    }
+}
+/// Chooses the highest admissible utility; only equal highest scores use a tie draw.
+/// All decisions use the same canonical counter at both detail levels.
+pub fn choose(
+    seed: u64,
+    resident: EntityId,
+    counter: u64,
+    activity: Activity,
+    needs: Needs,
+) -> Action {
+    match activity {
+        Activity::Sleep => return Action::Sleep,
+        Activity::Commute => return Action::Travel,
+        Activity::Work | Activity::School | Activity::Errands => return Action::Duties,
+        Activity::Home => {}
+    }
+    let [rest, hunger, social, duty] = needs.values();
+    [
+        (Action::Idle, 0),
+        (Action::Rest, 4 * rest),
+        (Action::Eat, 4 * hunger),
+        (Action::Socialize, 3 * social),
+        (Action::Duties, 2 * duty),
+    ]
+    .into_iter()
+    .max_by_key(|(action, score)| {
+        (
+            *score,
+            Stream::new(seed, TIE, &[resident.raw(), *action as u64]).draw(counter),
+            core::cmp::Reverse(*action as u8),
+        )
+    })
+    .unwrap()
+    .0
+}
+/// Manual Rust-side detail before camera-driven policy in VS-006.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Detail {
+    /// Fine paths and local/off-map projection.
+    L1 = 1,
+    /// Coarse schedule location, retaining need/decision anchors.
+    L2 = 2,
+}
+impl Detail {
+    /// Accepts only the two implemented detail tags.
+    pub const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            1 => Some(Self::L1),
+            2 => Some(Self::L2),
+            _ => None,
+        }
+    }
+}
+/// Exactly one fine physical representation, separate from logical schedule location.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FineLocation {
+    /// One on-graph point, walking or waiting at a portal.
+    Local {
+        /// Exact approximate-plane millimetres, not an ENU/elevation vector.
+        point: Point,
+        /// False after reaching a portal and before the scheduled activity boundary.
+        walking: bool,
+    },
+    /// Unmodelled external segment of a scheduled trip, retaining identity.
+    OffMapTransit {
+        /// Registered off-map workplace.
+        workplace: EntityId,
+        /// Registered gateway index.
+        exit: u8,
+    },
+    /// Stationary at the registered off-map workplace/school.
+    OffMap {
+        /// Registered off-map workplace.
+        workplace: EntityId,
+        /// Registered gateway index.
+        exit: u8,
+    },
+}
+/// Typed domain validation/reservation failure; no partial publication.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BehaviorError {
+    /// Navigation construction or endpoint failure.
+    Navigation(NavError),
+    /// A route does not fit the unchanged scheduled commute interval.
+    InfeasibleRoute,
+    /// Start/epoch/query is outside the 100-ms grid.
+    Grid,
+    /// Time is before the anchor or requires an uncommitted minute decision.
+    Time,
+    /// An actual minute decision would overflow its canonical counter.
+    Counter,
+    /// Detail/snapshot request refers to no resident in the baseline.
+    UnknownResident,
+    /// Fallible temporary planning capacity could not be reserved.
+    Resource,
+}
+impl core::fmt::Display for BehaviorError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "behavior error: {self:?}")
+    }
+}
+impl std::error::Error for BehaviorError {}
+impl From<NavError> for BehaviorError {
+    fn from(e: NavError) -> Self {
+        Self::Navigation(e)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResidentState {
+    id: EntityId,
+    detail: Detail,
+    needs: Needs,
+    anchor: SimTime,
+    action: Action,
+    decisions: u64,
+}
+/// Read-only view at a committed physical boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Snapshot {
+    /// Stable identity.
+    pub resident: EntityId,
+    /// Exactly one level membership.
+    pub detail: Detail,
+    /// Current bounded needs, evaluated from the canonical anchor.
+    pub needs: Needs,
+    /// Held action selected at creation or the last model-minute boundary.
+    pub action: Action,
+    /// Number of actual decisions; a level change never increments it.
+    pub decisions: u64,
+    /// Unique current logical schedule answer.
+    pub logical: crate::Answer,
+    /// Present only when fine; L2 has no separate materialized physical location.
+    pub fine: Option<FineLocation>,
+}
+/// Canonical resident anchors/levels plus immutable schedule/navigation inputs.
+#[derive(Debug, Clone)]
+pub struct Behavior {
+    seed: u64,
+    schedules: Schedules,
+    navigation: Navigation,
+    states: Vec<ResidentState>,
+    next: Option<SimTime>,
+}
+/// Borrowed prepared domain transaction. Dropping it changes no canonical state;
+/// exclusive borrowing prevents stale/cross-world plans or mutation before commit.
+pub struct Prepared<'a> {
+    world: &'a mut Behavior,
+    planned: Option<(Vec<ResidentState>, Option<SimTime>)>,
+}
+impl Prepared<'_> {
+    /// Publishes already validated/reserved records with no allocation or failure.
+    pub fn commit(self) {
+        if let Some((states, next)) = self.planned {
+            self.world.states = states;
+            self.world.next = next;
+        }
+    }
+}
+fn micros(t: SimTime) -> i128 {
+    i128::from(t.as_micros_since_epoch())
+}
+fn next_minute(epoch: SimTime, now: SimTime) -> Option<SimTime> {
+    let next = micros(epoch) + ((micros(now) - micros(epoch)).div_euclid(MINUTE) + 1) * MINUTE;
+    i64::try_from(next)
+        .ok()
+        .map(SimTime::from_micros_since_epoch)
+}
+fn grid(t: SimTime) -> bool {
+    micros(t).rem_euclid(STEP) == 0
+}
+impl Behavior {
+    /// Creates all residents in L2, retaining their exact future need/decision state.
+    /// # Errors
+    /// Invalid time grid, baseline destinations, geometry or deadline feasibility.
+    pub fn new(
+        population: &PopulatedSlice,
+        schedules: &Schedules,
+        start: SimTime,
+    ) -> Result<Self, BehaviorError> {
+        if !grid(start) || !grid(schedules.epoch()) {
+            return Err(BehaviorError::Grid);
+        }
+        if !population
+            .residents()
+            .ids()
+            .iter()
+            .copied()
+            .eq(schedules.profiles().iter().map(|p| p.resident))
+        {
+            return Err(BehaviorError::UnknownResident);
+        }
+        let navigation = Navigation::new(population)?;
+        for p in schedules.profiles() {
+            for row in p.weekday().iter().chain(p.weekend()) {
+                if let (Some(from), Some(arrive)) = (row.origin, row.arrival_minute) {
+                    let path = navigation.route(from, row.destination)?;
+                    let duration = i128::from(arrive) - i128::from(row.minute);
+                    if duration <= 0 || i128::from(path.walking_ticks()) * STEP > duration * MINUTE
+                    {
+                        return Err(BehaviorError::InfeasibleRoute);
+                    }
+                }
+            }
+        }
+        let seed = population.baseline().structural.seed;
+        let states = schedules
+            .profiles()
+            .iter()
+            .map(|p| {
+                let needs = Needs::initial(seed, p.resident);
+                ResidentState {
+                    id: p.resident,
+                    detail: Detail::L2,
+                    needs,
+                    anchor: start,
+                    action: choose(
+                        seed,
+                        p.resident,
+                        0,
+                        p.at(schedules.epoch(), start).activity,
+                        needs,
+                    ),
+                    decisions: 1,
+                }
+            })
+            .collect();
+        Ok(Self {
+            seed,
+            schedules: schedules.clone(),
+            navigation,
+            states,
+            next: next_minute(schedules.epoch(), start),
+        })
+    }
+    /// Immutable navigation proxy and derived route cache.
+    pub const fn navigation(&self) -> &Navigation {
+        &self.navigation
+    }
+    /// Canonical resident order; no off-map identity is removed.
+    pub fn residents(&self) -> impl ExactSizeIterator<Item = EntityId> + '_ {
+        self.states.iter().map(|s| s.id)
+    }
+    /// First unprocessed minute decision, a derived cache excluded from hashing.
+    pub const fn next_decision(&self) -> Option<SimTime> {
+        self.next
+    }
+    fn index(&self, id: EntityId) -> Result<usize, BehaviorError> {
+        self.states
+            .binary_search_by_key(&id, |s| s.id)
+            .map_err(|_| BehaviorError::UnknownResident)
+    }
+    /// Plans every intervening minute exactly, without mutating the borrowed domain.
+    /// Quiet intervals allocate nothing. L2 catch-up drains the same decisions as L1.
+    /// # Errors
+    /// Invalid/backward grid time, reservation failure or decision-counter overflow.
+    pub fn prepare(&mut self, time: SimTime) -> Result<Prepared<'_>, BehaviorError> {
+        if !grid(time) {
+            return Err(BehaviorError::Grid);
+        }
+        if self.states.iter().any(|s| time < s.anchor) {
+            return Err(BehaviorError::Time);
+        }
+        let Some(mut at) = self.next.filter(|t| *t <= time) else {
+            return Ok(Prepared {
+                world: self,
+                planned: None,
+            });
+        };
+        let mut states = Vec::new();
+        states
+            .try_reserve(self.states.len())
+            .map_err(|_| BehaviorError::Resource)?;
+        states.extend_from_slice(&self.states);
+        let next = loop {
+            for (s, p) in states.iter_mut().zip(self.schedules.profiles()) {
+                let count = s.decisions.checked_add(1).ok_or(BehaviorError::Counter)?;
+                let ticks = ((micros(at) - micros(s.anchor)) / STEP) as u64;
+                s.needs = s.needs.advanced(s.action, ticks);
+                s.anchor = at;
+                s.action = choose(
+                    self.seed,
+                    s.id,
+                    s.decisions,
+                    p.at(self.schedules.epoch(), at).activity,
+                    s.needs,
+                );
+                s.decisions = count;
+            }
+            match next_minute(self.schedules.epoch(), at) {
+                Some(next) if next <= time => at = next,
+                other => break other,
+            }
+        };
+        Ok(Prepared {
+            world: self,
+            planned: Some((states, next)),
+        })
+    }
+    /// Standalone headless catch-up convenience. Clock ownership remains in ws-sim.
+    /// # Errors
+    /// Same validated/fallible preparation errors as `prepare`.
+    pub fn advance_to(&mut self, time: SimTime) -> Result<(), BehaviorError> {
+        self.prepare(time)?.commit();
+        Ok(())
+    }
+    /// Changes only level membership at a current committed boundary; no new decision.
+    /// # Errors
+    /// Unknown resident, invalid/uncommitted time or failed fine projection.
+    pub fn set_detail(
+        &mut self,
+        id: EntityId,
+        detail: Detail,
+        time: SimTime,
+    ) -> Result<(), BehaviorError> {
+        let i = self.index(id)?;
+        self.snapshot(id, time)?;
+        if detail == Detail::L1 {
+            self.projected_location(id, time)?;
+        }
+        self.states[i].detail = detail;
+        Ok(())
+    }
+    /// Current pure view; never drains decisions or mutates indices/canonical state.
+    /// # Errors
+    /// Unknown identity, invalid grid, backward time or unprocessed minute.
+    pub fn snapshot(&self, id: EntityId, time: SimTime) -> Result<Snapshot, BehaviorError> {
+        if !grid(time) {
+            return Err(BehaviorError::Grid);
+        }
+        let s = self.states[self.index(id)?];
+        if time < s.anchor || self.next.is_some_and(|next| time >= next) {
+            return Err(BehaviorError::Time);
+        }
+        let logical = self
+            .schedules
+            .get(id)
+            .ok_or(BehaviorError::UnknownResident)?
+            .at(self.schedules.epoch(), time);
+        let ticks = ((micros(time) - micros(s.anchor)) / STEP) as u64;
+        Ok(Snapshot {
+            resident: id,
+            detail: s.detail,
+            needs: s.needs.advanced(s.action, ticks),
+            action: s.action,
+            decisions: s.decisions,
+            logical,
+            fine: if s.detail == Detail::L1 {
+                Some(self.projected_location(id, time)?)
+            } else {
+                None
+            },
+        })
+    }
+    /// Reconstructable physical location from the pinned schedule/path, at a grid time.
+    /// Diagnostic projection is available at either level, without materialization.
+    /// # Errors
+    /// Unknown identity/endpoint, invalid grid or an unsupported journey shape.
+    pub fn projected_location(
+        &self,
+        id: EntityId,
+        time: SimTime,
+    ) -> Result<FineLocation, BehaviorError> {
+        if !grid(time) {
+            return Err(BehaviorError::Grid);
+        }
+        let p = self
+            .schedules
+            .get(id)
+            .ok_or(BehaviorError::UnknownResident)?;
+        let local = |place| -> Result<_, BehaviorError> {
+            Ok(FineLocation::Local {
+                point: self.navigation.position(place, place, 0)?,
+                walking: false,
+            })
+        };
+        match p.at(self.schedules.epoch(), time).location {
+            Location::AtBuilding(id) => local(Place::Building(id)),
+            Location::OffMap(workplace, exit) => Ok(FineLocation::OffMap { workplace, exit }),
+            Location::InTransit {
+                from,
+                to,
+                departure,
+                arrival,
+            } => {
+                let path = self.navigation.route(from, to)?;
+                // Return walking starts on the grid: ceil(length/140) ticks before
+                // the unchanged arrival. Last tick clamps to the exact portal.
+                let start = if matches!(from, Place::OffMap(..)) {
+                    arrival - i128::from(path.walking_ticks()) * STEP
+                } else {
+                    departure
+                };
+                if let Place::OffMap(workplace, exit) = from
+                    && micros(time) < start
+                {
+                    return Ok(FineLocation::OffMapTransit { workplace, exit });
+                }
+                let ticks = ((micros(time) - start) / STEP).max(0) as u64;
+                let distance = ticks.saturating_mul(MM_PER_TICK);
+                if let Place::OffMap(workplace, exit) = to
+                    && distance >= path.distance_mm()
+                {
+                    return Ok(FineLocation::OffMapTransit { workplace, exit });
+                }
+                Ok(FineLocation::Local {
+                    point: self.navigation.position(from, to, distance)?,
+                    walking: distance < path.distance_mm(),
+                })
+            }
+        }
+    }
+    /// Explicit canonical anchors, levels, rules and geometry; no capacities/caches.
+    /// Current simulation time is hashed separately by the owning orchestrator.
+    pub fn state_hash(&self) -> u64 {
+        let mut h = SipHasher24::new(self.seed, Purpose::new("ws-life/behavior").value());
+        h.write_words(&[
+            u64::from(VERSION),
+            self.schedules.epoch().as_micros_since_epoch() as u64,
+            self.navigation.fingerprint(),
+            self.states.len() as u64,
+        ]);
+        for s in &self.states {
+            h.write_words(&[
+                s.id.raw(),
+                s.detail as u64,
+                s.anchor.as_micros_since_epoch() as u64,
+                s.action as u64,
+                s.decisions,
+            ]);
+            for v in s.needs.values() {
+                h.write_u64(u64::from(v));
+            }
+        }
+        h.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn counter_overflow_drops_prepared_work_without_partial_publication() {
+        let p = PopulatedSlice::new(42).unwrap();
+        let s = Schedules::new(&p, SimTime::EPOCH).unwrap();
+        let mut b = Behavior::new(&p, &s, SimTime::EPOCH).unwrap();
+        b.states.last_mut().unwrap().decisions = u64::MAX;
+        let before = b.state_hash();
+        let next = b.next;
+        assert!(matches!(
+            b.prepare(SimTime::from_micros_since_epoch(60_000_000)),
+            Err(BehaviorError::Counter)
+        ));
+        assert_eq!(b.state_hash(), before);
+        assert_eq!(b.next, next);
+    }
+    #[test]
+    fn abandoned_plan_keeps_anchors_levels_and_derived_deadline_unchanged() {
+        let p = PopulatedSlice::new(0).unwrap();
+        let s = Schedules::new(&p, SimTime::EPOCH).unwrap();
+        let mut b = Behavior::new(&p, &s, SimTime::EPOCH).unwrap();
+        let hash = b.state_hash();
+        let next = b.next;
+        drop(
+            b.prepare(SimTime::from_micros_since_epoch(3_600_000_000))
+                .unwrap(),
+        );
+        assert_eq!(b.state_hash(), hash);
+        assert_eq!(b.next, next);
+    }
+}

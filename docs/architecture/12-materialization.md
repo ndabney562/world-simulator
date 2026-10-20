@@ -65,6 +65,6 @@ The **observation cache** keeps the exact fine state of recently dematerialized 
 
 The core property, **round-trip conservation**, is tested by property-based tests over many seeds: materialize, run, dematerialize, materialize again, and check invariants (counts, money, notables, identities). See [18](18-testing-strategy.md).
 
-## Proposed real-slice observation contract
+## Accepted real-slice observation contract
 
-[Proposed ADR 0029](../adr/0029-slice-camera-interest-and-aggregates.md) details the bounded real slice's observation cache in deterministic model time. Retained ADR0028 anchors reconstruct the same fine view with or without a cache hit, and transactional membership/count checks preserve identities through camera changes. This proposal awaits acceptance and changes no runtime or existing toy materialization contract.
+[Accepted ADR 0029](../adr/0029-slice-camera-interest-and-aggregates.md) details the bounded real slice's observation cache in deterministic model time. Retained ADR0028 anchors reconstruct the same fine view with or without a cache hit, and transactional membership/count checks preserve identities through camera changes. Acceptance follows clean independent review under the technical delegation on#77/PR#90; implementation follows separately. This docs-only decision changes no runtime or existing toy materialization contract.

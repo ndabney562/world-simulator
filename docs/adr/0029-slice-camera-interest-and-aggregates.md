@@ -1,6 +1,6 @@
 # ADR 0029: real-slice camera interest, building aggregates and observation continuity
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-20
 - Decided by: Noah under the technical workstream delegation on #77, after independent review; proposed by Codex
 - Issue: #70 (VS-006 design phase)
@@ -12,7 +12,7 @@
 
 The vertical slice has four featured buildings and10–30 synthetic residents. Its synthetic navigation plane is explicitly not ENU. There is no real-slice Unity rendering adapter yet; #72 owns that renderer/bridge integration. This decision defines a coarse typed host command and bulk Rust snapshot contract that that adapter will consume. It introduces no temporary per-entity native calls and does not redefine the existing toy ABI. #70 must demonstrate the complete core command/transition/snapshot/replay path; #72 must connect the actual Unity camera through the coarse boundary before the end-to-end slice is claimed complete.
 
-This PR is docs only. Implementation follows the merged accepted contract separately. Existing event/save/FFI formats and runtime behavior are unchanged by this proposal.
+This PR is docs only. Independent actual-diff review approved the proposed contract after its cache-variant and camera-ownership findings were resolved, with zero open findings. Acceptance is applied under Noah's technical workstream delegation recorded on#77 and PR#90. Final-head green CI and clean independent review remain merge gates. Implementation follows the merged accepted contract separately. Existing event/save/FFI formats and runtime behavior are unchanged by this decision.
 
 ## Options considered
 
