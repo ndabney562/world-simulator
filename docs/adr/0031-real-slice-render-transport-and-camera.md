@@ -1,8 +1,8 @@
 # ADR 0031: real-slice footprint transport and presentation camera
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-20
-- Decided by: pending independent review and Noah's named technical delegation on #77; proposed by Codex
+- Decided by: Noah under the named technical delegation on #77, after clean independent review; proposed by Codex
 - Issue: #72 (VS-008 design phase)
 - Supersedes: none; extends ADRs0018/0022/0029/0030 with a separate real-slice transport
 
@@ -106,7 +106,7 @@ Required implementation evidence:
 - Actual pinned Unity6000.3.26f1 Editor with graphics: decoder/layout/play camera, all-featured-in-view pixels, street resident pixels, pause/speed/light and warmed allocation checks. Record source SHA, seed/population, backend, geometry counts and raw CSV with fill/decode/render/frame/worker times. Editor evidence is explicitly desktop evidence.
 - Reuse the TP-011 device build pipeline. Actual iPhone15Pro default overview and street screenshots plus CSV must demonstrate60fps (frame≤16.7ms) and report memory against the≈220MB baseline. Do not substitute static compilation or Editor FPS for these criteria. Device signing/provisioning/runs retain their separate approval; if unavailable, leave #72 open with device criteria unchecked and a concrete reproducible handoff. No stage-exit claim.
 
-Independent review and all hosted checks must pass on the final published design head before delegated acceptance/merge; runtime follows in a separate PR after ADR0030 runtime integration. Runtime may land as verified engineering progress with outstanding device criteria explicitly recorded, without closing #72 or marking tracker acceptance complete. This does not waive any acceptance criterion or budget.
+Clean independent review of the proposed contract precedes delegated acceptance metadata. Independent review and all hosted checks must pass on the final published Accepted head before merge; runtime follows in a separate PR after that merge and ADR0030 runtime integration. Runtime may land as verified engineering progress with outstanding device criteria explicitly recorded, without closing #72 or marking tracker acceptance complete. This does not waive any acceptance criterion or budget.
 
 ## Consequences
 
