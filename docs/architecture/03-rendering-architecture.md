@@ -82,3 +82,7 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 ## Proposed core calendar and light input
 
 [Accepted ADR0030](../adr/0030-calendar-sun-and-sky-query.md) describes a coherent read-only native calendar/sun record paired with the render tick, an explicitly transformed direction in the snapshot's ENU basis, and a Unity HUD/light that only presents core output. Its ABI migration preserves prior behavioral checks and old-client refusal. The accepted design precedes separate implementation; the current ABI/render path is unchanged by this docs-only change.
+
+## Proposed real-slice footprint and camera boundary
+
+[Proposed ADR0031](../adr/0031-real-slice-render-transport-and-camera.md) specifies #72's separate real-slice handle, ABI5 bounded static footprint meshes and dynamic resident/aggregate view, fixed site ENU adapters, core-owned camera-interest normalization and Unity orbit/pan/pinch presentation. Source context retains BINs without invented simulation identities. It preserves the toy regression path and requires actual device evidence before #72 acceptance; this proposal ships no runtime or ABI change.

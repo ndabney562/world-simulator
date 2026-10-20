@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR0031: real-slice transport and camera (2026-10-20, Proposed)
+
+Docs-only #72 proposal for a separate ABI5 slice handle, bounded core footprint meshes and dynamic resident/aggregate buffers, explicit navigation/site ENU adapters, canonical camera operations and presentation controls. Keeps toy command/save regressions, scopes version migrations, and preserves actual iPhone acceptance as outstanding until measured. No runtime, dependency, fixture/check weakening, device action or stage-exit claim ships here.
+
 ## ADR0030 accepted (2026-10-20)
 
 Independent review of the immutable published design approved with zero open findings after the predecessor-Monday range clarification. Applied Noah’s named technical delegation recorded on#77: status/index/pointers now say Accepted. Final-head review and green CI remain merge gates. #71 stays open for its separate implementation, reference goldens and actual Editor evidence. The narrowly described ABI-version migration is accepted; unrelated tests, device actions and stage-exit gates are unchanged.
