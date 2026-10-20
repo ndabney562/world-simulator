@@ -14,7 +14,7 @@ The headless simulation core of the World Simulator: a Cargo workspace that owns
 | `crates/ws-math/` | Coordinates and frames: WGS84, ECEF, ENU, S2-style cell IDs, surface positions ([README](crates/ws-math/README.md)) |
 | `crates/ws-rng/` | SipHash-2-4 derivations and counter-based random streams ([README](crates/ws-rng/README.md)) |
 | `crates/ws-time/` | Simulation time, durations, UTC calendar, system steps ([README](crates/ws-time/README.md)) |
-| `crates/ws-life/` | Real-slice schedules, needs/utility, unique locations and integer proxy paths ([README](crates/ws-life/README.md)) |
+| `crates/ws-life/` | Real-slice schedules, needs/utility, proxy paths, camera policy and exact building counts ([README](crates/ws-life/README.md)) |
 | `crates/ws-events/` | Typed factual history, causal references and read-only indexed queries ([README](crates/ws-events/README.md)) |
 | `crates/ws-cli/` | Headless command/event recorder and independent debug-tape replay ([README](crates/ws-cli/README.md)) |
 | `crates/ws-sim/` | The world, its clock, command queue, journal and tick loop ([README](crates/ws-sim/README.md)) |
@@ -62,3 +62,5 @@ VS-003 adds `ws_world::slice::population::PopulatedSlice::new(seed)` for the ten
 VS-004 adds `ws_sim::slice::SliceSimulation` and the `ws-life` schedule domain under [ADR 0027](../docs/adr/0027-slice-schedules-and-events.md). It has typed Rust-side operations, atomic schedule-fact publication and separate state/event/operation digests. Existing World/CLI/FFI and save formats remain the toy path; slice persistence is #53/#75.
 
 VS-005 extends that path under [ADR 0028](../docs/adr/0028-slice-l1-needs-and-navigation.md) with common canonical need/action/counter state, manual typed detail requests, synthetic perimeter navigation and exact fine/coarse reconciliation. It retains old payload/save/FFI contracts. New graph/behavior rule goldens have an independent offline Python oracle; current measurement evidence is in [issue-69 verification](../docs/verification/issue-69/README.md).
+
+VS-006 adds [ADR0029](../docs/adr/0029-slice-camera-interest-and-aggregates.md)'s single typed camera-interest operation, deterministic four-building controller, conservative L1/L2 membership, L3 occupancy/activity views and bounded observation continuity. Camera ownership rejects later manual detail requests. Controller/behavior/history/clock publication is one prepared transaction; new slice-only event tag9 preserves old toy/save/FFI vocabularies. [Verification](../docs/verification/issue-70/README.md) records the independent every-tick week,1000-cycle properties, replay/fault checks and desktop measurements. The actual Unity camera adapter remains #72.

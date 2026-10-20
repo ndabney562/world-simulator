@@ -71,6 +71,8 @@ Domain crates do not depend on each other (same-layer edges fail); they share ty
 
 VS-005 adds new navigation/behavior-rule-v1 goldens in `ws-life/tests/golden/behavior.txt`, checked by both Rust platforms and the independent Python source/path/need oracle. Workspace tests also cover an actual fine-simulation week, physical-tick needs, mixed-level conservation, domain/history failure rollback and separate-process active-slice replay. Existing goldens, tolerances, nightly paths and checks are unchanged.
 
+VS-006 adds exact camera-threshold and slice-event-tag9 goldens,1000-cycle camera conservation properties (plus the maximum30-resident cohort), an independent occupancy/activity comparison at every physical tick of a week, controller/cache/history fault injection, host-prefix replay and separate-process camera/scale/bulk-view replay. Legacy payload encoding/save writes explicitly reject tag9. All checks and existing fixtures/tolerances/nightly tests remain enabled; the native/Unity contract is unchanged by this core issue.
+
 ## Planned additions
 
 Each is added by the issue that introduces what it checks.
