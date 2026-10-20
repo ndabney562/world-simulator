@@ -88,3 +88,7 @@ A single universal frame in 64-bit integers (for example 1/1024 m resolution, co
 ## Proposed slice calendar and sun contract
 
 [Accepted ADR0030](../adr/0030-calendar-sun-and-sky-query.md) specifies VS-007/#71's core UTC/start conversion, bounded versioned New York labels, libm solar calculation at the pinned block and coherent coarse environment query. It preserves uniform SimTime/leap semantics and explicitly distinguishes civil display labels from the existing synthetic model-week timetable. VS-007 implements that contract: pure integer civil/local alignment and core libm solar output, exposed through the ABI4 coarse calendar/sky query. Existing uniform-time and synthetic schedule rules remain unchanged.
+
+## Accepted block render-frame adapter
+
+[Accepted ADR0031](../adr/0031-real-slice-render-transport-and-camera.md) fixes #72's render frame at the registered extract midpoint with explicit ellipsoidal height0 and geodetic/ECEF/ENU transforms. Existing approximate-plane navigation millimetres use checked adapters, never an ENU axis shortcut; NAVD88 source ground heights are not treated as ellipsoidal. The paired calendar direction uses that same frame. Existing coordinates, paths and goldens stay unchanged; runtime follows this accepted design.

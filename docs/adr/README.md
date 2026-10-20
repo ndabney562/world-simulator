@@ -34,3 +34,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0028](0028-slice-l1-needs-and-navigation.md) | Slice L1 needs, sidewalk proxy paths and L2 reconciliation | Accepted |
 | [0029](0029-slice-camera-interest-and-aggregates.md) | Real-slice camera interest, building aggregates and observation continuity | Accepted |
 | [0030](0030-calendar-sun-and-sky-query.md) | Real calendar labels, deterministic block sun and coarse sky query | Accepted |
+| [0031](0031-real-slice-render-transport-and-camera.md) | Real-slice footprint transport and presentation camera | Accepted |
