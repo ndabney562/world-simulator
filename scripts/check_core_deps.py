@@ -42,6 +42,7 @@ LAYERS = {
     "ws-data": 2,
     "ws-procgen": 2,
     "ws-agents": 2,
+    "ws-life": 2,
     "ws-physics": 2,
     "ws-lod": 2,
     "ws-interventions": 2,

@@ -448,3 +448,52 @@ fn measure_save_and_load() {
         );
     }
 }
+
+#[test]
+fn unsupported_slice_history_cannot_replace_an_existing_save_or_staging_file() {
+    use ws_events::{Candidate, EventStore, Origin, Payload};
+    let dir = Scratch::new("slice-rejection");
+    let path = dir.path("keep.wssave");
+    let original = world(42);
+    save(&original, &path).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let staging = dir.path("keep.wssave.saving");
+    std::fs::write(&staging, b"preserve staging sentinel").unwrap();
+    let mut parts = original.to_parts();
+    let known = parts
+        .toy
+        .buildings()
+        .ids()
+        .iter()
+        .chain(parts.toy.residents().ids())
+        .copied()
+        .collect();
+    let mut events = EventStore::from_records(known, &parts.events).unwrap();
+    let candidate = Candidate::new(
+        SimTime::EPOCH,
+        0,
+        0,
+        Payload::SliceCreated {
+            seed: 42,
+            dataset: 1,
+            structural: 1,
+            population: 1,
+            schedules: 1,
+            schedule_epoch: 0,
+        },
+        Origin::System(0),
+    );
+    events.prepare(0, &[candidate]).unwrap().commit();
+    parts.events = events.records().to_vec();
+    let unsupported = World::from_parts(parts).unwrap();
+    assert!(matches!(
+        save(&unsupported, &path),
+        Err(SaveError::Unsaveable(_))
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert_eq!(
+        std::fs::read(&staging).unwrap(),
+        b"preserve staging sentinel"
+    );
+    assert_eq!(load(&path).unwrap().checkpoint(), original.checkpoint());
+}

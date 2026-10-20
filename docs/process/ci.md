@@ -61,7 +61,7 @@ python3 ../scripts/check_core_deps.py
 |---|---|
 | 0 Foundation | `ws-math`, `ws-time`, `ws-rng`, `ws-ecs` |
 | 1 World model and events | `ws-world`, `ws-events` |
-| 2 Domain | `ws-data`, `ws-procgen`, `ws-agents`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-snapshot` |
+| 2 Domain | `ws-data`, `ws-procgen`, `ws-agents`, `ws-life`, `ws-physics`, `ws-lod`, `ws-interventions`, `ws-snapshot` |
 | 3 Orchestration | `ws-sim` |
 | 4 Persistence | `ws-persist` (builds and reads a `ws-sim` `World`; ADR 0020) |
 | 5 Test support | `ws-testkit` (allowed only as a dev-dependency) |

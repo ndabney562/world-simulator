@@ -139,6 +139,11 @@ pub fn save(world: &World, path: &Path) -> Result<(), SaveError> {
     }
     let parts = world.to_parts();
     let header = header_of(world, &parts)?;
+    if parts.events.iter().any(|e| e.record.payload.tag() >= 7) {
+        return Err(SaveError::Unsaveable(
+            "slice payload requires a slice save format",
+        ));
+    }
     let links = parts
         .events
         .iter()
@@ -309,7 +314,11 @@ fn write_file(
         let mut st = tx.prepare("INSERT INTO events VALUES (?, ?, ?)")?;
         let mut lt = tx.prepare("INSERT INTO event_links VALUES (?, ?, ?, ?, ?, ?)")?;
         for (e, ls) in parts.events.iter().zip(links) {
-            st.execute(params![key(e.id.0), RECORD_SCHEMA, codec::put_event(e)])?;
+            st.execute(params![
+                key(e.id.0),
+                RECORD_SCHEMA,
+                codec::put_event(e).map_err(|e| SaveError::Unsaveable(e.0))?
+            ])?;
             let (mut cause_idx, mut related_idx) = (0_i64, 0_i64);
             for l in ls {
                 let idx = if l.kind == 0 {

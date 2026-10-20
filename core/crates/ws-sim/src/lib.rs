@@ -19,6 +19,7 @@ mod clock;
 pub mod commands;
 mod control;
 mod restore;
+pub mod slice;
 use commands::{Command, Outcome};
 pub use control::{ControlError, FlushReport, WhyIll};
 pub use ws_events;
