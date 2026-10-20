@@ -23,3 +23,9 @@ Invariants: IDs start at one and never repeat. Transactions are canonically orde
 ## Slice schedule vocabulary (ADR 0027)
 
 VS-004 adds tag7 `agent.schedule_changed` (resident, destination, previous/next Activity tags0..5) and tag8 `sim.slice_created` (seed, dataset, structural/population/schedule versions, explicit model-week epoch). Producer60/LOD2/System60 schedule facts require exactly the resident Subject and destination Object, a real activity change, known identities and no invented causal links. Creation is world-scoped producer0/LOD0/System0 with no participants/links and nonzero versions. All fields enter digests explicitly after unchanged common fields; tags0..6 and their digest order retain their meanings. Event-store schema support does not extend legacy save vocabularies: persistence formats1/2 reject the new payloads. Slice-capable formats remain #53/#75.
+
+## Slice camera facts (ADR0029)
+
+Tag9 `sim.slice_lod_changed` contains building ID, previous/new mode tags1..3 and actual demoted/promoted resident counts. Producer/System70 uses the new node mode as LOD, exactly one building Subject, and no fabricated location/causal/related link. An unchanged mode is valid only with a nonzero automatic membership change. These facts follow schedule producer60 within the same physical-tick transaction. Input idempotence, cache expiry and initial construction emit no such fact.
+
+The toy tag2 remains1/2-only with unchanged fields/validation/digests. New tag9 has explicit frozen words and an independently calculated SipHash golden in `tests/slice_lod.rs`; malformed producers/modes/participants/false changes are atomic rejections. Generic tape event words include tag9 without a new container; legacy save formats explicitly reject it. Existing fixtures and vocabulary meanings are unchanged.

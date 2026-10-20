@@ -270,6 +270,19 @@ pub enum Payload {
         /// Monday midnight in the model week, in absolute simulation microseconds.
         schedule_epoch: i64,
     },
+    /// Real-slice node-mode or automatic resident-membership change (ADR0029).
+    SliceLodChanged {
+        /// Governing featured building.
+        building: EntityId,
+        /// Previous node mode,1 through3.
+        from: u8,
+        /// New node mode,1 through3.
+        to: u8,
+        /// Residents actually changed to L2 under this governing node.
+        demoted: u32,
+        /// Residents actually changed to L1 under this governing node.
+        promoted: u32,
+    },
     /// An ill resident arrived at its home.
     ReturnedHome {
         /// The resident.
@@ -291,6 +304,7 @@ impl Payload {
             Self::ReturnedHome { .. } => "agent.returned_home",
             Self::ScheduleChanged { .. } => "agent.schedule_changed",
             Self::SliceCreated { .. } => "sim.slice_created",
+            Self::SliceLodChanged { .. } => "sim.slice_lod_changed",
         }
     }
     /// Stable initial payload tag (schema version is separate).
@@ -305,6 +319,7 @@ impl Payload {
             Self::ReturnedHome { .. } => 6,
             Self::ScheduleChanged { .. } => 7,
             Self::SliceCreated { .. } => 8,
+            Self::SliceLodChanged { .. } => 9,
         }
     }
     /// Initial quantized importance, without floating relevance calculation.
@@ -319,6 +334,7 @@ impl Payload {
             Self::ReturnedHome { .. } => 8192,
             Self::ScheduleChanged { .. } => 4096,
             Self::SliceCreated { .. } => 65535,
+            Self::SliceLodChanged { .. } => 16384,
         }
     }
 }
@@ -455,6 +471,13 @@ impl Event {
                 promoted as u64,
             ]),
             Payload::LodChanged {
+                building,
+                from,
+                to,
+                demoted,
+                promoted,
+            }
+            | Payload::SliceLodChanged {
                 building,
                 from,
                 to,
@@ -753,6 +776,33 @@ impl EventStore {
                         || population == 0
                         || schedules == 0
                         || !c.actors.is_empty()
+                        || !c.causes.is_empty()
+                        || !c.related.is_empty()
+                    {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::SliceLodChanged {
+                    building,
+                    from,
+                    to,
+                    demoted,
+                    promoted,
+                } => {
+                    if !known(building) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.system != 70
+                        || c.origin != Origin::System(70)
+                        || !(1..=3).contains(&from)
+                        || !(1..=3).contains(&to)
+                        || (from == to && demoted == 0 && promoted == 0)
+                        || c.lod != to
+                        || !c.actors.iter().copied().eq([Actor {
+                            id: building,
+                            role: Role::Subject,
+                        }])
+                        || c.location.is_some()
                         || !c.causes.is_empty()
                         || !c.related.is_empty()
                     {

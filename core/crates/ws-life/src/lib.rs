@@ -10,6 +10,8 @@ use ws_world::slice::population::{PopulatedSlice, Role, WorkplaceLocation};
 
 /// Integer need/utility state and conservative fine/coarse advancement.
 pub mod behavior;
+/// Coarse camera control, exact building summaries and observation continuity.
+pub mod lod;
 /// Versioned synthetic perimeter navigation; not surveyed sidewalk geometry.
 pub mod navigation;
 

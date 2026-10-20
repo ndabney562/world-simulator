@@ -657,6 +657,41 @@ fn submit_action<W: Write>(t: &mut Tape<W>, w: &mut World, action: Action) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn slice_lod_tape_event_keeps_explicit_tag9_words() {
+        use ws_events::{Actor, Candidate, EventStore, Origin, Payload, Role};
+        let building = ws_sim::EntityId::procedural(4);
+        let mut c = Candidate::new(
+            SimTime::from_micros_since_epoch(1_000_000),
+            70,
+            0,
+            Payload::SliceLodChanged {
+                building,
+                from: 1,
+                to: 3,
+                demoted: 2,
+                promoted: 0,
+            },
+            Origin::System(70),
+        );
+        c.lod = 3;
+        c.actors
+            .push(Actor {
+                id: building,
+                role: Role::Subject,
+            })
+            .unwrap();
+        let mut store = EventStore::new(vec![building]);
+        store.prepare(10, &[c]).unwrap().commit();
+        let b = 0x4000_0000_0000_0001;
+        assert_eq!(
+            event(&store.records()[0]),
+            words([
+                1, 1, 10, 1, 1_000_000, 70, 0, 9, 16384, 0, 3, 0, 70, b, 1, 3, 2, 0, 1, b, 0, 0, 0,
+                0
+            ])
+        );
+    }
     fn world() -> World {
         World::new(WorldConfig::new(7, SimTime::EPOCH)).unwrap()
     }

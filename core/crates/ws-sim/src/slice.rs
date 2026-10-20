@@ -3,6 +3,7 @@ use crate::{Clock, SimTime, TimeScale};
 use ws_ecs::EntityId;
 use ws_events::{Candidate, EventError, EventStore, Origin, Payload};
 use ws_life::behavior::{Behavior, BehaviorError, Detail, Snapshot};
+use ws_life::lod::{CameraInterest, Controller, LodError, View};
 use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
@@ -26,6 +27,8 @@ pub enum SliceError {
     Destination(InvalidPopulation),
     /// Behavior/route/detail validation or planning failure.
     Behavior(BehaviorError),
+    /// Camera ownership, controller planning or count validation failure.
+    Lod(LodError),
     /// Start or epoch is not on the fixed-step grid.
     Grid,
     /// The attempted clock advance is outside SimTime.
@@ -57,6 +60,8 @@ pub enum Operation {
         /// Requested implemented detail level.
         level: Detail,
     },
+    /// One coarse camera-interest input for the complete real slice.
+    CameraInterest(CameraInterest),
 }
 /// Result of an operation after operation-log reservation succeeds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +115,7 @@ pub struct SliceSimulation {
     population: PopulatedSlice,
     schedules: Schedules,
     behavior: Behavior,
+    lod: Controller,
     clock: Clock,
     events: EventStore,
     next_change: Option<SimTime>,
@@ -121,6 +127,8 @@ pub struct SliceSimulation {
     fail_behavior_tick: Option<u64>,
     #[cfg(test)]
     fail_after_behavior_tick: Option<u64>,
+    #[cfg(test)]
+    fail_controller_tick: Option<u64>,
 }
 impl SliceSimulation {
     /// Creates one slice with one creation fact and no false initial transitions.
@@ -138,6 +146,8 @@ impl SliceSimulation {
             Schedules::new(&population, config.schedule_epoch).map_err(SliceError::Destination)?;
         let behavior =
             Behavior::new(&population, &schedules, config.start).map_err(SliceError::Behavior)?;
+        let lod = Controller::new(&population, &behavior, config.start, config.schedule_epoch)
+            .map_err(lod_error)?;
         let known = population
             .world()
             .buildings()
@@ -174,6 +184,7 @@ impl SliceSimulation {
             population,
             schedules,
             behavior,
+            lod,
             clock,
             events,
             next_change,
@@ -185,6 +196,8 @@ impl SliceSimulation {
             fail_behavior_tick: None,
             #[cfg(test)]
             fail_after_behavior_tick: None,
+            #[cfg(test)]
+            fail_controller_tick: None,
         })
     }
     /// Immutable baseline.
@@ -198,6 +211,22 @@ impl SliceSimulation {
     /// Read-only retained need/utility state and navigation proxy.
     pub const fn behavior(&self) -> &Behavior {
         &self.behavior
+    }
+    /// Read-only camera policy and derived recent observations.
+    pub const fn lod(&self) -> &Controller {
+        &self.lod
+    }
+    /// Pure bulk committed residents and exact building/count summaries.
+    /// # Errors
+    /// Invalid domain view or output capacity reservation failure.
+    pub fn view(&self) -> Result<View, SliceError> {
+        self.lod
+            .view(&self.behavior, self.clock.now())
+            .map_err(lod_error)
+    }
+    /// Discards only rebuildable observation acceleration; no journal or hash change.
+    pub fn discard_observation_cache(&mut self) {
+        self.lod.discard_observations();
     }
     /// One current read-only resident view; no stepping or materialization side effect.
     /// # Errors
@@ -244,6 +273,7 @@ impl SliceSimulation {
                 u64::from(self.clock.scale().multiplier()),
                 self.schedules.state_hash(self.clock.now()),
                 self.behavior.state_hash(),
+                self.lod.state_hash(),
             ],
         )
     }
@@ -279,14 +309,26 @@ impl SliceSimulation {
             error: None,
         };
         match operation {
+            Operation::CameraInterest(camera) => {
+                self.operation_hash.write_words(&[
+                    6,
+                    camera.center.east as u64,
+                    camera.center.north as u64,
+                    camera.radius_mm,
+                ]);
+                report.error = self.lod.set_camera(camera).err().map(lod_error);
+            }
             Operation::SetDetail { resident, level } => {
                 self.operation_hash
                     .write_words(&[5, resident.raw(), level as u64]);
-                report.error = self
-                    .behavior
-                    .set_detail(resident, level, self.clock.now())
-                    .err()
-                    .map(SliceError::Behavior);
+                report.error = if self.lod.camera().is_some() {
+                    Some(SliceError::Lod(LodError::CameraOwned))
+                } else {
+                    self.behavior
+                        .set_detail(resident, level, self.clock.now())
+                        .err()
+                        .map(SliceError::Behavior)
+                };
             }
             Operation::SetScale(scale) => {
                 self.clock.set_scale(scale);
@@ -401,6 +443,7 @@ impl SliceSimulation {
                 Some(
                     SliceError::History(EventError::Resource)
                         | SliceError::Behavior(BehaviorError::Resource)
+                        | SliceError::Lod(LodError::Resource)
                 )
             ) {
                 match record.operation {
@@ -469,7 +512,7 @@ impl SliceSimulation {
         if self.fail_tick == Some(clock.steps()) {
             return Err(SliceError::History(EventError::Resource));
         }
-        let behavior = self
+        let mut behavior = self
             .behavior
             .prepare(clock.now())
             .map_err(SliceError::Behavior)?;
@@ -477,25 +520,52 @@ impl SliceSimulation {
         if self.fail_behavior_tick == Some(clock.steps()) {
             return Err(SliceError::Behavior(BehaviorError::Resource));
         }
+        let lod = self
+            .lod
+            .prepare(&mut behavior, clock.scale().multiplier())
+            .map_err(lod_error)?;
+        #[cfg(test)]
+        if self.fail_controller_tick == Some(clock.steps()) {
+            return Err(SliceError::Lod(LodError::Resource));
+        }
         #[cfg(test)]
         if self.fail_after_behavior_tick == Some(clock.steps()) {
             return Err(SliceError::History(EventError::Resource));
         }
-        if self.next_change.is_some_and(|t| t <= clock.now()) {
+        let schedule_due = self.next_change.is_some_and(|t| t <= clock.now());
+        let (mut facts, next) = if schedule_due {
             let facts = self
                 .schedules
                 .facts_at(clock.now())
                 .map_err(SliceError::History)?;
             let next = self.schedules.next_change(clock.now());
-            self.events
-                .prepare(clock.steps(), &facts)
-                .map_err(SliceError::History)?
-                .commit();
-            self.next_change = next;
-        }
+            (facts, next)
+        } else {
+            (Vec::new(), self.next_change)
+        };
+        facts
+            .try_reserve(lod.changes().count())
+            .map_err(|_| SliceError::History(EventError::Resource))?;
+        facts.extend(
+            lod.changes()
+                .enumerate()
+                .map(|(i, c)| c.fact(clock.now(), i as u64)),
+        );
+        self.events
+            .prepare(clock.steps(), &facts)
+            .map_err(SliceError::History)?
+            .commit();
         behavior.commit();
+        lod.commit();
+        self.next_change = next;
         self.clock = clock;
         Ok(())
+    }
+}
+fn lod_error(error: LodError) -> SliceError {
+    match error {
+        LodError::Behavior(error) => SliceError::Behavior(error),
+        other => SliceError::Lod(other),
     }
 }
 fn error_tag(error: SliceError) -> u64 {
@@ -505,6 +575,14 @@ fn error_tag(error: SliceError) -> u64 {
         SliceError::Grid => 3,
         SliceError::TimeOverflow => 4,
         SliceError::Resource => 5,
+        SliceError::Lod(e) => match e {
+            LodError::Input => 40,
+            LodError::CameraOwned => 41,
+            LodError::Population => 42,
+            LodError::Resource => 43,
+            LodError::Invariant => 44,
+            LodError::Behavior(e) => error_tag(SliceError::Behavior(e)),
+        },
         SliceError::Behavior(e) => {
             20 + match e {
                 BehaviorError::Navigation(e) => match e {
@@ -534,5 +612,7 @@ fn error_tag(error: SliceError) -> u64 {
 }
 #[cfg(test)]
 mod active_tests;
+#[cfg(test)]
+mod camera_tests;
 #[cfg(test)]
 mod tests;

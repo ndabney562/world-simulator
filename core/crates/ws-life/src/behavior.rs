@@ -202,6 +202,25 @@ struct ResidentState {
     anchor: SimTime,
     action: Action,
     decisions: u64,
+    // Derived: all logical transitions are on the same minute grid. Excluded
+    // from hashing; a quiet tick need not re-evaluate the timetable for counts.
+    logical: crate::Answer,
+}
+/// Common current individual quantities, without reconstructing fine geometry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommonSnapshot {
+    /// Stable identity.
+    pub resident: EntityId,
+    /// Sole level membership.
+    pub detail: Detail,
+    /// Bounded current need quantities.
+    pub needs: Needs,
+    /// Held micro-action.
+    pub action: Action,
+    /// Retained canonical decision count.
+    pub decisions: u64,
+    /// Unique logical schedule answer.
+    pub logical: crate::Answer,
 }
 /// Read-only view at a committed physical boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,8 +254,64 @@ pub struct Behavior {
 pub struct Prepared<'a> {
     world: &'a mut Behavior,
     planned: Option<(Vec<ResidentState>, Option<SimTime>)>,
+    time: SimTime,
 }
 impl Prepared<'_> {
+    /// Boundary whose common needs/decisions have already been prepared.
+    pub const fn time(&self) -> SimTime {
+        self.time
+    }
+    /// Stable complete identity order, independent of planned level changes.
+    pub fn residents(&self) -> impl ExactSizeIterator<Item = EntityId> + '_ {
+        self.world.residents()
+    }
+    /// Read-only view of the planned state, before publication.
+    /// # Errors
+    /// Unknown identity or invalid planned time.
+    pub fn snapshot(&self, id: EntityId) -> Result<Snapshot, BehaviorError> {
+        let common = self.common(id)?;
+        self.world.fine_snapshot(common, self.time)
+    }
+    /// Current common quantities for count/invariant planning, without geometry.
+    /// # Errors
+    /// Unknown identity or invalid planned time.
+    pub fn common(&self, id: EntityId) -> Result<CommonSnapshot, BehaviorError> {
+        let i = self.world.index(id)?;
+        let (s, next) = self
+            .planned
+            .as_ref()
+            .map_or((self.world.states[i], self.world.next), |(s, n)| (s[i], *n));
+        self.world.common_state(s, self.time, next)
+    }
+    /// Current reconstructable position, including while a resident is coarse.
+    /// # Errors
+    /// Unknown identity, time or endpoint.
+    pub fn projected_location(&self, id: EntityId) -> Result<FineLocation, BehaviorError> {
+        self.world.projected_location(id, self.time)
+    }
+    /// Stages one level change in this same transaction; never changes decisions.
+    /// # Errors
+    /// Unknown identity, invalid fine projection or failed planning reservation.
+    pub fn set_detail(&mut self, id: EntityId, detail: Detail) -> Result<(), BehaviorError> {
+        let i = self.world.index(id)?;
+        let old = self.common(id)?;
+        if old.detail == detail {
+            return Ok(());
+        }
+        if detail == Detail::L1 {
+            self.projected_location(id)?;
+        }
+        if self.planned.is_none() {
+            let mut states = Vec::new();
+            states
+                .try_reserve(self.world.states.len())
+                .map_err(|_| BehaviorError::Resource)?;
+            states.extend_from_slice(&self.world.states);
+            self.planned = Some((states, self.world.next));
+        }
+        self.planned.as_mut().unwrap().0[i].detail = detail;
+        Ok(())
+    }
     /// Publishes already validated/reserved records with no allocation or failure.
     pub fn commit(self) {
         if let Some((states, next)) = self.planned {
@@ -310,6 +385,7 @@ impl Behavior {
                         needs,
                     ),
                     decisions: 1,
+                    logical: p.at(schedules.epoch(), start),
                 }
             })
             .collect();
@@ -324,6 +400,10 @@ impl Behavior {
     /// Immutable navigation proxy and derived route cache.
     pub const fn navigation(&self) -> &Navigation {
         &self.navigation
+    }
+    /// Immutable minute-grid origin shared with the camera controller.
+    pub const fn schedule_epoch(&self) -> SimTime {
+        self.schedules.epoch()
     }
     /// Canonical resident order; no off-map identity is removed.
     pub fn residents(&self) -> impl ExactSizeIterator<Item = EntityId> + '_ {
@@ -353,6 +433,7 @@ impl Behavior {
             return Ok(Prepared {
                 world: self,
                 planned: None,
+                time,
             });
         };
         let mut states = Vec::new();
@@ -366,13 +447,8 @@ impl Behavior {
                 let ticks = ((micros(at) - micros(s.anchor)) / STEP) as u64;
                 s.needs = s.needs.advanced(s.action, ticks);
                 s.anchor = at;
-                s.action = choose(
-                    self.seed,
-                    s.id,
-                    s.decisions,
-                    p.at(self.schedules.epoch(), at).activity,
-                    s.needs,
-                );
+                s.logical = p.at(self.schedules.epoch(), at);
+                s.action = choose(self.seed, s.id, s.decisions, s.logical.activity, s.needs);
                 s.decisions = count;
             }
             match next_minute(self.schedules.epoch(), at) {
@@ -383,6 +459,7 @@ impl Behavior {
         Ok(Prepared {
             world: self,
             planned: Some((states, next)),
+            time,
         })
     }
     /// Standalone headless catch-up convenience. Clock ownership remains in ws-sim.
@@ -413,28 +490,49 @@ impl Behavior {
     /// # Errors
     /// Unknown identity, invalid grid, backward time or unprocessed minute.
     pub fn snapshot(&self, id: EntityId, time: SimTime) -> Result<Snapshot, BehaviorError> {
+        self.fine_snapshot(self.common(id, time)?, time)
+    }
+    /// Common current quantities, without reconstructing fine geometry.
+    /// # Errors
+    /// Unknown identity, invalid grid or an uncommitted minute.
+    pub fn common(&self, id: EntityId, time: SimTime) -> Result<CommonSnapshot, BehaviorError> {
         if !grid(time) {
             return Err(BehaviorError::Grid);
         }
-        let s = self.states[self.index(id)?];
-        if time < s.anchor || self.next.is_some_and(|next| time >= next) {
+        self.common_state(self.states[self.index(id)?], time, self.next)
+    }
+    fn common_state(
+        &self,
+        s: ResidentState,
+        time: SimTime,
+        next: Option<SimTime>,
+    ) -> Result<CommonSnapshot, BehaviorError> {
+        if !grid(time) {
+            return Err(BehaviorError::Grid);
+        }
+        if time < s.anchor || next.is_some_and(|next| time >= next) {
             return Err(BehaviorError::Time);
         }
-        let logical = self
-            .schedules
-            .get(id)
-            .ok_or(BehaviorError::UnknownResident)?
-            .at(self.schedules.epoch(), time);
         let ticks = ((micros(time) - micros(s.anchor)) / STEP) as u64;
-        Ok(Snapshot {
-            resident: id,
+        Ok(CommonSnapshot {
+            resident: s.id,
             detail: s.detail,
             needs: s.needs.advanced(s.action, ticks),
             action: s.action,
             decisions: s.decisions,
-            logical,
+            logical: s.logical,
+        })
+    }
+    fn fine_snapshot(&self, s: CommonSnapshot, time: SimTime) -> Result<Snapshot, BehaviorError> {
+        Ok(Snapshot {
+            resident: s.resident,
+            detail: s.detail,
+            needs: s.needs,
+            action: s.action,
+            decisions: s.decisions,
+            logical: s.logical,
             fine: if s.detail == Detail::L1 {
-                Some(self.projected_location(id, time)?)
+                Some(self.projected_location(s.resident, time)?)
             } else {
                 None
             },

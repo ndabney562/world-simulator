@@ -346,7 +346,9 @@ pub(crate) fn get_clock(bytes: &[u8]) -> Result<ClockRow> {
 
 fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
     match p {
-        Payload::ScheduleChanged { .. } | Payload::SliceCreated { .. } => {
+        Payload::ScheduleChanged { .. }
+        | Payload::SliceCreated { .. }
+        | Payload::SliceLodChanged { .. } => {
             return Err(CodecError("slice payload requires a slice save format"));
         }
         Payload::WorldCreated {
@@ -1391,7 +1393,7 @@ mod slice_vocabulary_tests {
     use super::*;
     #[test]
     fn legacy_payload_codec_rejects_slice_tags_and_returns_typed_encode_error() {
-        for tag in [7, 8] {
+        for tag in [7, 8, 9] {
             assert!(get_payload(&mut Reader::new(&[tag])).is_err());
         }
         let resident = EntityId::procedural(1);
@@ -1410,6 +1412,13 @@ mod slice_vocabulary_tests {
                 population: 1,
                 schedules: 1,
                 schedule_epoch: 0,
+            },
+            Payload::SliceLodChanged {
+                building: destination,
+                from: 1,
+                to: 3,
+                demoted: 4,
+                promoted: 0,
             },
         ] {
             let mut writer = Writer::new();
