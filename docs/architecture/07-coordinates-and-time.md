@@ -84,3 +84,7 @@ A single universal frame in 64-bit integers (for example 1/1024 m resolution, co
 - Durations are 64-bit microseconds. Tick indices per system derive from simulation time and the system's step.
 - Floating-point time is created only at the point of use (animation phase, orbital anomaly), with integer modular arithmetic first where phases must stay exact.
 - Exact epoch, range, leap-second treatment, and how host wall-clock measurements enter the core: [ADR 0014](../adr/0014-time-representation.md). A world's start time must lie on its base step's tick grid, so every clock step and every background (L2) event time shares the epoch-aligned grid: [ADR 0017](../adr/0017-simulation-lod-l1-l2-round-trip.md) §8.
+
+## Proposed slice calendar and sun contract
+
+[Proposed ADR0030](../adr/0030-calendar-sun-and-sky-query.md) specifies VS-007/#71's core UTC/start conversion, bounded versioned New York labels, libm solar calculation at the pinned block and coherent coarse environment query. It preserves uniform SimTime/leap semantics and explicitly distinguishes civil display labels from the existing synthetic model-week timetable. The proposal awaits review/acceptance and introduces no runtime or accepted ABI change.

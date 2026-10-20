@@ -78,3 +78,7 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 - The Unity Profiler and Frame Debugger, Xcode GPU frame capture, and Instruments on device.
 - An in-app debug overlay: frame time per stage, memory per category, LOD state, materialized counts, provider status and quota, and thermal state.
 - The desktop `ws-inspector` (Rust) for simulation debugging without Unity.
+
+## Proposed core calendar and light input
+
+[Proposed ADR0030](../adr/0030-calendar-sun-and-sky-query.md) describes a coherent read-only native calendar/sun record paired with the render tick, an explicitly transformed direction in the snapshot's ENU basis, and a Unity HUD/light that only presents core output. Its ABI migration preserves prior behavioral checks and old-client refusal. The design is pending acceptance; the current ABI/render path is unchanged by this docs-only proposal.
