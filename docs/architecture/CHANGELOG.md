@@ -1,5 +1,13 @@
 # Architecture Proposal Changelog
 
+## ADR 0028 accepted (2026-10-20)
+
+Independent actual-diff review approved the proposed contract with zero findings. Applied Noah's standing technical acceptance delegation recorded on #77 and PR #88; status, index and pointers now record Accepted. Final-head review and green CI remain merge gates. #69 remains open for the separate runtime implementation and its required tests/benchmarks; no runtime, fixture or device claim is introduced.
+
+## ADR 0028: real-slice L1 behavior/navigation (2026-10-20, Proposed)
+
+VS-005/#69 docs-only proposal for integer needs/utility, a derived perimeter navigation proxy from the pinned footprints, on-time local/off-map journeys and exact retained-state L1/L2 reconciliation. Adds pending architecture pointers. Existing schedules, toy tolerances, event/save/FFI formats and tests remain unchanged; implementation follows acceptance in its own PR.
+
 ## ADR 0027 accepted (2026-10-19)
 
 Noah's direct standing approval, recorded on #77 and PR #86 after clean independent review, accepts the slice schedule/event contract. Status, index and architecture pointers now record acceptance. #68 remains open for code, new goldens, codec rejection coverage and replay evidence; existing behavior and formats are unchanged.

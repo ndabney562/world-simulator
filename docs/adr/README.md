@@ -31,3 +31,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0025](0025-baseline-plus-deltas-saves.md) | Version-pinned baseline plus canonical deltas in save format 3 | Accepted |
 | [0026](0026-provider-spike-read-only-frame-query.md) | Provider spike read-only frame query and isolated Unity providers | Accepted |
 | [0027](0027-slice-schedules-and-events.md) | Slice L2 schedule model, factual events and orchestration | Accepted |
+| [0028](0028-slice-l1-needs-and-navigation.md) | Slice L1 needs, sidewalk proxy paths and L2 reconciliation | Accepted |

@@ -84,3 +84,7 @@ The synthetic population for an area is generated from Census and American Commu
 ## Accepted future collision policy
 
 [ADR 0024](../adr/0024-procedural-id-collision-resolution.md), tracked by [#30](https://github.com/ndabney562/world-simulator/issues/30), proposes a frozen generation roster, canonical retry allocation and sparse saved overrides before City-scale populations. It is **Accepted** under Noah’s 2026-10-19 standing approval; existing generators retain their recorded fail-on-collision policy until a separately reviewed implementation adopts the new policy. No save-format or runtime change ships in the ADR PR.
+
+## Accepted real-slice L1 behavior
+
+[ADR 0028](../adr/0028-slice-l1-needs-and-navigation.md), tracked by [#69](https://github.com/ndabney562/world-simulator/issues/69), defines integer needs/utility decisions, a clearly labelled derived sidewalk proxy graph, deadline-preserving local/off-map journeys and retained canonical needs/decision progress across real-slice L1/L2 changes. It is **Accepted** under the standing technical delegation recorded on #77 and PR #88 after independent review. Runtime behavior follows in the separate #69 implementation; old toy ADR/test contracts remain unchanged.
