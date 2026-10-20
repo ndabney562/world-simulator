@@ -1,148 +1,167 @@
-# ws-sim
+# ws-world
 
 ## Responsibility
 
-Owns authoritative `World`, boundary command application, journal and meaningful event publication under [ADR 0019](../../../docs/adr/0019-command-journal-and-world-events.md). Rust owns domain state; hosts submit owned commands and schedule explicit physical ticks or host-elapsed advances.
+The world model. As of TP-006 (#7) it holds the Technical Prototype **toy world**: five box buildings at fixed offsets from the Bay Ridge reference point and a few dozen residents who walk between them ([ADR 0016](../../../docs/adr/0016-entity-identity-storage-and-randomness.md)). It proves identity, storage, randomness, movement across cell edges, and state hashing; it is not content. As of TP-007 (#8) residents run at one of two simulation levels, L1 (stepped) or L2 (a discrete-event background schedule), chosen per building ([ADR 0017](../../../docs/adr/0017-simulation-lod-l1-l2-round-trip.md)). VS-002 (#66) adds the real block structural baseline described below; the world tree and aggregates arrive later.
+
+| Module | Provides |
+|---|---|
+| `slice` | `SliceWorld`, fixed-point source geometry, four detailed buildings and the 58-footprint context baseline (VS-002) |
+| `dataset` | `TOY_BUILDINGS` (constant, `TOY_DATASET_VERSION = 1`); `Dataset` and `BuildingSite` |
+| `ids` | Procedural IDs and generator decisions: `building_id`, `resident_id`, `resident_count`, `residents`, `next_target`; the crate's `Purpose` labels |
+| `lod` | Simulation LOD (ADR 0017): `Lod`, `Background`, `Activity`, `Origin`; `ToyWorld::set_lod` (the transition transaction), `tick` (reconcile, L1 movement, L2 drain), `advance_background`, `check_lod_invariants`, `conservation_summary`; `LodError`, `LodViolation`, `TransitionReport` |
+| crate root | `ToyWorld`: generation, insertion, the movement system `step`, `state_hash`; components `Building`, `Resident`, `Walk`; `WalkParams`, `WorldError` |
 
 ## Owned state
 
-Seed, fixed-step `Clock`, `ToyWorld`, bounded pending queue and enqueue allocator, append-only outcomes, boundary ordinal, and `ws-events::EventStore`. `WorldConfig` supplies seed, aligned start and population. The clock uses 100 ms steps and authoritative Paused/×1/×10/×100 scale. Immutable `clock()` and `toy()` views have no mutation escape.
+`ToyWorld`, held by `ws-sim`'s `World`:
 
-## Commands and emitted event types
+- `seed`, `dataset_version`, and `WalkParams` (speed 1.4 m/s, wait 50 steps).
+- `ws-ecs` columns: `buildings: Column<Building>` (dataset index, centre `SurfacePos`, box size); `node_lod: Column<Lod>` (each building's level, L1 or L2); `residents: Column<Resident>` (generation address `(building_index, slot)` and home building; the single identity store at both levels); the L1 store `positions: Column<SurfacePos>` and `walks: Column<Walk>` (velocity, derived; target building, arrived flag, steps left to wait, targets drawn); the L2 store `background: Column<Background>` (waiting at a building until a departure time, or walking a leg from an origin keyframe at an origin time to a destination with an arrival time; targets drawn).
+- `queue: BTreeSet<(SimTime, EntityId)>`, each L2 agent's next event, and `unreconciled: BTreeSet<EntityId>`, the agents whose store differs from their governing building's level (those who chose a target at a building of the other level since the last reconciliation). Both are derived: rebuildable from the canonical columns, checked against their rebuild, never hashed. The second lets a tick reconcile without scanning every agent.
 
-Use `commands::Command::new(IssuedBy::Player, Action::SetTimeScale(TimeScale::Paused))`, `World::submit(vec![command])`, then `flush_commands()`. `SetNodeLod(Vec<(EntityId,Lod)>)` requests the existing atomic domain transaction. `NoOp` creates a journal outcome without changing simulation state. `submit_bytes` decodes the explicit version-2 batch codec. Success means queued, never already applied. There are no direct World scale/LOD setters.
+State classes (ADR 0017 §10): node levels, the L1 `SurfacePos`, `target`, `arrived`, `wait_steps`, `targets_drawn`, and the whole `Background` record are **canonical**; `EntityId`, `Resident`, and buildings are **identity / baseline**; a waiting agent's position and a promoted walker's position are **reconstructable**; `Walk::velocity`, the event queue, and the unreconciled index are **derived**. A demotion discards only reconstructable and derived state.
 
-`Intervene(Intervention { target, effect, timing })` (opcode 3, [ADR 0021](../../../docs/adr/0021-god-intervention-contract.md)) is the first god intervention: a closed effect vocabulary (v1: `afflict(Fever, severity 1..=10)`), targets one resident or all residents of a building, resolved in ascending ID order when applied. `Timing::At(T)` waits in the world (`scheduled`, saved) and takes effect at the end of the first tick whose time is at least T; a time already reached applies now. Rejections (`UnknownTarget`, `UnsupportedLevel`, `SeverityOutOfRange`) change nothing. `World::why_ill(resident)` returns the `life.illness` event, the root `intervention.applied` event and the journal entry. Applying costs O(targets + current illnesses): about 2.4 ms for 1,000 residents in a 5,000-agent world (release, Linux Xeon), no world scan.
+## Emitted event types
 
-Emits `sim.world_created`, one `sim.command_applied` for every Applied outcome including idempotent commands, one `sim.lod_changed` per actual changed building (directly caused by its applied-command event), and `agent.arrived` from successful L1/L2 domain plans, plus `intervention.applied`, `life.illness` and `agent.returned_home` (see the `ws-events` README). Rejections have journal outcomes but no applied events. Initial materialization, conversion and scheduler wakeups do not fabricate arrivals. Event/journal read access is immutable and Rust-only.
+Domain plans expose actual `ArrivalFact`s (L1 completed boundary, L2 scheduled arrival time) and actual `LodChange`s. `ws-sim` translates them into history only after reserving publication storage. `prepare_tick` rolls back reconciliation on drop; `prepare_lod` changes nothing until commit. These plans have no dependency on `ws-events` and never read history. Low-level domain APIs remain available for domain tests; production `World` exposes only an immutable toy view.
 
 ## Invariants
 
-- Batches/queue have 1024-command and 65536-byte caps, including one canonical 8-byte batch header. Invalid ingress is atomic and consumes no sequences. Typed diagnostic schema/LOD errors are journaled semantic rejections; wire structural/version errors fail before enqueue.
-- Commands apply in enqueue order at serialized boundaries. Each command's state, outcome, events and queue removal commit together. Fixed semantic rejection changes no simulation state and continues; infrastructure failure leaves the current command/suffix pending and preserves earlier commits.
-- Each nonempty flush allocates one boundary ordinal on its first committed outcome. Empty/zero-prefix flushes allocate none. Multiple paused flushes are distinct boundaries without advancing time.
-- `step()` flushes once then attempts one physical tick regardless of scale. Physical domain/clock/history commit atomically; failure leaves the **post-flush** state intact. `physical_step()` is the recorder/host primitive without implicit flush. `flush_prefix` and `validate_physical_step` support bounded environmental replay fences, never arbitrary mutation.
-- Host-elapsed advance flushes before budgeting with committed scale. Its existing cap is 100 ticks, excess whole steps are dropped, and the sub-step remainder survives pause/scale changes. Time overflow is checked before physical work; partial tick success counts exactly committed ticks.
-- `now == start + tick * base_step`, the seed never changes, and time never wraps. Domain decisions retain canonical ordering/counter-based randomness. History/index state never feeds domain evolution.
-- Simulation hash includes scale, seed, tick, time and canonical toy state; excludes history, indices, host pacing and pending inputs. Queue/journal/event digests are compared separately at every replay operation. Event IDs/ordering are Tier 1 for the same candidate stream; evolving trajectories/history are Tier 2 within one build/platform.
-- All actors resolve to stable toy identities. History is append-only for the session; no retention or pruning here. Saving and loading live in [ws-persist](../ws-persist/README.md): `World::to_parts` / `World::from_parts` expose the canonical state and rebuild a world from it, refusing parts that break an invariant (`tests/restore.rs`). No unsafe code, runtime external dependencies, filesystem/environment or wall-clock reads.
+- **Tier 1 identity and generation.** Building IDs are `derive(seed, "ws-world/id/building", [dataset_version, index])`, resident IDs `derive(seed, "ws-world/id/resident", [dataset_version, building_index, slot])`, both in the procedural namespace. Residents per building are `min + below(derive(seed, "ws-world/gen/resident-count", [dataset_version, index]), max - min + 1)`, 4 to 12 by default. All integer; golden values in `tests/golden/toy_world.txt` were produced by an independent Python implementation and must match on Linux and macOS CI.
+- **Target choice.** An agent's `k`-th target is `next_target(seed, agent, k, buildings, current)`: draw `k` of its stream `Stream::new(seed, "ws-world/agent/next-target", [agent])`, mapped with `below` onto the buildings other than the current one, in ascending ID order. It depends only on those inputs, never on the tick of arrival, other agents, or other draws (`tests/world.rs`).
+- **Movement (Tier 2).** Each step, in ascending ID order, an agent counts down its wait, draws its next target, or walks `speed × dt` straight to the target centre in its cell's ENU frame, arriving (snapped to the centre) when that is within one step. Each walking agent's position is then re-expressed, so after every step every agent lies in its own cell (`occupied_cell() == cell()`), and an agent that is not moving never changes cell. Agents stay within the buildings' bounding box.
+- **Collisions fail.** Generation returns `WorldError::Duplicate` if two IDs collide; nothing is renumbered. `tests/collisions.rs` checks 10,000 seeds (450,813 IDs: 50,000 buildings and 400,813 residents) for collisions within and across worlds.
+- **State hash.** `state_hash` is SipHash-2-4 over the seed, dataset version, walk parameters, and every component of every entity (IDs, integers, cell IDs, float bits), column by column in ascending ID order. It excludes storage indices, capacities, addresses, and derived values: since TP-007, `Walk::velocity` and the event queue (ADR 0017 §11). It covers node levels and every `Background` field. Stable within one build and platform (Tier 2). Worlds with the same entities hash equally however they were built.
+- **Residency (ADR 0017 §3–§5).** Every resident is in exactly one of the L1 store (both `positions` and `walks`) and the L2 store (`background`), never both and never neither. Its `EntityId`, address, and home never change across transitions, and no transition draws a random number. After a transition and after a tick's reconciliation, an agent's level is its governing building's level (the building it waits at, or its destination while walking).
+- **Transitions are transactions (§2, §12).** `set_lod(now, step, request)` takes a set of `(building, level)` pairs at a base-step boundary. It rejects `DuplicateNode` (even with the same level), `UnknownNode`, `UnsupportedLevel` (anything but L1 and L2), `OffGrid`, a reconstruction failure (`Coord`), and an invalid pre-state of any affected agent (`Invariant`), and then changes nothing. Otherwise it plans every move in ascending ID order and commits with batch column operations, so request order never matters. Demotion keeps an arrived agent's centre as `depart = now + (wait + 1)·Δ` and a walking agent's exact position as the leg keyframe with `arrive = now + ⌈remaining / step_m⌉·Δ`; promotion at the keyframe returns it bit-for-bit, and elsewhere places the agent at `m·step_m` along the straight leg, re-expressed into its own cell. L1 → L2 → L1 at one boundary is bit-exact, state hash included.
+- **L2 advances by events (§7–§8).** `tick` reconciles residency at the start boundary, runs L1 movement, then processes every L2 event due by the end boundary in `(time, ID)` order, including events those events schedule. A departure draws the agent's next target with the same `next_target` counter L1 uses. Results do not depend on how a span is split into calls. A failed tick leaves the world unchanged.
+- **Checker (§12).** `check_lod_invariants` reports every violation (`Duplicated`, `Lost`, `Orphan`, `PartialL1`, `IdentityMismatch`, `UnknownBuilding`, `MissingNodeLod`, `InvalidNodeLod`, `ResidencyMismatch`, `QueueMismatch`, `BadSchedule`, `NotAtCentre`, `NotInOwnCell`), and `ConservationSummary` compares population, identity, per-home and per-governing counts, and counters across a transaction or tick. Debug builds run both after every transaction and tick; release builds only on request. An arrived L1 agent off its target's centre is rejected on insertion.
+- Integer simulation time comes in as `SimDuration` and `SimTime`; no wall clock, no threads, no `unsafe`, no unordered maps.
 
-Run `cargo test -p ws-sim` for ingress/FIFO/completeness, pause, no-op/rejections, actual LOD causes and arrivals, rollback/fault injection, non-feedback, and existing clock/replay properties. [ws-cli](../ws-cli/README.md) verifies full journal/events/checkpoints in another process. [Codec](../../../docs/technical-prototype/command-event-tape.md) documents the bounded diagnostic artifact.
+## Illness (TP-010)
+
+`ToyWorld::illness()` is a column keyed by resident ID, independent of the L1 and L2 stores ([ADR 0021](../../../docs/adr/0021-god-intervention-contract.md) §3): `Illness { kind, severity, root_event }`, where `root_event` is the raw ID of the resident's `life.illness` event. It survives demote, promote, save and load by construction, is hashed only when non-empty (so worlds without illness hash as before) and is changed only by `afflict`. An ill agent draws no target: when its wait ends away from home it walks home, and at home it keeps waiting. L1 (`plan_movement`) and L2 (`process_event`) apply the same rule, so a level round trip stays exact (`ws-sim/tests/intervention.rs`). `residents_of(building)` is a derived index (rebuilt on load) so a target set resolves without scanning the world.
+
+## Saving
+
+`ToyWorld::to_parts` returns the canonical rows (`ToyParts`, ascending ID order) and `ToyWorld::from_parts` rebuilds a world from rows in any order, deriving the L2 event queue and the unreconciled-residency set. It rejects repeated IDs and residents whose home is missing; the caller runs `check_lod_invariants` for the rest (`World::from_parts` does). The file format is in `ws-persist`.
 
 ## Performance
 
-`cargo bench -p ws-sim` (criterion, dev-only) on the Linux machine used for TP-006 (Intel Xeon, 2.1 GHz), after 600 warm-up ticks so most agents are walking:
+About 96 bytes per L1 agent in the columns (16 `Resident` + 24 `SurfacePos` + 32 `Walk` + 3 × 8 ID copies), well inside the 0.5–1 KB L1 target of 09 §10.8, because TP-006 agents have no needs, plans, or perception yet. An L2 agent takes 64 bytes in `background` (56-byte `Background` plus the ID copy), 24 in `residents`, and a 16-byte queue entry plus `BTreeSet` node overhead (an estimate of 8 to 16 bytes per entry: leaves of 11 keys, at least half full), so 112 to 120 bytes against ADR 0017's 128 (`l2_records_fit_the_memory_target`). L2 is not smaller than L1 in the toy because the toy's L1 agent is already small (ADR 0017 §15). Step and transition costs are measured by `cargo bench -p ws-sim` (see the ws-sim README).
 
-| Benchmark | Time | Per agent |
-|---|---|---|
-| `World::step`, 50 agents | 38 µs | 0.76 µs |
-| `World::step`, 5,000 agents | 4.0 ms | 0.80 µs |
-| `World::new`, 5,000 agents (generation) | 13 ms | 2.6 µs |
+## Dependencies
 
-Most of the step is the per-agent `SurfacePos::reexpress` (a cell lookup, about 0.6 µs in `ws-math`'s benchmark) and building each agent's cell frame. Against [15-ios-performance-memory.md](../../../docs/architecture/15-ios-performance-memory.md) §16.3 (≤ 8 ms per frame for high-priority simulation): at the 100 ms base step and ×1, 5,000 agents cost about 4 ms once every three frames at 30 fps, so a frame that runs a tick has about 4 ms of headroom; at ×10 (about 3.3 ticks per frame) the same 5,000 agents would need about 13 ms and exceed the budget. Memory is about 96 bytes per agent (see the ws-world README), 0.5 MB for 5,000, against the 150–250 MB for materialized entities in §16.4. iPhone measurements belong to TP-011.
-
-### Simulation LOD (TP-007)
-
-`cargo bench -p ws-sim --bench lod` on the Linux machine used for TP-007 (Intel Xeon, 2.8 GHz, 4 vCPU; a shared cloud machine, slower than the TP-006 one: `world_step/5000` measures 5.4 ms on it, against 4.0 ms above, both on `main` before TP-007 and with it). Toy-world agents in five buildings, after 600 warm-up ticks:
-
-| Benchmark | 30 agents | 3,000 agents | 100,000 agents |
-|---|---|---|---|
-| Demote all (`set_lod` → L2) | 16 µs | 1.71 ms (0.57 µs/agent) | 92 ms (0.92 µs/agent) |
-| Promote all (`set_lod` → L1) | 18 µs | 1.88 ms (0.63 µs/agent) | 100 ms (1.00 µs/agent) |
-| One base step, all L1 | | 3.30 ms | 106 ms |
-| One base step, all L2 | | 0.91 µs | 49 µs |
-| One simulated hour, all L2 | | 37 ms (44,307 events) | 2.2 s (1,470,819 events) |
-
-- **Transitions.** A 3,000-agent transition takes 1.7 to 1.9 ms, inside the 4 ms (half of the 8 ms high-priority budget, 15 §16.3) that ADR 0017 §15 asks for. Per-agent cost rises by about 60% from 3,000 to 100,000 agents (cache misses in the larger columns), still within the ADR's 1 µs (demote) and 2 µs (promote) targets.
-- **L2 against L1.** About 14.8 events per agent per simulated hour, as ADR 0017 §15 predicts. An hour costs 0.84 µs per event at 3,000 agents and 1.5 µs at 100,000, step overhead included (target ≤ 2 µs). An all-L1 hour at 3,000 agents is 36,000 steps of 3.30 ms, about 119 s, so L2 is about 3,200 times cheaper (about 1,700 times at 100,000), against the target of at least 1,000.
-- A step with no event due costs a queue peek and a check of the (empty) unreconciled index: under 1 µs at 3,000 agents. Without that index the first measurement was 19 µs, because reconciliation scanned every agent.
-
-
-### TP-008 history measurement (Mac, 2026-10-16)
-
-`cargo bench --locked -p ws-sim --bench history -- --warm-up-time 1 --measurement-time 2`, Apple M1 Pro, Rust 1.97.0 release (overflow checks retained):
-
-| Measurement | Result |
-|---|---|
-| 1,000 two-actor events, exact batch reservation | 808,000 bytes arena + time/actor indices (808 bytes/event; inline record 760 bytes) |
-| Actor query, 10 matches among 10,000 records | 170.16–170.95 ns (mean estimate 170.54 ns) |
-| 5,000 L1 agents, 500 ticks after 3,000 warm-up ticks, World with history | 1.5996–1.6227 s (3.223 ms/tick at estimate) |
-| Same state/ticks, domain + clock without publication | 1.5882–1.6312 s (3.206 ms/tick at estimate) |
-
-The estimated incremental orchestration/publication difference is about 0.5%, with overlapping intervals; this does not establish a precise overhead percentage. Both paths include domain fact collection; the comparison does not isolate that collection's cost against pre-TP-008 code. Bounded 500-tick clones keep the benchmark from silently timing different growing histories. These are desktop observations, not iPhone acceptance evidence. At ×10 a few 3.2 ms ticks per frame can exceed the 8 ms high-priority budget; use L2 and measure on device in TP-011.
-
-The 100–150 MB world-tree/aggregate/index budget in architecture §16.4 is shared, not all available for history. At the measured minimum capacity, 100,000 such records alone would use 80.8 MB. Registry IDs, query buffers, domain state, allocator overhead, spare geometric capacity and process RSS are excluded. Long sessions exceed this budget without future retention/persistence. Sorted vector index insertion can move prior entries; short toy measurements do not prove long-history write scaling. No per-event heap payload is used; batch buffers and query results allocate separately. CLI per-operation journal hashing/serialization is debug work, outside the domain tick timing.
-
-Per-command journal outcomes store application metadata and effects, not before/after full-world hashes. The debug host still verifies simulation, queue, journal and event checkpoints at operation boundaries. The `history` Criterion benchmark includes maximum-batch NoOp flushes at toy and 5,000-agent populations; setup/submission/destruction are outside the timed flush. Actor-index write scaling is tracked separately in GitHub issue #49; no retention or index redesign is included here.
-
-### Command flush review measurement (2026-10-17)
-
-Same Apple M1 Pro, Rust 1.97.0 release, after all local suites finished; Criterion 10 samples, 1 s warm-up and 2 s requested measurement (extended for slow baseline). Same new benchmark source was compiled against baseline `041d891` and correction `2fa55ba`; isolated binaries ran sequentially.
-
-| 1,024 NoOps | Baseline 95% interval / estimate | Corrected 95% interval / estimate |
-|---|---|---|
-| Toy population, seed 1 | 6.8172–6.8832 ms / 6.8411 ms | 262.35–263.01 µs / 262.64 µs |
-| 5,000 agents | 794.67–795.48 ms / 795.06 ms | 269.90–272.25 µs / 271.27 µs |
-
-The maximum-batch flush is about 0.271 ms at 5,000 agents after removing the two full-world hashes per outcome. Setup, submission and destruction are outside timing; outcome/event publication remains inside. Per-operation checkpoint hashing and tape serialization remain separate debug-host work. This meets the requested few-ms desktop flush check, not a total frame or iPhone budget claim. Existing tick-overhead measurements above remain historical evidence; no physical-tick algorithm changed here.
-
-Reproduce from `core/`: `cargo bench --locked -p ws-sim --bench history -- flush_1024 --warm-up-time 1 --measurement-time 2`. For before/after comparison, copy this benchmark source into an isolated baseline checkout and preserve separate executables/target directories; do not run other local suites during timing. An earlier concurrent measurement is excluded; the table uses only the isolated runs.
+`ws-ecs`, `ws-math`, `ws-rng`, `ws-time`.
 
 ### Movement frame reuse (#31, 2026-10-16)
 
-On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 3.3330 to 2.2909 ms (about 31%). This meets the approximate 2.4 ms target on that Mac. Claude's independent Linux Xeon review measured 2.62–2.65 ms, so the target remains unmet on that reference machine; its average ×10 tick cost is about 8.8 ms per 30 fps frame before other work. Neither result establishes iPhone performance.
+On the same Apple M1 Pro Mac (arm64) with Rust 1.97.0, release `world_step/5000` measured **3.3330 ms before → 2.2909 ms after** (about 31% faster; after 95% interval 2.2826–2.3001 ms). `world_step/50` measured 35.443 → 23.904 µs. This reaches #31's approximate 2.4 ms target on this M1 Pro; the independent Linux Xeon result was 2.62–2.65 ms, so the target remains unmet on that reference machine. At ×10, an average 3.33 ticks per 30 fps frame costs about 7.64 ms; individual four-tick frames and device overhead still require measurement, so this is not an iPhone/frame-budget guarantee.
 
-See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.
-
-The merged TP-003 bridge now follows ADR 0019 §8 as ABI v2: commands submitted through `ws_submit` use this same queue/journal, zero-step advance flushes, and a 16-byte committed-control-state read supplies host pacing. The native and C# adapters do not expose a direct mutation escape or multiply scale twice. See the [bridge contract](../ws-ffi/README.md).
+The L1 planner reuses one exact frame per occupied cell per step for target projection and re-expression; the full cell lookup and ADR 0016 edge rule remain unchanged. The ordered cache is temporary derived data and adds no component/save/hash state. It allocates by distinct moving cells; the all-L2 path returns before using it. See the [verification report](../../../docs/verification/issue-31/README.md) for full LOD comparisons, reproducible commands and direct baseline replay evidence. Older numbers above describe their original machines/revisions.
 
 ### Inside-cell fast path (#48, 2026-10-17)
 
-The movement step now proves that most agents are still inside their cell without the full cell lookup (see the ws-math and ws-world READMEs), with bit-identical results. Same Linux Intel Xeon 2.1 GHz machine as the #31 review, Rust 1.97.0 release, `main` (`cb42e62`, after #31) and this change measured alternately, 30 samples each:
+The movement step's per-cell frames are built with `CellFrame::with_inside_test`, so an agent that stays well inside its cell skips the full cell lookup (see the ws-math README). Results are unchanged: the issue-31 replay probe (four seeds, all-L1 and mixed LOD, 80,000 tick rows) gives byte-identical output on `main` and with this change (SHA-256 `7a0d6e46…dce7b`, the same value Codex recorded on macOS for #31). On the Linux Xeon of the #31 review, `world_step/5000` is 2.65–2.79 ms on `main` and 0.35–0.38 ms with this change. The numbers and the frame budget are in the ws-sim README.
 
-| Benchmark | `main` | #48 |
-|---|---|---|
-| `world_step/50` | 27.0–27.3 µs | 4.8–5.5 µs |
-| `world_step/5000` | 2.65–2.79 ms | 0.35–0.38 ms |
-| `lod_step/l1/3000` | 1.61–1.69 ms | 0.22–0.23 ms |
-| `lod_step/l1/100000` | 54.9–57.6 ms | 7.6–8.4 ms |
+## Real block baseline (VS-002)
 
-That meets #31's 2.4 ms target on this machine with room to spare: at ×10 (about 3.3 ticks per 30 fps frame) 5,000 agents cost about 1.3 ms of the 8 ms budget (15 §16.3). LOD transitions, the L2 step and the L2 hour stayed within run-to-run noise over two alternating runs (for example `lod_transition/promote/3000` 1.20–1.24 ms on `main`, 1.21–1.27 ms with #48). These are desktop numbers; iPhone measurements belong to TP-011.
+`slice::SliceWorld::new(seed)` builds the four detailed buildings selected in
+[ADR 0023](../../../docs/adr/0023-vertical-slice-block.md). Its immutable
+`buildings()` column iterates in ascending `EntityId` order. Every row retains
+BIN, BBL, lot, address, PLUTO use class, lot-level floors and residential units,
+roof height above ground, source ground elevation, centroid and full footprint.
+`slice::BLOCK_BUILDINGS` retains all 58 source footprints (including 6 garages)
+for surrounding context; only the four `featured` rows become entities here.
+No synthetic residents or events are emitted by this structural constructor.
 
-## Real-slice schedules (VS-004)
+The reviewed [VS-001 extract](../../../data/vertical-slice/bay-ridge-block-6049/README.md)
+is compiled offline by `scripts/vs_core_buildings.py` into `src/block_6049.rs`.
+This small adapter only reads the normalized extract, never the raw upstream
+snapshots. It has no runtime I/O, new dependencies, simplification, projection,
+or generic simulation-tile pipeline. Refresh with `python3 scripts/vs_core_buildings.py build`
+and verify with `python3 scripts/vs_core_buildings.py check` from the repo root.
+The existing CI Python discovery checks exact regeneration for every source row.
 
-`slice::SliceSimulation::new(SliceConfig { seed, start, schedule_epoch })` owns the immutable `PopulatedSlice`, [ws-life](../ws-life/README.md) schedules, existing fixed-step clock and registered event store. Start and explicit model-Monday epoch must lie on the 100-ms grid. This separate path preserves every existing toy/CLI/bridge contract. VS-005 adds retained L1/L2 need/utility state and proxy path views below; camera LOD, real-calendar alignment, rendering and saves remain separate work.
+**Exact geometry (Tier 1):** coordinates retain all twelve decimal places as
+signed picodegrees; roof heights and original NAVD88 ground elevations use
+integer millimetres. MultiPolygon parts, holes, winding, source vertex order,
+and closing vertices are retained. The centroid retains the extract's six
+places (about 0.1 m); it is not recomputed from a simplified box. Validation
+checks coordinate range, closure, minimum ring length, nonzero integer area,
+and positive height; it does not claim general polygon-topology validation.
 
-`apply(Operation::Steps(n) | SetScale(scale) | HostElapsed(us))` returns a typed committed-prefix report. Log reservation fails before work starts; the attempted operation is then unrecorded and must not be treated as accepted. A physical tick validates clock advance, plans/reserves facts and publishes clock/history together. On event/clock failure the failing tick is unchanged, while prior ticks remain committed. Host budgeting preflights full clock overflow; a failed tick preserves the prior pending remainder. Successful host calls retain the existing cap of 100 and drop excess whole steps. Paused host calls take no ticks; explicit steps still do.
+**Coordinates and vertical datum:** `GeoPoint::surface_position(ellipsoidal_height_mm)`
+projects to ADR 0015's `SurfacePos` through portable `ws-math`. The caller must
+explicitly supply WGS84 ellipsoidal ground height. Passing zero means the
+ellipsoid, not real street elevation. The source `ground_navd88_mm` is retained
+as NAVD88 metadata and is never implicitly treated as ellipsoidal; terrain and
+a geoid conversion are outside VS-002 (ADR 0023). Roof height remains relative
+to ground and does not get added to the footprint location.
 
-One `sim.slice_created` fact records seed/source/generator/rules/epoch at construction. Each event-bearing physical tick publishes sorted schedule transitions separately, so batch size does not change IDs, ordinals or digests. A cached next-schedule-boundary instant avoids schedule scans on quiet ticks; it is reconstructed from immutable schedules and excluded from hashes. Behavior planning additionally checks retained anchors and drains minute decisions when due. The domain never reads history.
+**Identity and baseline:** `baseline()` retains seed, dataset version
+`0x85183751d4f793b9` and structural generator version 1 for the later save header.
+The dataset version is the first 64 bits (big-endian) of the exact GeoJSON's
+SHA-256, whose full value is exported as `EXTRACT_SHA256`. Building IDs reuse
+ADR 0016's existing purpose and integer address `[dataset_version, BIN]`;
+BIN replaces the toy's ordinal, so source order cannot renumber buildings.
+No float, address string, centroid, or runtime allocation enters ID derivation.
+A changed extract gives a new version; migration between dataset versions is
+not currently supported. Later slice persistence must pin/validate its version
+before regenerating (#53 / #75); no codec or older save fixture changes here.
 
-State hashing covers pinned configuration, versions, committed time/tick/scale and canonical domain tables/answers in ID order. Pacing remainder, histories and capacities are separate. The operation digest writes explicit primitive integer fields, never Debug strings; successful explicit step groups normalize identically and their log records coalesce. Failed operations retain a state/event/pacing checkpoint; environmental replay runs only the committed prefix, verifies that checkpoint and stops rather than retrying the failed suffix. This is a typed Rust session API; it introduces no persistent diagnostic format. New events are deliberately rejected by legacy save encoders/decoders with typed errors; the saver checks before touching the destination or staging file. #53/#75 own new slice formats.
+**Collisions (#30):** duplicate BINs are rejected before hashing, and duplicate
+entity IDs fail the whole constructor with `SliceError::Collision`. There is no
+silent overwrite, salt, renumbering, or chosen resolution policy. Unit tests
+inject a collision between distinct addresses. The existing City-stage ADR
+follow-up remains open; it is not a dependency of a four-building slice.
 
-Tests cover a full week of actual event publication, index reconstruction/query non-feedback, batch/single-step equality, pause/scales/cap/remainder, injected failing-tick prefixes/rollback/retry, extreme time/grid errors and separate-process typed-script replay. Independent timetable/reference/golden tests live in ws-life. New payload tags 7/8 preserve all old tags/digest field order and all old golden/save fixtures.
+**Verification:** `tests/golden/block_6049.txt` freezes IDs, integer centroids,
+heights and use for seeds 0, 42 and `u64::MAX`; the ID oracle was an independent
+Python SipHash-2-4 implementation checked against every existing toy building
+golden. Both Rust CI platforms run it. New tests also cover exact extract
+regeneration, nested geometry/closure, rejected malformed data, source-order
+independence, 10,000 seeds (40,000 building IDs), and fixed-seed properties for
+`SurfacePos` containment, idempotence and ECEF error below 0.1 mm at explicit
+ellipsoidal heights. Existing toy goldens remain unchanged.
 
-`SliceSimulation::replay(config, records)` checks recorded outcomes and typed stop checkpoints. Replay input ends at its first failed operation: suffixes after that stop are rejected. A caller may inspect/verify the returned stopped world and explicitly resume with new operations; a failure is not silently retried during replay. Tests compare normalized operation digests for successful and environmentally stopped prefixes and reject corrupt checkpoints or suffixes.
+This constructor owns only structural baseline data. `ws-sim::World`, the CLI,
+save formats 1/2 and Unity ABI4 continues using the toy world. Resident domain
+integration belongs to #67; real-footprint snapshots and rendering belong to
+#72, and slice save/migration support to #53 / #75. No ADR decision changes
+are needed: real-data building keys are already allowed by ADR 0016.
 
-### VS-004 desktop measurements (2026-10-19)
+Load time is negligible at 58 validated source rows and four inserted entities
+(#66); there is no tick-loop change and no separate performance measurement.
 
-[Verification and limitations](../../../docs/verification/issue-68/README.md). Criterion on the same Mac/build measured quiet slice ticks at about 7.3 ns amortized over 1,000-tick runs, the first event-bearing tick at 2.4–2.8 µs for 18–24 residents, and the current toy 5,000-resident reference at 247 µs/tick over 100-tick runs. These compare different simulation workloads; they establish desktop slice headroom, not iPhone performance or L1/frame cost. Canonical state/hash query costs are outside the step benchmark.
 
-## Real-slice active behavior (VS-005)
+## Synthetic block population (VS-003)
 
-Accepted [ADR 0028](../../../docs/adr/0028-slice-l1-needs-and-navigation.md) adds `behavior()` and `resident(id)` read-only views and `Operation::SetDetail { resident, level }` for manual Rust-side L1/L2 requests. The typed enum accepts only implemented levels; an unknown identity records a typed rejected outcome with unchanged state/events. Queries and successful manual level changes publish no false arrivals or extra schedule facts and consume no utility counter. VS-006 below adds camera ownership and production LOD facts.
+`ws_world::slice::population::PopulatedSlice::new(seed)` wraps the validated real-building `SliceWorld` with an immutable synthetic population. The original building-only constructor and all toy constructors are unchanged. No CLI, save, FFI, schedules, movement or Unity switch-over is included; those belong to subsequent slice issues.
 
-Each physical tick holds a borrowed prepared behavior transaction while schedule facts/history are planned/reserved; only then do history, behavior and clock publish without another fallible step. Failure discards tentative need/action/counter updates and leaves the failing tick unchanged. Existing committed-prefix, pause/scale/pacing and replay-stop rules remain intact. Domain-resource stops are verified from the recorded committed prefix, just like history-resource stops. As before, a replay input ends at its first failed operation; resuming is explicit, and an unknown-resident rejection is not silently ignored.
+The four selected source classes/residential-unit counts (S1=1, A5=1, B2=2, C2=6) give exactly ten occupied homes. One household is generated per home; each gets 1–3 people from its own counter-based stream, guaranteeing 10–30 people for every seed. The first member is an adult aged 22–80; other members are 0–90. This is a small explicit synthetic policy, not a Census-calibrated demographic model or a claim about actual occupants. Ages 0–4 are preschool, 5–21 students, 22–64 employed, 65–90 retired. Names come from small hand-authored tables; no real-person dataset is used. Household members share a generated family name.
 
-Slice hashes additionally cover behavior/navigation rules, graph fingerprint, level partition and retained canonical anchors/action/counters. Actual fine path positions are reconstructable and tested in separate-process replay; old toy/event/save/FFI fields remain unchanged. All people remain present at L1 or L2 while off-map. Retaining common minute decisions enables exact mixed-level catch-up and zero-time round-trip hashes; no schedule is repaired by teleporting on a level change.
+Household IDs use `ws-world/id/household` with `[dataset_version, BIN, unit]`. Resident IDs reuse ADR 0016's purpose/address, with BIN as building key and flat slot `unit*3 + member_slot`. Workplace IDs use `ws-world/id/workplace` with `[dataset_version, BIN, 0]` for the shop and `[dataset_version, 0, 0|1]` for off-map work/school. New IDs are checked against **every** existing building/household/resident/workplace ID; any collision fails without renumbering or a partial result. Adoption of ADR 0024's City collision policy remains a separate implementation, not a silent change to these generators.
 
-`cargo bench --locked -p ws-sim --bench active` measures cold all-pairs Dijkstra paths,100 physical ticks including every fine resident view, one minute-decision tick, and one hour of standalone coarse-domain catch-up. Fresh clones/destruction are outside timed step/advance workloads; state hashing is separate diagnostic work. The VS-004 measurements above are historical, before this added domain. Current measurements and explicit limitations live in [issue-69 verification](../../../docs/verification/issue-69/README.md). No host benchmark establishes a device/frame result.
+Random attributes use separate `Stream(seed, purpose, [stable_id]).draw(0)` choices and integer `below`; source order and unrelated draws cannot shift identities. The immutable columns iterate by ascending ID. The shop's synthetic job capacity comes from its floor count (clamped 1–3). Canonical lowest-ID employed residents fill that capacity; other employed residents use an off-map employment destination, and all students use an off-map school. Preschool/retired residents have no workplace. Every resident has exactly one home and household.
 
-## Real-slice camera policy (VS-006)
+Two exact-integer synthetic gateways sit on the west/east edges of the pinned extract's footprint extent, halfway between its north/south extremes. They are coarse map exits, **not surveyed sidewalks, road intersections or converted ground elevations**. Employment/school records reference their exit index; no resident disappears simply because the destination is off-map. VS-005 supplies the actual sidewalk graph.
 
-`Operation::CameraInterest` stores one validated integer region under [ADR0029](../../../docs/adr/0029-slice-camera-interest-and-aggregates.md); its input/outcome enters the typed log. It changes no time, utility counter or fact immediately. The latest accepted input owns membership permanently; later `SetDetail` requests record `LodError::CameraOwned` without changing state/events, even before the first policy tick. Initial pre-camera manual views at L2 nodes remain visible until the next physical membership plan; L3 never exposes fine residents.
+`PopulationBaseline` retains the unchanged structural seed/dataset/loader version and a separate population generator version (1). Changes to address mapping, size/age/assignment policy or name tables require a population-version bump and normal golden review. Existing building/toy Tier 1 fixtures are unchanged. An independent Python SipHash oracle, first checked against every existing real-building ID golden, freezes all household/resident/workplace IDs, names/ages/roles, memberships, assignments and gateway coordinates for seeds 0, 42 and u64::MAX. Rust compares the entire canonical output on both CI platforms. Regenerate only after an authorized version change:
 
-`lod()` is read-only; `view()` returns all residents and exact building/block counts from one committed boundary. Queries do not step or journal. `discard_observation_cache()` affects only derived acceleration; hashes/history/views are unchanged. Node modes, input and change times are canonical; recent-observation and logical-answer caches are not.
+```sh
+python3 scripts/vs_population_golden.py check
+# After version/fixture review approval only:
+python3 scripts/vs_population_golden.py build
+```
 
-Each tick prepares common needs, controller modes/every-tick membership/observations, complete count invariants and one combined fact vector. System60 schedule facts precede system70 slice LOD facts in a single event-store commit. Only after all reservations succeed do events, behavior, controller and clock publish without a fallible step. Controller-resource failures use the same explicit committed-prefix/terminal-stop replay contract as behavior/history failures. A different valid camera script is a different replay, distinguished by expected operation/history digests; failed-record fences are explicitly checked.
+Fixed-seed property tests verify the home/unit/member counts, adult head, exact role ranges, cross-kind unique IDs, accepted resident address derivation, family/name attributes, destination/capacity references and regeneration. Unit tests force cross-kind collisions, reverse source order, reject changed source-home counts and verify purpose separation. No tick-path cost is added; measurements are unnecessary at this baseline's scale per #67. No new dependency or data source.
 
-New tests cover typed camera/manual rejections, first-input views, dwell idempotence, batch equivalence, simultaneous producer ordering/index rebuild, common/controller/cache/history rollback, physical and host-elapsed resource prefixes, and per-boundary state/event/operation/view comparisons in a separate process. `cargo bench --locked -p ws-sim --bench camera` measures complete four-node promote/demote ticks (including observation/history planning) and bulk fine views for18/20/24/30 residents. See [verification](../../../docs/verification/issue-70/README.md). The current native/Unity bridge still renders the toy path; #72 owns the coarse real-slice camera/snapshot adapter.
+## VS-007 derived calendar/sky
+
+`environment` composes exact UTC, bounded New York policy1 and pure solar rule1. `SOLAR_SITE` is computed at compile time from the complete58-source-footprint envelope with i128 midpoint/floor arithmetic; the pinned registered dataset supplies its version. `calendar_sky(time, render_basis)` returns exact UTC throughout SimTime and explicit unavailable local/sun status outside UTC2000–2099. The sun is rotated site ENU→ECEF→the supplied render ENU basis; azimuth/elevation remain fixed-site values. `ToyWorld::render_basis` returns precisely the basis already used by render records, without treating navigation millimetres as ENU. The dedicated query direction has new exact Tier1 goldens across four seeds; general coordinate policy stays Tier3. This owns no mutable state/events and consumes no RNG.
+
+## VS-007 committed calendar/sky
+
+`World::calendar_sky()` returns one immutable boundary: tick, SimTime, canonical state hash, committed scale, exact UTC and optional core-derived New York/sun output in the paired render basis. It does not flush pending commands, tick, consume RNG or retain derived state. `SliceConfig::calendar_aligned_v1` constructs an explicit stored model-week epoch using NY policy1; `config()` queries it without recomputing alignment. Raw configuration remains compatible and all old schedule/behavior rules/goldens remain unchanged; elapsed model weeks stay uniform across later DST/leap boundaries. New tests compare calendar/state/checkpoint output at every script boundary in separate processes with pause/1/10/100 scales, and query-independence tests preserve pending commands. [ADR0030](../../../docs/adr/0030-calendar-sun-and-sky-query.md); [verification](../../../docs/verification/issue-71/README.md).

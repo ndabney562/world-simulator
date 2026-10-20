@@ -171,6 +171,21 @@ impl UtcDateTime {
         self.second == 60
     }
 
+    /// Exact Gregorian day index from 2000-01-01, independent of leap seconds.
+    #[must_use]
+    pub const fn day_index(&self) -> i64 {
+        self.days()
+    }
+
+    /// Nominal microseconds from civil midnight, retaining second60.
+    /// A leap second can share the next midnight's nominal solar phase;
+    /// this is a label component, never an elapsed duration (ADR0030).
+    #[must_use]
+    pub const fn nominal_micros_of_day(&self) -> u64 {
+        ((self.hour as u64 * 3600 + self.minute as u64 * 60 + self.second as u64) * 1_000_000)
+            + self.microsecond as u64
+    }
+
     /// Days since 2000-01-01.
     pub(crate) const fn days(&self) -> i64 {
         days_from_civil(self.year as i64, self.month as i64, self.day as i64)

@@ -1,0 +1,1 @@
+500 independent UTC/local/Monday reference cases passed

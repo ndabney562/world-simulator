@@ -7,9 +7,10 @@ Simulation time as integers ([ADR 0014](../../../docs/adr/0014-time-representati
 - `SimTime`: signed `i64` microseconds of a uniform time scale since 2000-01-01T12:00:00 UTC. `Copy`, 8 bytes, totally ordered.
 - `SimDuration`: signed `i64` microseconds.
 - `UtcDateTime`: a validated proleptic Gregorian UTC label, converted to and from `SimTime` both ways through an embedded leap-second table (`LEAP_SECOND_TABLE_VERSION`).
+- `UtcDateTime::day_index` and `nominal_micros_of_day`: exact label components for the solar model, never elapsed UTC days.
 - `Rate`: a system's native step, with epoch-aligned tick indices (`tick_index`, `tick_start`, `is_tick_start`).
 
-It is a foundation crate (layer 0): it depends on no other workspace crate. Time zones, daylight saving, and astronomical time scales (TT, TDB) are out of scope until later stages.
+It is a foundation crate (layer 0): it depends on no other workspace crate. [ADR0030](../../../docs/adr/0030-calendar-sun-and-sky-query.md) adds frozen New York policy1 for UTC2000–2099, a distinct `LocalDateTime` (offset distinguishes repeated hours; second60 stays local), and `model_monday_v1` for initial model-week alignment. The lower-edge predecessor1999-12-27 EST is alignment-only. Other zones, live timezone databases and astronomical time scales (TT, TDB) remain out of scope.
 
 ## Owned state
 

@@ -20,7 +20,10 @@
 //! 25-determinism-policy.md); the continuous conversions are Tier 3 by
 //! policy, although they also give the same bits on Linux and macOS.
 //!
-//! Out of scope here: inertial and barycentric frames, Earth rotation,
+//! [`solar`]: bounded NOAA/Meeus geometric solar rule1 (ADR0030), with dedicated
+//! Tier1 bit goldens. No general coordinate tier is changed.
+//!
+//! Out of scope here: inertial and barycentric frames, precision Earth rotation,
 //! geoid heights, camera-relative rendering, and physics frames.
 //!
 //! [`BAY_RIDGE`]: crate::reference::BAY_RIDGE
@@ -30,6 +33,7 @@ pub mod enu;
 pub mod error;
 pub mod frame;
 pub mod reference;
+pub mod solar;
 pub mod surface;
 pub mod wgs84;
 

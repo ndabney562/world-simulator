@@ -11,12 +11,13 @@ The coordinate and reference-frame foundation ([07-coordinates-and-time.md](../.
 | `enu` | `EnuFrame`: a local East-North-Up frame at a geodetic origin, with ECEF ↔ ENU transforms for positions and vectors |
 | `cell` | `CellId(u64)`: S2-compatible cube-sphere cells, Hilbert-ordered; from geodetic or ECEF, level, parent, children, containment, edge neighbours, centre, cell ENU frame |
 | `surface` | `SurfacePos { cell, offset: [f32; 3] }` in a sector cell's ENU frame (`SECTOR_LEVEL` = 13); to and from ECEF; `CellFrame` for allocation-free bulk conversion; deterministic re-expression into the containing cell |
+| `solar` | ADR0030 NOAA/Meeus geometric solar rule1 from integer civil day/label components; libm unit direction, azimuth and elevation, with no refraction |
 | `reference` | `BAY_RIDGE`, the reference point for tests and the toy world |
 | `error` | `CoordError`, returned for every invalid input |
 
 Conventions: SI units (metres, radians), right-handed frames, ENU local frames (x east, y north, z up), ellipsoidal heights. Cell IDs have the same `u64` value as Google S2 cell IDs for the same direction.
 
-Out of scope (later issues): inertial and barycentric frames, Earth rotation, ephemerides, geoid heights, camera-relative rendering and the Unity mapping, physics frames.
+Out of scope (later issues): inertial and barycentric frames, precision Earth rotation (UT1/polar motion), TT/TDB ephemerides, geoid heights, camera-relative rendering and the Unity mapping, physics frames.
 
 ## Owned state
 
@@ -78,3 +79,7 @@ On an Apple M1 Pro Mac, Rust 1.97.0 release, the conversion benchmark's original
 `tests/inside_fast_path.rs` sweeps rays from cell centres in eight named regions (Bay Ridge, equator, 60° and 80° N, near the south pole, a cube vertex, both sides of a face edge) and 256 random ones, at heights from −2 km to 150 km and distances from 1 µm to 100 m on both sides of the edge: every proven point is inside by the full lookup, and every point 50 m inside the edge at walking heights is proven. Removing the height term makes it fail. The ±200 µm edge sweeps in `tests/cell_edges.rs` also check that no point that close to an edge is proven, and the global property test compares fast and full re-expression bit for bit.
 
 Same Linux Intel Xeon 2.1 GHz machine as the #31 review, Rust 1.97.0 release, `cargo bench -p ws-math --bench conversions`: `reexpress_with` on 10,000 positions inside one cell takes **428 → 32 ns per call**; `CellFrame::new` 117 ns, `CellFrame::with_inside_test` 146 ns.
+
+## VS-007 solar rule1
+
+`solar::position` validates UTC2000–2099 day/nominal-label bounds and finite latitude/longitude. It uses nominal UTC approximating rotational time, with integer normalization of leap-second phase before floating arithmetic; second60 and the following midnight share model phase, while ws-time retains their distinct instants. Every transcendental uses pinned libm; evaluation order/constants have new exact Tier1 bit goldens in `tests/golden/solar_v1.txt`, independent of existing coordinate goldens. Three independently executed published NOAA geometric samples at the registered block must match within0.1° (circular azimuth). No mutable sky state, RNG, wall clock, network or new dependency. See [verification](../../../docs/verification/issue-71/README.md).
