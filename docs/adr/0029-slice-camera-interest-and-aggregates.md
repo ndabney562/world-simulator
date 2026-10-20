@@ -32,7 +32,7 @@ The typed Rust API and bulk views are the host integration contract for this cor
 
 ### Building modes, interest and hysteresis
 
-The four featured buildings are the only policy nodes, in ascending entity-ID order. A node mode is L1 Active, L2 Background or L3 Aggregate. Initially each is L2, camera input is absent and no controller selection runs until a camera input has been accepted. This preserves ADR0028's manually exercisable headless behavior. Once camera control is active, it owns automatic selection; an explicit manual detail request remains a diagnostic operation and is reconciled at the next physical tick. It cannot change identity, needs or the node's policy mode.
+The four featured buildings are the only policy nodes, in ascending entity-ID order. A node mode is L1 Active, L2 Background or L3 Aggregate. Initially each is L2, camera input is absent and no controller selection runs until a camera input has been accepted. This preserves ADR0028's manually exercisable headless behavior. Once the first camera input is accepted, camera control owns membership: reject subsequent manual `SetDetail` requests with a typed camera-owned rejection, recorded with unchanged canonical state/events. This applies even before the first policy update and even to an idempotent manual request. Bulk views therefore never expose a manually forced fine resident at an L3 node. No camera-disable operation is introduced; standalone manual tests use worlds that have not accepted camera input.
 
 Use each building's registered navigation portal proxy as the integer interest position. Let `d²` be squared planar distance to camera center and `r` the positive requested radius. Evaluate policy at200-ms model-time boundaries aligned to `schedule_epoch`, after advancing the common behavior to that boundary. No wall-clock time, screen resolution, renderer band, frame rate or ambient RNG participates.
 
@@ -72,7 +72,7 @@ A physical tick prepares common needs, controller update/membership/cache, indep
 
 ## Required implementation evidence
 
-- Exact integer threshold/hysteresis/dwell/update tests, negative/extreme time and coordinate inputs, overview/warp limits, idempotent requests and rejected invalid inputs without mutation.
+- Exact integer threshold/hysteresis/dwell/update tests, negative/extreme time and coordinate inputs, overview/warp limits, idempotent requests and rejected invalid inputs without mutation. Check manual detail requests before/after camera ownership, including the interval before the first policy tick, L3 bulk views and rejected-request replay.
 - At least1000 randomized zoom cycles across multiple seeds with unique complete identities, exact conserved quantities, local/off-map crossings, model-time cache hit/expiry/miss and independent count checks. Explicitly check an outbound gateway demotion caches the actual off-map variant at its real boundary, then preserves projection on a hit, at the inclusive120-second boundary and after expiry.
 - Every physical tick of a simulated week compares all building occupancy/activity bins and block totals with an independent individual aggregation.
 - Separate-process replay of camera/scale/host-step scripts with per-boundary state/event/operation checkpoints; single-step versus batched equivalence; atomic domain/controller/history fault injection and committed-prefix replay.
