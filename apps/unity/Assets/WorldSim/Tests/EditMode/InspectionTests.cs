@@ -118,8 +118,7 @@ namespace WorldSim.Tests.EditMode
             File.WriteAllText(Path.Combine(Path.GetTempPath(),"worldsim73-building-inspection.txt"),text);
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
             yield return new WaitForSecondsRealtime(0.5f);
-            ScreenCapture.CaptureScreenshot(Path.Combine(Path.GetTempPath(),"worldsim73-building-inspection.png"));
-            for(int i=0;i<3;i++) yield return null;
+            yield return CaptureInspection("building");
             demo.ClearInspection();demo.SetSpeed(1);demo.RequestStreetView();double deadline=Time.realtimeSinceStartupAsDouble+8;
             while(demo.WaitingForStreet&&Time.realtimeSinceStartupAsDouble<deadline) yield return null;
             Assert.That(demo.WaitingForStreet,Is.False);demo.SetSpeed(0);yield return null;selected=false;
@@ -135,11 +134,23 @@ namespace WorldSim.Tests.EditMode
             File.WriteAllText(Path.Combine(Path.GetTempPath(),"worldsim73-resident-inspection.txt"),demo.InspectorText);
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
             yield return new WaitForSecondsRealtime(0.5f);
-            ScreenCapture.CaptureScreenshot(Path.Combine(Path.GetTempPath(),"worldsim73-resident-inspection.png"));
-            for(int i=0;i<3;i++) yield return null;
+            yield return CaptureInspection("resident");
             calls=demo.InspectionQueries;Assert.That(demo.InspectScreenPoint(new Vector2(10,Screen.height-10)),Is.False);Assert.That(demo.InspectionQueries,Is.EqualTo(calls));
             demo.enabled=false;Assert.That(demo.CurrentInspection,Is.Null);Assert.That(demo.InspectorText,Is.Empty);Object.DestroyImmediate(mesh);
             yield return new ExitPlayMode();
+        }
+        static IEnumerator CaptureInspection(string kind)
+        {
+            // Batch mode does not composite the Game view. The visible run must
+            // finish writing this frame before selection/camera state changes.
+            if(Application.isBatchMode) yield break;
+            string path=Path.Combine(Path.GetTempPath(),"worldsim73-"+kind+"-inspection.png");
+            if(File.Exists(path)) File.Delete(path);
+            ScreenCapture.CaptureScreenshot(path);
+            double deadline=Time.realtimeSinceStartupAsDouble+5;
+            while(!File.Exists(path)&&Time.realtimeSinceStartupAsDouble<deadline) yield return null;
+            Assert.That(File.Exists(path),Is.True,"The selected inspector frame must be captured before changing selection.");
+            yield return new WaitForSecondsRealtime(0.25f);
         }
         [Test]
         public void ContextOccludesHiddenCapsulesAndEqualDepthUsesStableResidentIdentity()
