@@ -1,6 +1,6 @@
 # ADR0033: Resident sex, health and life status
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-21
 - Decided by: Product Owner request, Codex proposal; independent review and recorded technical delegation on #77
 - Issue: #99; runtime extends #73
