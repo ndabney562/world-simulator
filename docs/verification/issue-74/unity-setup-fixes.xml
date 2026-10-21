@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="5" result="Passed" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.0478111">
+  <test-suite type="TestSuite" id="1000" name="World Simulator" fullname="World Simulator" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.047811" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1086" name="WorldSim.Tests.EditMode.dll" fullname="/Users/noahdabney/.codex/.chatgpt-projects/g-p-6ad24ebdfa708191b16f3c23ce0edb2a/world-simulator-74/apps/unity/Library/ScriptAssemblies/WorldSim.Tests.EditMode.dll" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.043606" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="49714" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1087" name="WorldSim" fullname="WorldSim" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.043072" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1088" name="Tests" fullname="WorldSim.Tests" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.042567" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1089" name="EditMode" fullname="WorldSim.Tests.EditMode" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.042144" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1017" name="BridgeTests" fullname="WorldSim.Tests.EditMode.BridgeTests" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" testcasecount="19" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.019377" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-suite type="ParameterizedMethod" id="1026" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.016838" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1022" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(1.570796f,0.0f,1.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(1.570796f,0.0f,1.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1445935357" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.011619" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1023" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(0.0f,1.0f,0.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(0.0f,1.0f,0.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="117230458" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.000090" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1024" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(3.141593f,-1.0f,0.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(3.141593f,-1.0f,0.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1200092173" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.000070" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+                <test-case id="1025" name="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(-1.570796f,0.0f,-1.0f)" fullname="WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(-1.570796f,0.0f,-1.0f)" methodname="ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes" classname="WorldSim.Tests.EditMode.BridgeTests" runstate="Runnable" seed="1864608543" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.000048" asserts="0">
+                  <properties>
+                    <property name="retryIteration" value="0" />
+                    <property name="repeatIteration" value="0" />
+                  </properties>
+                </test-case>
+              </test-suite>
+            </test-suite>
+            <test-suite type="TestFixture" id="1047" name="InspectionTests" fullname="WorldSim.Tests.EditMode.InspectionTests" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" testcasecount="10" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.021453" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1049" name="ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction" fullname="WorldSim.Tests.EditMode.InspectionTests.ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction" methodname="ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="107173202" result="Passed" start-time="2026-10-21 20:16:29Z" end-time="2026-10-21 20:16:29Z" duration="0.020008" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Saving results to: /Users/noahdabney/Library/Application Support/World Simulator/World Simulator/TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

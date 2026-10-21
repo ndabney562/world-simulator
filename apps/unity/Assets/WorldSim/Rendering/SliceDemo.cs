@@ -21,6 +21,7 @@ namespace WorldSim.Rendering
         readonly SliceTapGesture tap=new SliceTapGesture();
         SliceInspection inspection;
         string inspectionText="";
+        ulong consequenceRoot;
         Vector2 inspectionScroll;
         public SliceInspection CurrentInspection=>inspection;
         public string InspectorText=>inspectionText;
@@ -159,11 +160,22 @@ namespace WorldSim.Rendering
             try
             {
                 InspectionQueries++;var sample=host.Inspect(hit.Id);string text=SliceInspectionText.Format(sample);
-                inspection=sample;inspectionText=text;inspectionScroll=Vector2.zero;notice="Tap again to refresh this snapshot.";return true;
+                consequenceRoot=0;inspection=sample;inspectionText=text;inspectionScroll=Vector2.zero;notice="Tap again to refresh this snapshot.";return true;
             }
             catch(Exception error) {notice="Inspection failed: "+error.Message;return false;}
         }
-        public void ClearInspection() {inspection=null;inspectionText="";inspectionScroll=Vector2.zero;}
+        public void ClearInspection() {consequenceRoot=0;inspection=null;inspectionText="";inspectionScroll=Vector2.zero;}
+        /// <summary>One explicit action; refresh keeps the same root and never reapplies illness.</summary>
+        public bool InspectIllness()
+        {
+            if(host==null||inspection==null||inspection.Kind!=1) return false;
+            try {
+                var sample=host.Illness(inspection.Id,consequenceRoot);
+                string text=SliceInspectionText.Consequences(sample);
+                inspection=sample.Inspection;consequenceRoot=sample.Consequences.Root;inspectionText=text;inspectionScroll=Vector2.zero;
+                notice="Tap the person to return to their details.";return true;
+            } catch(Exception error) {notice="Illness action failed: "+error.Message;return false;}
+        }
         void Update()
         {
             if(host==null) return;if(host.Failure!=null) throw new InvalidOperationException("Real slice worker stopped.",host.Failure);
@@ -270,7 +282,7 @@ namespace WorldSim.Rendering
                 Rect panel=InspectorRect();GUI.Box(panel,GUIContent.none);
                 GUILayout.BeginArea(new Rect(panel.x+6,panel.y+6,panel.width-12,panel.height-12));
                 if(GUILayout.Button("Close inspection")) ClearInspection();
-                else {inspectionScroll=GUILayout.BeginScrollView(inspectionScroll);GUILayout.Label(inspectionText);GUILayout.EndScrollView();}
+                else {if(inspection.Kind==1&&GUILayout.Button(consequenceRoot==0?"Curse with illness":"Refresh consequences")) InspectIllness();inspectionScroll=GUILayout.BeginScrollView(inspectionScroll);GUILayout.Label(inspectionText);GUILayout.EndScrollView();}
                 GUILayout.EndArea();
             }
             GUI.matrix=previousMatrix;

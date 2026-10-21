@@ -4,6 +4,7 @@ use crate::{EntityId, SimTime};
 use ws_events::RecentEvents;
 pub use ws_life::{Location, Place};
 use ws_life::{Schedule, behavior::CommonSnapshot, lod::BuildingSummary};
+pub use ws_world::slice::DATASET_VERSION;
 pub use ws_world::slice::vitals::{Life, Sex, VitalState};
 use ws_world::slice::{SourceBuilding, population::SyntheticResident};
 
@@ -48,6 +49,8 @@ pub struct Inspection<'a> {
     pub schedule_epoch: SimTime,
     /// Kind-specific authoritative values.
     pub entity: Entity<'a>,
+    /// Current finite illness/routine extension for residents only.
+    pub illness: Option<super::illness::State>,
     /// At most sixteen actual actor facts with an explicit more-results flag.
     pub events: RecentEvents<'a>,
 }
@@ -91,6 +94,11 @@ impl SliceSimulation {
             dataset: ws_world::slice::DATASET_VERSION,
             scale: self.clock().scale().multiplier(),
             schedule_epoch: self.schedules().epoch(),
+            illness: if self.population().residents().get(id).is_some() {
+                Some(self.illness_state(id)?)
+            } else {
+                None
+            },
             entity,
             events: self
                 .events()

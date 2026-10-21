@@ -1,7 +1,7 @@
-//! ADR0031 separate real-slice ownership and bounded coarse ABI6 transport.
+//! ADR0031 separate real-slice ownership and bounded coarse ABI8 transport.
 use super::*;
 mod inspection;
-pub use inspection::ws_slice_inspect;
+pub use inspection::{ws_slice_consequences, ws_slice_inspect};
 use ws_sim::slice::{Operation, SliceConfig, SliceSimulation, render};
 
 const GEOMETRY_HEADER: usize = 96;
@@ -15,7 +15,7 @@ const MAX_DYNAMIC: usize = SNAPSHOT_HEADER + (MAX_POPULATION + SUMMARY_COUNT) * 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceConfig {
-    /// Exact current native ABI6.
+    /// Exact current native ABI8.
     pub abi_version: u32,
     /// Exactly32.
     pub struct_size: u32,
@@ -26,11 +26,11 @@ pub struct WsSliceConfig {
     /// Zero.
     pub reserved: u64,
 }
-/// One coarse input,64 bytes aligned8; no per-entity operation is exposed here.
+/// One coarse input,64 bytes aligned8; including explicit single-resident god interventions.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceOperation {
-    /// Exact current ABI6.
+    /// Exact current ABI8.
     pub abi_version: u32,
     /// Exactly64.
     pub struct_size: u32,
@@ -309,6 +309,18 @@ fn operation(
             .world
             .camera_operation(p, f64::from_bits(c.words[3]))
             .map_err(|_| (INVALID_ARGUMENT, "invalid slice camera input"));
+    }
+    if c.tag == 5 {
+        if c.words[1] > u64::from(u32::MAX) || c.words[3..].iter().any(|v| *v != 0) {
+            return Err((INVALID_COMMAND, "illness framing invalid"));
+        }
+        let resident = ws_sim::EntityId::from_raw(c.words[0])
+            .map_err(|_| (INVALID_ARGUMENT, "invalid illness target identity"))?;
+        return Ok(Operation::Afflict {
+            resident,
+            severity: c.words[1] as u32,
+            duration_us: c.words[2],
+        });
     }
     if c.words[1..].iter().any(|v| *v != 0) {
         return Err((INVALID_COMMAND, "unused operation words must be zero"));

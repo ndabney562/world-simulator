@@ -169,3 +169,5 @@ Fixed-seed property tests verify the home/unit/member counts, adult head, exact 
 
 ## Resident vitals (ADR0033)
 The separate version1 vitals column has one retained row per existing resident ID, with an independent seeded female/male draw, health0..100 and explicit Alive/Dead status. Initial health is100 and life status Alive. Checked values require living health1..100 or dead health0. This increment adds stored state, with no disease/mortality transitions. Sex is independent of names and old population streams; existing population1 goldens remain unchanged. The versioned digest covers every ID/field. Future transitions need event, behavior, occupancy and persistence integration.
+
+ADR0034 adds only checked living-health mutation to the retained slice vitals column. It preserves sex/life and rejects missing/dead residents or health outside1..100. The orchestrator stages illness effects and recovery atomically; no raw component setter is exposed through FFI. Mortality, contagion and new initial health sources remain outside #74.

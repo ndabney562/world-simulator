@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicitly generate new ABI6 slice transport samples from a built native library.
+"""Explicitly generate new ABI8 slice transport samples from a built native library.
 
 Not run by CI. The shared samples pin transport interpretation, with Tier3
 coordinate tolerances and a zero hash sentinel, not cross-platform world hashes.
@@ -35,20 +35,21 @@ def main():
         raise SystemExit("usage: generate-slice-fixtures.py /absolute/path/to/built/libws_ffi")
     lib = c.CDLL(str(Path(sys.argv[1]).resolve()))
     lib.ws_abi_version.restype = c.c_uint32
-    assert lib.ws_abi_version() == 7
+    assert lib.ws_abi_version() == 8
     lib.ws_utc_to_sim.argtypes = [c.POINTER(Utc), c.POINTER(c.c_int64)]
     lib.ws_slice_create.argtypes, lib.ws_slice_create.restype = [c.POINTER(Config)], c.c_void_p
     lib.ws_slice_destroy.argtypes = [c.c_void_p]
     lib.ws_slice_apply.argtypes = [c.c_void_p, c.POINTER(Operation)]
     for name in ("ws_slice_fill_geometry", "ws_slice_fill_snapshot"):
         getattr(lib, name).argtypes = [c.c_void_p, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
+    lib.ws_slice_consequences.argtypes = [c.c_void_p, c.c_uint64, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
     lib.ws_slice_inspect.argtypes = [c.c_void_p, c.c_uint64, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
     lib.ws_slice_get_calendar_sky.argtypes = [c.c_void_p, c.POINTER(Sky)]
     assert (c.sizeof(Utc), c.sizeof(Config), c.sizeof(Operation), c.sizeof(Sky), c.alignment(Sky)) == (40, 32, 64, 160, 8)
-    utc = Utc(7, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
+    utc = Utc(8, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
     start = c.c_int64()
     assert lib.ws_utc_to_sim(c.byref(utc), c.byref(start)) == 0
-    handle = lib.ws_slice_create(c.byref(Config(7, 32, 71449, start.value, 0)))
+    handle = lib.ws_slice_create(c.byref(Config(8, 32, 71449, start.value, 0)))
     assert handle
 
     def fill(name):
@@ -60,12 +61,12 @@ def main():
 
     try:
         geometry = fill("ws_slice_fill_geometry")
-        camera = Operation(7, 64, 4, 0, (c.c_uint64 * 6)(0, 0, 0, struct.unpack("<Q", struct.pack("<d", 500.0))[0], 0, 0))
+        camera = Operation(8, 64, 4, 0, (c.c_uint64 * 6)(0, 0, 0, struct.unpack("<Q", struct.pack("<d", 500.0))[0], 0, 0))
         assert lib.ws_slice_apply(handle, c.byref(camera)) == 0
-        assert lib.ws_slice_apply(handle, c.byref(Operation(7, 64, 1, 0, (c.c_uint64 * 6)(20, 0, 0, 0, 0, 0)))) == 0
+        assert lib.ws_slice_apply(handle, c.byref(Operation(8, 64, 1, 0, (c.c_uint64 * 6)(20, 0, 0, 0, 0, 0)))) == 0
         snapshot = bytearray(fill("ws_slice_fill_snapshot"))
         sky = Sky()
-        struct.pack_into("<II", sky, 0, 7, 160)
+        struct.pack_into("<II", sky, 0, 8, 160)
         assert lib.ws_slice_get_calendar_sky(handle, c.byref(sky)) == 0
         calendar = bytearray(c.string_at(c.byref(sky), 160))
         assert snapshot[8:32] == calendar[8:32]
@@ -77,12 +78,23 @@ def main():
             size = c.c_size_t()
             assert lib.ws_slice_inspect(handle, entity, out, len(out), c.byref(size)) == 0
             data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
-            (fixture_dir / ("inspect-" + label + "-v7.hex")).write_text(data.hex() + "\n")
+            (fixture_dir / ("inspect-" + label + "-v8.hex")).write_text(data.hex() + "\n")
             print("inspect-" + label, len(data), "bytes")
-        for name, data in (("slice-geometry-v7", geometry), ("slice-snapshot-v7", snapshot), ("slice-sky-v7", calendar)):
+        for name, data in (("slice-geometry-v8", geometry), ("slice-snapshot-v8", snapshot), ("slice-sky-v8", calendar)):
             text = "\n".join(data[i:i+32].hex() for i in range(0, len(data), 32)) + "\n"
             (fixture_dir / (name + ".hex")).write_text(text)
             print(name, len(data), "bytes")
+        entity = struct.unpack_from("<Q", snapshot, 128)[0]
+        assert lib.ws_slice_apply(handle, c.byref(Operation(8, 64, 5, 0, (c.c_uint64 * 6)(entity, 5, 200000, 0, 0, 0)))) == 0
+        out = c.create_string_buffer(8192); size = c.c_size_t()
+        assert lib.ws_slice_inspect(handle, entity, out, len(out), c.byref(size)) == 0
+        data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
+        (fixture_dir / "inspect-ill-v8.hex").write_text(data.hex() + "\n")
+        state_at = 96 + struct.unpack_from("<I", data, 64)[0]
+        root = struct.unpack_from("<Q", data, state_at + 96)[0]
+        assert lib.ws_slice_consequences(handle, root, out, len(out), c.byref(size)) == 0
+        data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
+        (fixture_dir / "consequences-v8.hex").write_text(data.hex() + "\n")
     finally:
         lib.ws_slice_destroy(handle)
 

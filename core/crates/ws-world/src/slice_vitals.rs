@@ -77,7 +77,7 @@ impl VitalState {
         self.life
     }
 }
-/// Exactly one retained row per existing resident. No public mutation API.
+/// Exactly one retained row per existing resident. Checked living-health mutation only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Vitals {
     rows: Column<VitalState>,
@@ -115,6 +115,17 @@ impl Vitals {
     pub fn get(&self, id: EntityId) -> Option<&VitalState> {
         self.rows.get(id)
     }
+    /// Checked ADR0034 health update for a retained living resident. No revival or mortality.
+    pub fn set_living_health(&mut self, id: EntityId, health: u8) -> bool {
+        let Some(v) = self.rows.get_mut(id) else {
+            return false;
+        };
+        if v.life != Life::Alive || !(1..=100).contains(&health) {
+            return false;
+        }
+        v.health = health;
+        true
+    }
     /// Canonical versioned integer digest; no allocation or randomness.
     pub fn state_hash(&self) -> u64 {
         let mut hash = SipHasher24::new(0, STATE.value());
@@ -128,6 +139,31 @@ impl Vitals {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn checked_health_updates_preserve_sex_life_and_reject_invalid_or_dead_targets() {
+        let p = PopulatedSlice::new(42).unwrap();
+        let mut values = Vitals::new(&p);
+        let id = values.ids()[0];
+        let old = *values.get(id).unwrap();
+        for health in [1, 55, 100] {
+            assert!(values.set_living_health(id, health));
+            let v = values.get(id).unwrap();
+            assert_eq!(v.health(), health);
+            assert_eq!(v.sex(), old.sex());
+            assert_eq!(v.life(), Life::Alive);
+        }
+        let before = values.clone();
+        for health in [0, 101, 255] {
+            assert!(!values.set_living_health(id, health));
+            assert_eq!(values, before);
+        }
+        assert!(!values.set_living_health(EntityId::spawned(1).unwrap(), 100));
+        assert_eq!(values, before);
+        *values.rows.get_mut(id).unwrap() = VitalState::checked(old.sex(), 0, Life::Dead).unwrap();
+        let dead = values.clone();
+        assert!(!values.set_living_health(id, 100));
+        assert_eq!(values, dead);
+    }
     #[test]
     fn every_field_participates_in_digest_without_changing_identity() {
         let p = PopulatedSlice::new(42).unwrap();

@@ -1,0 +1,279 @@
+{
+  "note": "Latest result per unique case across retained full/focused XML runs; original five setup failures remain unmodified in the initial full XML.",
+  "total": 68,
+  "passed": 68,
+  "cases": {
+    "WorldSim.Tests.EditMode.BridgePlayTests.BootstrapRendersAndAdvancesFromNativeSnapshots": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.CatchUpPreservesOnlySubStepRemainder": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.CodeBuiltMeshesMatchPrimitiveSizesAndFaceOutwards": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.DemoInputBackendSupportsLegacyMouseAndTouch": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.HostUsesCommittedScaleOnceAndRetainsPausedFraction": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.LongStallDropsExcessWholeSteps": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.OverviewFitsEveryBuildingAndRotationKeepsZoom(1.777778f,0.5625f)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.OverviewFitsEveryBuildingAndRotationKeepsZoom(0.5625f,1.777778f)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgePlayTests.WorkerThreadAdvancesTheWorldAndStopsCleanly": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CommandsStayPendingUntilFlushAndResumeAtTheSameTick": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(0,2)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(4,1)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(16,2)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(20,1)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(32,7)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(32,2)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.CorruptFrameDoesNotPublishTransforms(212,1)": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.MacPluginCreatesAdvancesAndDecodesSnapshots": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.NativeConfigLayoutMatchesHeader": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.NativeControlStateLayoutMatchesHeaderAndOldClientIsRefused": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.NonfiniteAndNonpositiveRecordsAreRejected": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.SharedFixtureDecodesBuildingsThenResidents": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(1.570796f,0.0f,1.0f)": {
+      "result": "Passed",
+      "evidence": "unity-setup-fixes.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(0.0f,1.0f,0.0f)": {
+      "result": "Passed",
+      "evidence": "unity-setup-fixes.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(3.141593f,-1.0f,0.0f)": {
+      "result": "Passed",
+      "evidence": "unity-setup-fixes.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.ToyEntityKindsDecodeToBoxesAndCapsulesWithEnuAxes(-1.570796f,0.0f,-1.0f)": {
+      "result": "Passed",
+      "evidence": "unity-setup-fixes.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.WarmedFillAndDecodeHaveNoManagedAllocations": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.BridgeTests.WarmedFlushAndControlReadHaveNoManagedAllocations": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.ActualHudControlsPauseAndHundredTimesKeepUpAtSlicePopulation": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.CalendarAndUtcLayoutsMatchEveryNativeOffset": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.CalendarSnapshotPairIsReadOnlyAndPendingCommandsStayPending": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.PureUtcConfigurationPreservesLeapLabelsAndDoesNotSnapGrid": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.SharedUtcAndSkyByteFixturesMatchNativeLayoutAndInvalidRecordsAreRejected": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.SunLightAndHudPresentCoreValuesIncludingNightAndUnavailableStatus": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.CalendarTests.WarmedCalendarFillAndPresentationReuseManagedStorage": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies": {
+      "result": "Passed",
+      "evidence": "unity-strict-final.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction": {
+      "result": "Passed",
+      "evidence": "unity-strict-final.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication": {
+      "result": "Passed",
+      "evidence": "unity-strict-final.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.ConstructedVitalRecordsDisplayMaleUnwellAndDeadValues": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.ContextOccludesHiddenCapsulesAndEqualDepthUsesStableResidentIdentity": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.MalformedInspectionNeverReplacesThePreviousCompleteRecord": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.NativeInspectionMatchesSharedCoreFixturesAndEveryRenderedIdentityWithoutMutation": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection": {
+      "result": "Passed",
+      "evidence": "unity-final.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.ResidentPanelShowsOnlyRequestedFieldsFromCoreIncludingBothSexesAndLifeStates": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.InspectionTests.TapThresholdsCancelReturningDragsSecondTouchesUiAndLongPresses": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.AssetsAreTextSerializedWithVisibleMetaFiles": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.BootstrapIsTheOnlyBuildScene": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.BootstrapSceneHoldsCameraLightAndBridgeDemo": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.IosPlayerSettingsMatchTheIssue": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.ProvidersFolderContainsNoCode": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.RenderingReferencesBridgeAndBridgeReferencesNoWorldSimAssembly": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.UrpAssetUsesConservativeMobileDefaults": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.UrpIsTheActiveRenderPipeline": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.ProjectSkeletonTests.WorldSimAssembliesAreCompiled": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.HostClockClosesOldScaleIntervalsAndPreservesFractionalStopwatchUnits": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.InvalidDynamicRowsLeaveTheCompletePreviousFrameUntouched": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.InvalidGeometryIsRejectedBeforeAnyPartialCacheIsPublished": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.PurePairedQueriesPauseAndOverviewRetainAllPeopleAndNeverInventFinePositions": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.SharedRealSliceFixturesMatchNativeGeometryIdentitiesPositionsCountsAndSky": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.TwentyMinuteHostCadenceIsBoundedAndPausedTimeNeverReachesTheCore": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceBridgeTests.WarmedRealSliceFillDecodeAndCoherentSkyAllocateNoManagedBytes": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceCameraTests.CameraInterestUsesExplicitDistanceLatchAndBoundedHorizonFallbackAtTenHertz": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceCameraTests.DefaultFitShowsAllFeaturedFootprintsInPortraitAndWideAndMovedResizeKeepsPose": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceCameraTests.PlayCameraMovesFromOverviewToStreetAndBackWithoutLosingFeaturedFraming": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceCameraTests.RepeatedOrbitPanZoomClampFiniteAndWarmInterestAllocatesNoManagedBytes": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SlicePerformanceTests.RealSliceThirtyPeopleHasFencedEditorFrameAndWorkerEvidenceAtOneAndHundredTimes": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    },
+    "WorldSim.Tests.EditMode.SliceSceneTests.RealBlockDrawsEveryFeaturedFootprintAndActualStreetResidentsFromNativeFrames": {
+      "result": "Passed",
+      "evidence": "unity-full-initial.xml"
+    }
+  }
+}

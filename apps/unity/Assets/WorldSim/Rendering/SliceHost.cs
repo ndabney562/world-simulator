@@ -81,6 +81,10 @@ namespace WorldSim.Rendering
             }
         }
         public SliceInspection Inspect(ulong id)=>world.Inspect(id);
+        public SliceIllnessSample Illness(ulong id,ulong root=0)
+        {
+            lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Illness(id,root);}
+        }
         public void SetCamera(Vector3 target,double radius) {world.SetCamera(target,radius);}
         /// <summary>Includes lock wait, fill, coherent sky and decode; costs share the captured tick window.</summary>
         public double Fill(SliceFrame frame,out SliceAdvanceStats stats)
