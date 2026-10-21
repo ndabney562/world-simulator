@@ -195,3 +195,7 @@ Initial proposal covering the 22 points of the brief.
 ## TP-008 implementation (2026-10-16)
 
 Implements accepted ADR 0019's typed bounded command queue, boundary journal, meaningful event subset and same-build/platform headless replay. Adds `ws-events` at layer 1 and `ws-cli` as a layer-5 host adapter, without runtime external dependencies. Domain plans expose actual arrivals/LOD changes one way for atomic publication. No architecture guardrail, Unity ABI, save format, multithreaded scheduler, retention or provenance propagation is changed. The conditional bridge adaptation awaits TP-003's final merged contract; see the Rust workspace README and tape codec.
+
+## 2026-10-21 — Proposed resident vitals
+
+ADR0033 (#99) proposes a separate version1 deterministic core vitals column and ABI7/schema2 inspection extension for the Product Owner’s real-value request. Initial health100/alive is explicit; disease/mortality dynamics remain separate. Existing population/goldens and device gates are preserved.

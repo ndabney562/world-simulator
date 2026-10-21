@@ -90,3 +90,5 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 ## Real-slice inspection contract (VS-009)
 
 [ADR0032](../adr/0032-read-only-slice-inspection.md) proposes a bounded tap-driven record query over the real-slice handle, with occlusion-aware picking of published identities, explicit source-context handling and a timestamped inspector. Core identity, needs, timetable and factual actor events remain authoritative. The contract passed independent review and records delegated acceptance; final-head review/CI precede design merge and separate runtime implementation. It adds no runtime or device evidence.
+
+[ADR0033](../adr/0033-resident-vitals-and-inspection.md) proposes native stored resident sex/health/life fields with an ABI7/schema2 inspection extension. The five-field panel reads validated core values; initial residents are healthy/alive. Runtime follows the separate reviewed design.
