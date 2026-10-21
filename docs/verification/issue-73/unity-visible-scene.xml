@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.1379803">
-  <test-suite type="TestSuite" id="1000" name="World Simulator" fullname="World Simulator" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.137980" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.1115166">
+  <test-suite type="TestSuite" id="1000" name="World Simulator" fullname="World Simulator" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.111517" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
     <properties>
       <property name="platform" value="EditMode" />
     </properties>
-    <test-suite type="Assembly" id="1081" name="WorldSim.Tests.EditMode.dll" fullname="/Users/noahdabney/.codex/.chatgpt-projects/g-p-6ad24ebdfa708191b16f3c23ce0edb2a/world-simulator-73/apps/unity/Library/ScriptAssemblies/WorldSim.Tests.EditMode.dll" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.107110" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <test-suite type="Assembly" id="1082" name="WorldSim.Tests.EditMode.dll" fullname="/Users/noahdabney/.codex/.chatgpt-projects/g-p-6ad24ebdfa708191b16f3c23ce0edb2a/world-simulator-73/apps/unity/Library/ScriptAssemblies/WorldSim.Tests.EditMode.dll" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.080081" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
       <properties>
-        <property name="_PID" value="25626" />
+        <property name="_PID" value="26290" />
         <property name="_APPDOMAIN" value="Unity Child Domain" />
         <property name="platform" value="EditMode" />
         <property name="EditorOnly" value="True" />
       </properties>
-      <test-suite type="TestSuite" id="1082" name="WorldSim" fullname="WorldSim" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.104623" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <test-suite type="TestSuite" id="1083" name="WorldSim" fullname="WorldSim" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.077976" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
         <properties />
-        <test-suite type="TestSuite" id="1083" name="Tests" fullname="WorldSim.Tests" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.101592" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <test-suite type="TestSuite" id="1084" name="Tests" fullname="WorldSim.Tests" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.075966" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
           <properties />
-          <test-suite type="TestSuite" id="1084" name="EditMode" fullname="WorldSim.Tests.EditMode" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.099324" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <test-suite type="TestSuite" id="1085" name="EditMode" fullname="WorldSim.Tests.EditMode" runstate="Runnable" testcasecount="64" result="Passed" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.073968" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
             <properties />
-            <test-suite type="TestFixture" id="1047" name="InspectionTests" fullname="WorldSim.Tests.EditMode.InspectionTests" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-10-21 14:06:10Z" end-time="2026-10-21 14:06:14Z" duration="3.096152" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <test-suite type="TestFixture" id="1047" name="InspectionTests" fullname="WorldSim.Tests.EditMode.InspectionTests" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" testcasecount="6" result="Passed" start-time="2026-10-21 14:25:50Z" end-time="2026-10-21 14:25:53Z" duration="3.071081" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
               <properties />
-              <test-case id="1051" name="RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" fullname="WorldSim.Tests.EditMode.InspectionTests.RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" methodname="RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="1472802740" result="Passed" start-time="2026-10-21 14:06:08Z" end-time="2026-10-21 14:06:14Z" duration="5.353445" asserts="0">
+              <test-case id="1052" name="RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" fullname="WorldSim.Tests.EditMode.InspectionTests.RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" methodname="RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="894101872" result="Passed" start-time="2026-10-21 14:25:47Z" end-time="2026-10-21 14:25:53Z" duration="5.349229" asserts="0">
                 <properties>
                   <property name="_JOINTYPE" value="UnityCombinatorial" />
                   <property name="retryIteration" value="0" />

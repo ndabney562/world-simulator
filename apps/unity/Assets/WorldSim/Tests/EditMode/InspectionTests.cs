@@ -78,6 +78,20 @@ namespace WorldSim.Tests.EditMode
             }
         }
         [Test]
+        public void ResidentPanelShowsOnlyRequestedFieldsAndDoesNotInventMissingCoreValues()
+        {
+            var resident=new SliceInspection {Kind=1,Age=35,GivenName="Eden",FamilyName="Singh",Home=123,Workplace=456,Role=2};
+            resident.Deficits[0]=99999;
+            Assert.That(SliceInspectionText.Format(resident),Is.EqualTo(
+                "Age: 35\nSex: Not tracked\nEmployment: Employed\nHealth: Not tracked\nAlive/dead: Not tracked"));
+            foreach(var row in new[]{(0u,"Not employed"),(1u,"Student"),(2u,"Employed"),(3u,"Retired")})
+            {
+                resident.Role=row.Item1;
+                Assert.That(SliceInspectionText.Format(resident).Split('\n'),Is.EqualTo(new[]{
+                    "Age: 35","Sex: Not tracked","Employment: "+row.Item2,"Health: Not tracked","Alive/dead: Not tracked"}));
+            }
+        }
+        [Test]
         public void TapThresholdsCancelReturningDragsSecondTouchesUiAndLongPresses()
         {
             var tap=new SliceTapGesture();
@@ -130,7 +144,8 @@ namespace WorldSim.Tests.EditMode
                 Assert.That(demo.CurrentInspection.Id,Is.EqualTo(hit.Id));Assert.That(demo.CurrentInspection.Kind,Is.EqualTo(1));selected=true;break;
             }
             Assert.That(selected,Is.True,"An actually visible local fine resident must be inspectable.");
-            Assert.That(demo.InspectorText,Does.Contain("synthetic resident"));Assert.That(demo.InspectorText,Does.Contain("Need deficits"));
+            Assert.That(demo.InspectorText,Is.EqualTo(SliceInspectionText.Format(demo.CurrentInspection)));
+            Assert.That(demo.InspectorText.Split('\n'),Has.Length.EqualTo(5));Assert.That(demo.InspectorText,Does.Contain("Health: Not tracked"));
             File.WriteAllText(Path.Combine(Path.GetTempPath(),"worldsim73-resident-inspection.txt"),demo.InspectorText);
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
             yield return new WaitForSecondsRealtime(0.5f);
