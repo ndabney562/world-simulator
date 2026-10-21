@@ -135,3 +135,7 @@ These queries run over structured data. An LLM may later phrase the answer ([16]
 ## Accepted slice schedule facts
 
 [ADR 0027](../adr/0027-slice-schedules-and-events.md) defines typed schedule-transition/creation payloads while retaining existing event IDs, order, bounded metadata and causal honesty. Legacy save formats retain their vocabulary; new-format persistence remains #53/#75. The contract is Accepted under Noah's recorded standing approval; this pointer does not implement it.
+
+## Inspection projection contract (VS-009)
+
+[ADR0032](../adr/0032-read-only-slice-inspection.md) proposes a pure bounded recent-actor query and tap-only inspection transport. Its16-event display cap preserves the complete underlying log and reports more matches explicitly. Actor association is factual membership, with no inferred proximity or causal claims. Illness/consequence traversal remains VS-010; this independently reviewed, delegated accepted contract changes no event schema or history behavior until separate implementation.

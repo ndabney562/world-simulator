@@ -77,3 +77,7 @@ graph LR
 5. VS-012 last, on a final build.
 
 Issue bodies are drafts of the scope: the Product Owner authorizes each issue before work starts, and the issue text can be corrected first.
+
+### VS-009 inspection design checkpoint
+
+[ADR0032](../adr/0032-read-only-slice-inspection.md) records the independently reviewed, delegated accepted contract for #73, tracked by architecture-change issue#96 and a separate docs-only draft PR authorized by Noah on2026-10-21. No inspection runtime begins before this design merges with final-head review/CI and #72 engineering integration; #72/#73 device criteria remain open.
