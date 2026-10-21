@@ -1,6 +1,6 @@
 # ws-ffi
 
-The only Rust library Unity links. Implements ABI6 under accepted ADR0032, extending ADR0018/0019/0022/0030/0031. Owns opaque world handles and bounded diagnostics; the toy world's size is set by `residents_per_building` (1 to 2,000, five buildings). Owns no independent history: typed commands enter ws-sim, which publishes journal outcomes/events at flush boundaries.
+The only Rust library Unity links. Implements ABI7 under accepted ADR0032, extending ADR0018/0019/0022/0030/0031. Owns opaque world handles and bounded diagnostics; the toy world's size is set by `residents_per_building` (1 to 2,000, five buildings). Owns no independent history: typed commands enter ws-sim, which publishes journal outcomes/events at flush boundaries.
 
 ## Contract
 
@@ -35,16 +35,16 @@ The crate allows unsafe only for the explicit C pointer boundary, with local saf
 
 Desktop benchmark and Editor verification results are recorded on the implementation PR. They do not establish the iPhone ≤2ms fill target or thermal budget.
 
-## Calendar and sky (ABI6)
+## Calendar and sky (ABI7)
 
 `ws_utc_to_sim` is a pure configuration conversion:40-byte/alignment4 `WsUtcLabel`, exact ABI/size/reserved/civil/range validation, checked wide fields, and an i64 result only on success. It preserves valid sub-grid input; creation independently rejects an unaligned100-ms start. No timezone/epoch arithmetic is duplicated in C#. Errors use thread-local diagnostics.
 
 `ws_get_calendar_sky` returns160-byte/alignment8 `WsCalendarSky`: ABI/size, committed tick/time/hash, UTC and New York label fields, offset, scale, solar/NY/leap/site versions, flags, direction and site angles. Caller initializes only ABI/size. Bit0 means supported local/solar; otherwise local/offset/float fields are zero while UTC and committed metadata remain exact. Null/misaligned pointer, incompatible version/size, poison or caught panic leaves output untouched. Raw callers must serialize fill/query/mutation; Unity holds its existing gate across both calls and verifies equal ticks before publishing either output. All floats are finite; toward-sun direction uses the paired snapshot ENU basis and Unity only swaps axes.
 
-The generated header is checked with cbindgen0.29.2. Current `abi-v6-smoke.c` preserves the prior C consumer properties and adds UTC/sky/version/error coverage; v1/2/3/4/5 fixtures and v3/v4/v5 consumer sources remain compatibility references. Version-only success expectations/CI entrypoint advance under ADR0031’s explicit migration acceptance; command envelope2, record shapes, old behavioral checks and core goldens stay unchanged.
+The generated header is checked with cbindgen0.29.2. Current `abi-v7-smoke.c` preserves the prior C consumer properties and adds UTC/sky/version/error coverage; v1/2/3/4/5 fixtures and v3/v4/v5 consumer sources remain compatibility references. Version-only success expectations/CI entrypoint advance under ADR0031’s explicit migration acceptance; command envelope2, record shapes, old behavioral checks and core goldens stay unchanged.
 
 
-## Real-slice transport (VS-008, current ABI6)
+## Real-slice transport (VS-008, current ABI7)
 
 [ADR0031](../../../docs/adr/0031-real-slice-render-transport-and-camera.md) adds a separate `WsSliceHandle`; it is never interchangeable with `WsHandle`. `ws_slice_create` takes the32-byte seed/start config and stores the existing calendar-aligned schedule epoch. The cohort remains the existing10–30 synthetic residents. `ws_slice_apply` validates a64-byte coarse operation before applying typed Steps(≤100), scale, HostElapsed or normalized camera interest. The integer operation/outcome log and committed-prefix stops remain authoritative; no second host step accumulator, toy command reinterpretation or new save format is introduced.
 
@@ -54,6 +54,9 @@ The generated header is checked with cbindgen0.29.2. Current `abi-v6-smoke.c` pr
 
 Native/C/shared fixture tests cover exact layouts, old1–4 refusal, geometry counts, normalized integer replay, pause/prefix semantics, coherence, source/coordinate tiers, unaligned/null/reserved/error paths and actual query fault injection. [Fixture notes](tests/fixtures/README.md) explain the deliberately zero hash sentinel and Tier3 float comparisons. All56 pinned Editor tests pass, preserving the existing44 while adding real-slice layout/fixture/purity/allocation, play-camera, actual overview/street pixels and real-backend1×/100× GPU-fenced frame/worker evidence. Actual iPhone acceptance remains separate; no device claim is implied here.
 
-## ABI6 inspection (ADR0032)
+## ABI7 inspection (ADR0032)
 
 Current ABI is6. Existing toy/config/control/calendar/slice layouts and semantics remain; all v1–5 fixtures and C consumer sources are retained. Current consumers select v6 fixtures and refuse versions1–5. `ws_slice_inspect` returns a bounded8192-byte maximum little-endian schema1 record for a selected resident or featured building. Probe/fill has96-byte header, kind-specific identity/state,48-byte timetable rows and80-byte factual event rows. Short capacity reports exact required size without payload writes; other failures zero a valid written control and leave payload untouched. Invalid targets are INVALID_ARGUMENT; resource/domain/encoding failures are STEP_FAILED; caught panic poisons ownership. Native queries remain pure. See accepted ADR0032 for exact offsets and caller lifetime/alias rules.
+
+
+ADR0033 advances to ABI7/inspection schema2. Resident identity adds sex u32 at absolute136, moving its first string length to140. Resident state remains80bytes: health u32 at56 and life u32 at60 replace the former reserved word. Identity schema is2 for residents/buildings; building sizes stay unchanged. Sex0/1 is Female/Male, life0/1 Alive/Dead, health0..100 with living>=1/dead=0. Stored values come from the retained core vitals column, not presentation defaults. Old v1–6 fixtures and C consumer sources remain; clients explicitly refuse old global versions.

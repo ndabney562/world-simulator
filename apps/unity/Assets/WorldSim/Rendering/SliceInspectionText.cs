@@ -12,11 +12,9 @@ namespace WorldSim.Rendering
         {
             if(r.Kind==1)
             {
-                // These values are absent from the real-slice model. Do not
-                // infer sex from a name, health from needs, or life from presence.
                 return string.Format(CultureInfo.InvariantCulture,
-                    "Age: {0}\nSex: Not tracked\nEmployment: {1}\nHealth: Not tracked\nAlive/dead: Not tracked",
-                    r.Age,Employment[r.Role]);
+                    "Age: {0}\nSex: {1}\nEmployment: {2}\nHealth: {3}/100\nAlive/dead: {4}",
+                    r.Age,r.Sex==0?"Female":"Male",Employment[r.Role],r.Health,r.Life==0?"Alive":"Dead");
             }
             var text=new StringBuilder(4096);var sky=r.Sky;
             text.AppendFormat(CultureInfo.InvariantCulture,"Snapshot UTC {0:D4}-{1:D2}-{2:D2} {3:D2}:{4:D2}:{5:D2}\nTick {6} · tap again to refresh\n",sky.UtcYear,sky.UtcMonth,sky.UtcDay,sky.UtcHour,sky.UtcMinute,sky.UtcSecond,r.Tick);

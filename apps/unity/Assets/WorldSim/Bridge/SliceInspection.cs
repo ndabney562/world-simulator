@@ -20,7 +20,7 @@ namespace WorldSim.Bridge
     {
         public ulong Id,Tick,StateHash,Dataset,Home,Household,Workplace,Bin,Bbl,From,To;
         public long Time,ScheduleEpoch;
-        public uint Kind,Scale,Age,Role,Detail,Activity,Action,Location,FromExit,ToExit,HeightMm,Units;
+        public uint Kind,Scale,Age,Role,Sex,Health,Life,Detail,Activity,Action,Location,FromExit,ToExit,HeightMm,Units;
         public int Jitter;
         public bool MoreEvents;
         public string GivenName="",FamilyName="",Address="",BuildingClass="",BuildingRole="";
@@ -48,7 +48,7 @@ namespace WorldSim.Bridge
         public static SliceInspection Decode(NativeArray<byte> b,int length,SliceGeometry geometry,ulong expectedId)
         {
             Require(b.IsCreated&&length>=96&&length<=8192&&length<=b.Length&&geometry!=null&&expectedId!=0);
-            NativeWorld.RequireVersion(U32(b,0));Require(U32(b,4)==96&&U32(b,48)==1&&U32(b,56)==length);
+            NativeWorld.RequireVersion(U32(b,0));Require(U32(b,4)==96&&U32(b,48)==2&&U32(b,56)==length);
             uint kind=U32(b,52),identity=U32(b,64),state=U32(b,68),rows=U32(b,72),events=U32(b,76);
             Require((kind==1||kind==2)&&U64(b,40)==expectedId&&U64(b,32)==SliceGeometry.DatasetVersion&&
                 U32(b,60)<=1&&identity>=8&&identity<=1024&&state==(kind==1?80:48)&&rows<=32&&events<=16&&
@@ -57,12 +57,12 @@ namespace WorldSim.Bridge
                 (kind==1?!geometry.IsFeatured(expectedId):geometry.IsFeatured(expectedId)));
             var r=new SliceInspection {Id=expectedId,Tick=U64(b,8),Time=unchecked((long)U64(b,16)),StateHash=U64(b,24),Dataset=U64(b,32),
                 Kind=kind,Scale=U32(b,88),MoreEvents=U32(b,60)==1};
-            int at=96,end=96+(int)identity;Require(U32(b,at)==1&&U32(b,at+4)==identity);at+=8;
+            int at=96,end=96+(int)identity;Require(U32(b,at)==2&&U32(b,at+4)==identity);at+=8;
             if(kind==1)
             {
-                Require(at<=end-32);r.Home=U64(b,at);r.Household=U64(b,at+8);r.Workplace=U64(b,at+16);r.Age=U32(b,at+24);r.Role=U32(b,at+28);at+=32;
+                Require(at<=end-36);r.Home=U64(b,at);r.Household=U64(b,at+8);r.Workplace=U64(b,at+16);r.Age=U32(b,at+24);r.Role=U32(b,at+28);r.Sex=U32(b,at+32);at+=36;
                 r.GivenName=Text(b,ref at,end);r.FamilyName=Text(b,ref at,end);
-                Require(geometry.IsFeatured(r.Home)&&r.Household!=0&&r.Age<=90&&r.Role<=3&&r.GivenName.Length>0&&r.FamilyName.Length>0&&
+                Require(geometry.IsFeatured(r.Home)&&r.Household!=0&&r.Age<=90&&r.Role<=3&&r.Sex<=1&&r.GivenName.Length>0&&r.FamilyName.Length>0&&
                     ((r.Role==1||r.Role==2)?r.Workplace!=0:r.Workplace==0));
             }
             else
@@ -78,8 +78,9 @@ namespace WorldSim.Bridge
                 r.Detail=U32(b,stateAt);r.Activity=U32(b,stateAt+4);r.Action=U32(b,stateAt+8);r.Location=U32(b,stateAt+12);
                 for(int i=0;i<4;i++) {r.Deficits[i]=U32(b,stateAt+16+i*4);Require(r.Deficits[i]<=100000);}
                 r.From=U64(b,stateAt+32);r.To=U64(b,stateAt+40);r.FromExit=U32(b,stateAt+48);r.ToExit=U32(b,stateAt+52);
+                r.Health=U32(b,stateAt+56);r.Life=U32(b,stateAt+60);
                 r.ScheduleEpoch=unchecked((long)U64(b,stateAt+64));r.Jitter=unchecked((int)U32(b,stateAt+72));
-                Require(r.Detail>=1&&r.Detail<=2&&r.Activity<=5&&r.Action<=6&&r.Location<=2&&U64(b,stateAt+56)==0&&
+                Require(r.Detail>=1&&r.Detail<=2&&r.Activity<=5&&r.Action<=6&&r.Location<=2&&r.Health<=100&&r.Life<=1&&(r.Life==0?r.Health>=1:r.Health==0)&&
                     r.Jitter>=-15&&r.Jitter<=15&&U32(b,stateAt+76)==1&&Endpoint(geometry,r.From,r.FromExit)&&Endpoint(geometry,r.To,r.ToExit)&&
                     (r.Location==2)==(r.Activity==1)&&(r.Location==2||r.From==r.To&&r.FromExit==r.ToExit)&&
                     (r.Location!=0||r.FromExit==uint.MaxValue)&&(r.Location!=1||r.FromExit<=1));

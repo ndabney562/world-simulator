@@ -4,6 +4,7 @@ use crate::{EntityId, SimTime};
 use ws_events::RecentEvents;
 pub use ws_life::{Location, Place};
 use ws_life::{Schedule, behavior::CommonSnapshot, lod::BuildingSummary};
+pub use ws_world::slice::vitals::{Life, Sex, VitalState};
 use ws_world::slice::{SourceBuilding, population::SyntheticResident};
 
 /// Existing authoritative identity/state, borrowed from one committed boundary.
@@ -13,6 +14,8 @@ pub enum Entity<'a> {
     Resident {
         /// Immutable synthetic identity.
         identity: &'a SyntheticResident,
+        /// Stored sex, health and life state.
+        vitals: &'a VitalState,
         /// Current needs/action/logical location and sole membership.
         state: CommonSnapshot,
         /// Immutable shifted weekday/weekend model timetable.
@@ -56,6 +59,7 @@ impl SliceSimulation {
         let entity = if let Some(identity) = self.population().residents().get(id) {
             Entity::Resident {
                 identity,
+                vitals: self.vitals().get(id).ok_or(SliceError::Resource)?,
                 state: self
                     .behavior()
                     .common(id, self.clock().now())
@@ -124,11 +128,13 @@ mod tests {
                         identity: got,
                         state,
                         schedule,
+                        vitals,
                     } = r.entity
                     else {
                         panic!("wrong kind")
                     };
                     assert_eq!(got, identity);
+                    assert_eq!(Some(vitals), world.vitals().get(id));
                     assert_eq!(
                         state,
                         world.behavior().common(id, world.clock().now()).unwrap()

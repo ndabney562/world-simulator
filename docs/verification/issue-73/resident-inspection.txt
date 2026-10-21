@@ -1,5 +1,5 @@
 Age: 35
-Sex: Not tracked
+Sex: Male
 Employment: Employed
-Health: Not tracked
-Alive/dead: Not tracked
+Health: 100/100
+Alive/dead: Alive

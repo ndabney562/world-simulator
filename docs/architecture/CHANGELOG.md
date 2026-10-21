@@ -203,3 +203,7 @@ Implements accepted ADR 0019's typed bounded command queue, boundary journal, me
 ## 2026-10-21 — Resident vitals design
 
 ADR0033 (#99) records delegated acceptance, after clean proposed-contract review, of a separate version1 deterministic core vitals column and ABI7/schema2 inspection extension for the Product Owner’s real-value request. Initial health100/alive is explicit; disease/mortality dynamics remain separate. Existing population/goldens and device gates are preserved.
+
+
+## 2026-10-21 — Resident vitals implementation
+Implements merged ADR0033 with a retained independent core vitals column, stable sex draw, health100/Alive initial state, canonical hash envelope and ABI7/schema2 inspection/validation. Five-field UI now reads actual values. Old population/behavior goldens, fixtures and consumer sources remain. No disease/mortality transitions, save-format change or device/stage claim.

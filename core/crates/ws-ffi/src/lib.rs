@@ -1,4 +1,4 @@
-//! Synchronous C ABI v6; see ADRs 0018/0019/0022/0030/0031 and this crate's README for ownership.
+//! Synchronous C ABI v7; see ADRs 0018/0019/0022/0030/0031 and this crate's README for ownership.
 #![allow(unsafe_code)] // The only native-pointer boundary in the workspace.
 
 use std::{
@@ -11,7 +11,7 @@ use ws_sim::{
 };
 
 /// Exact native/managed contract version.
-pub const ABI_VERSION: u32 = 6;
+pub const ABI_VERSION: u32 = 7;
 mod slice_bridge;
 pub use slice_bridge::{
     WsSliceConfig, WsSliceHandle, WsSliceOperation, ws_slice_apply, ws_slice_create,

@@ -44,15 +44,20 @@ fn endpoint(p: ws_sim::slice::inspect::Place) -> (u64, u32) {
 fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'static str> {
     use ws_sim::slice::inspect::Location;
     let mut w = Writer { bytes, at: 96 };
-    w.u32(1)?;
+    w.u32(2)?;
     w.u32(0)?;
     let kind = match &record.entity {
-        Entity::Resident { identity: r, .. } => {
+        Entity::Resident {
+            identity: r,
+            vitals,
+            ..
+        } => {
             w.u64(r.home.raw())?;
             w.u64(r.household.raw())?;
             w.u64(r.workplace.map_or(0, |id| id.raw()))?;
             w.u32(u32::from(r.age))?;
             w.u32(r.role as u32)?;
+            w.u32(vitals.sex() as u32)?;
             w.text(r.given_name)?;
             w.text(r.family_name)?;
             1
@@ -77,7 +82,10 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
     let mut schedules = 0;
     match &record.entity {
         Entity::Resident {
-            state, schedule, ..
+            state,
+            schedule,
+            vitals,
+            ..
         } => {
             let (tag, from, to) = match state.logical.location {
                 Location::AtBuilding(id) => (0, (id.raw(), u32::MAX), (id.raw(), u32::MAX)),
@@ -101,7 +109,8 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
             w.u64(to.0)?;
             w.u32(from.1)?;
             w.u32(to.1)?;
-            w.u64(0)?;
+            w.u32(u32::from(vitals.health()))?;
+            w.u32(vitals.life() as u32)?;
             w.u64(record.schedule_epoch.as_micros_since_epoch() as u64)?;
             w.u32(i32::from(schedule.jitter) as u32)?;
             w.u32(1)?;
@@ -201,7 +210,7 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
     u64_at(w.bytes, 32, record.dataset);
     u64_at(w.bytes, 40, record.id.raw());
     for (at, value) in [
-        (48, 1),
+        (48, 2),
         (52, kind),
         (56, len as u32),
         (60, u32::from(record.events.more)),
@@ -217,7 +226,7 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
     }
     Ok(len)
 }
-/// One pure bounded entity inspection, schema1. Short output reports its exact
+/// One pure bounded entity inspection, schema2. Short output reports its exact
 /// required length; other failures zero written and leave data untouched.
 /// # Safety
 /// Handle is live/exclusive; buffer is writable for capacity bytes; written is

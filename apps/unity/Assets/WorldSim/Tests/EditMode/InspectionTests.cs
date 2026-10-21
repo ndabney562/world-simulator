@@ -21,7 +21,7 @@ namespace WorldSim.Tests.EditMode
         static ulong Id(byte[] b)=>BitConverter.ToUInt64(b,40);
         static void U32(byte[] b,int at,uint value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,4);
         static void U64(byte[] b,int at,ulong value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,8);
-        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v6"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
+        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v7"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
         [Test]
         public void NativeInspectionMatchesSharedCoreFixturesAndEveryRenderedIdentityWithoutMutation()
         {
@@ -29,20 +29,20 @@ namespace WorldSim.Tests.EditMode
             {
                 world.SetCamera(Vector3.zero,500);world.Steps(20);var frame=new SliceFrame();world.Fill(frame,out _);
                 ulong hash=frame.StateHash;
-                foreach(string name in new[]{"inspect-resident-v6","inspect-building-v6"})
+                foreach(string name in new[]{"inspect-resident-v7","inspect-building-v7"})
                 {
                     byte[] raw=Fixture(name);SliceInspection expected;
                     using(var b=new NativeArray<byte>(raw,Allocator.Temp)) expected=InspectionDecoder.Decode(b,b.Length,world.Geometry,Id(raw));
                     var actual=world.Inspect(Id(raw));
                     Assert.That(actual.Tick,Is.EqualTo(expected.Tick));Assert.That(actual.Time,Is.EqualTo(expected.Time));Assert.That(actual.StateHash,Is.EqualTo(hash));
-                    Assert.That(actual.Kind,Is.EqualTo(expected.Kind));Assert.That(actual.GivenName,Is.EqualTo(expected.GivenName));Assert.That(actual.FamilyName,Is.EqualTo(expected.FamilyName));
+                    Assert.That(actual.Kind,Is.EqualTo(expected.Kind));Assert.That(actual.Sex,Is.EqualTo(expected.Sex));Assert.That(actual.Health,Is.EqualTo(expected.Health));Assert.That(actual.Life,Is.EqualTo(expected.Life));Assert.That(actual.GivenName,Is.EqualTo(expected.GivenName));Assert.That(actual.FamilyName,Is.EqualTo(expected.FamilyName));
                     Assert.That(actual.Address,Is.EqualTo(expected.Address));Assert.That(actual.Bin,Is.EqualTo(expected.Bin));Assert.That(actual.Deficits,Is.EqualTo(expected.Deficits));
                     Assert.That(actual.Schedule,Is.EqualTo(expected.Schedule));Assert.That(actual.Events,Is.EqualTo(expected.Events));Assert.That(actual.Summary,Is.EqualTo(expected.Summary));
                     Assert.That(actual.StateHash,Is.EqualTo(actual.Sky.StateHash));Assert.That(actual.Tick,Is.EqualTo(actual.Sky.Tick));
                 }
                 for(int i=0;i<frame.Population;i++)
                 {
-                    var r=world.Inspect(frame.Residents[i].Id);Assert.That(r.Kind,Is.EqualTo(1));Assert.That(r.Detail,Is.EqualTo(frame.Residents[i].Detail));Assert.That(r.Activity,Is.EqualTo(frame.Residents[i].Activity));
+                    var r=world.Inspect(frame.Residents[i].Id);Assert.That(r.Kind,Is.EqualTo(1));Assert.That(r.Sex,Is.LessThanOrEqualTo(1));Assert.That(r.Health,Is.EqualTo(100));Assert.That(r.Life,Is.Zero);Assert.That(r.Detail,Is.EqualTo(frame.Residents[i].Detail));Assert.That(r.Activity,Is.EqualTo(frame.Residents[i].Activity));
                 }
                 for(int i=0;i<4;i++) Assert.That(world.Inspect(frame.Buildings[i].Id).Summary,Is.EqualTo(frame.Buildings[i]));
                 Assert.Throws<InvalidOperationException>(()=>world.Inspect(0));world.Fill(frame,out _);Assert.That(frame.StateHash,Is.EqualTo(hash));Assert.That(frame.Tick,Is.EqualTo(20));
@@ -51,14 +51,14 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void MalformedInspectionNeverReplacesThePreviousCompleteRecord()
         {
-            byte[] original=Fixture("inspect-resident-v6");var geometry=Geometry();SliceInspection published;
+            byte[] original=Fixture("inspect-resident-v7");var geometry=Geometry();SliceInspection published;
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) published=InspectionDecoder.Decode(bytes,bytes.Length,geometry,Id(original));
             var saved=published;
             int state=96+(int)BitConverter.ToUInt32(original,64);
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
-                b=>U32(b,0,5),b=>U32(b,4,95),b=>U64(b,32,0),b=>U64(b,40,0),b=>U32(b,48,2),b=>U32(b,52,3),b=>U32(b,56,8193),b=>U32(b,60,2),
+                b=>U32(b,0,5),b=>U32(b,4,95),b=>U64(b,32,0),b=>U64(b,40,0),b=>U32(b,48,1),b=>U32(b,52,3),b=>U32(b,56,8193),b=>U32(b,60,2),
                 b=>U32(b,64,uint.MaxValue),b=>U32(b,68,64),b=>U32(b,72,33),b=>U32(b,76,17),b=>U32(b,80,32),b=>U32(b,92,1),
-                b=>U32(b,100,0),b=>U32(b,136,129),b=>b[140]=0xff,b=>U32(b,state,3),b=>U32(b,state+16,100001),b=>U64(b,state+56,1),b=>U32(b,state+76,2) })
+                b=>U32(b,100,0),b=>U32(b,136,2),b=>U32(b,140,129),b=>b[144]=0xff,b=>U32(b,state,3),b=>U32(b,state+16,100001),b=>U32(b,state+56,101),b=>U32(b,state+56,0),b=>U32(b,state+60,1),b=>U32(b,state+60,2),b=>U32(b,state+76,2) })
             {
                 byte[] raw=(byte[])original.Clone();damage(raw);
                 using(var b=new NativeArray<byte>(raw,Allocator.Temp)) Assert.Catch<Exception>(()=>published=InspectionDecoder.Decode(b,b.Length,geometry,Id(original)));
@@ -78,18 +78,26 @@ namespace WorldSim.Tests.EditMode
             }
         }
         [Test]
-        public void ResidentPanelShowsOnlyRequestedFieldsAndDoesNotInventMissingCoreValues()
+        public void ResidentPanelShowsOnlyRequestedFieldsFromCoreIncludingBothSexesAndLifeStates()
         {
-            var resident=new SliceInspection {Kind=1,Age=35,GivenName="Eden",FamilyName="Singh",Home=123,Workplace=456,Role=2};
+            var resident=new SliceInspection {Kind=1,Age=35,GivenName="Eden",FamilyName="Singh",Home=123,Workplace=456,Role=2,Sex=0,Health=100,Life=0};
             resident.Deficits[0]=99999;
             Assert.That(SliceInspectionText.Format(resident),Is.EqualTo(
-                "Age: 35\nSex: Not tracked\nEmployment: Employed\nHealth: Not tracked\nAlive/dead: Not tracked"));
+                "Age: 35\nSex: Female\nEmployment: Employed\nHealth: 100/100\nAlive/dead: Alive"));
             foreach(var row in new[]{(0u,"Not employed"),(1u,"Student"),(2u,"Employed"),(3u,"Retired")})
             {
                 resident.Role=row.Item1;
                 Assert.That(SliceInspectionText.Format(resident).Split('\n'),Is.EqualTo(new[]{
-                    "Age: 35","Sex: Not tracked","Employment: "+row.Item2,"Health: Not tracked","Alive/dead: Not tracked"}));
+                    "Age: 35","Sex: Female","Employment: "+row.Item2,"Health: 100/100","Alive/dead: Alive"}));
             }
+        }
+        [Test]
+        public void ConstructedVitalRecordsDisplayMaleUnwellAndDeadValues()
+        {
+            var r=new SliceInspection {Kind=1,Age=65,Sex=1,Role=3,Health=75,Life=0};
+            Assert.That(SliceInspectionText.Format(r),Is.EqualTo("Age: 65\nSex: Male\nEmployment: Retired\nHealth: 75/100\nAlive/dead: Alive"));
+            r.Health=0;r.Life=1;
+            Assert.That(SliceInspectionText.Format(r),Is.EqualTo("Age: 65\nSex: Male\nEmployment: Retired\nHealth: 0/100\nAlive/dead: Dead"));
         }
         [Test]
         public void TapThresholdsCancelReturningDragsSecondTouchesUiAndLongPresses()
@@ -145,7 +153,7 @@ namespace WorldSim.Tests.EditMode
             }
             Assert.That(selected,Is.True,"An actually visible local fine resident must be inspectable.");
             Assert.That(demo.InspectorText,Is.EqualTo(SliceInspectionText.Format(demo.CurrentInspection)));
-            Assert.That(demo.InspectorText.Split('\n'),Has.Length.EqualTo(5));Assert.That(demo.InspectorText,Does.Contain("Health: Not tracked"));
+            Assert.That(demo.InspectorText.Split('\n'),Has.Length.EqualTo(5));Assert.That(demo.InspectorText,Does.Contain("Health: 100/100"));
             File.WriteAllText(Path.Combine(Path.GetTempPath(),"worldsim73-resident-inspection.txt"),demo.InspectorText);
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
             yield return new WaitForSecondsRealtime(0.5f);

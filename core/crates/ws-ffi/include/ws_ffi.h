@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 6
+#define ABI_VERSION 7
 
 /**
  * Most residents per building a config may ask for.
@@ -540,7 +540,7 @@ WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output)
 size_t ws_slice_last_error(WsSliceHandle *handle, char *buffer, size_t capacity);
 
 /**
- * One pure bounded entity inspection, schema1. Short output reports its exact
+ * One pure bounded entity inspection, schema2. Short output reports its exact
  * required length; other failures zero written and leave data untouched.
  * # Safety
  * Handle is live/exclusive; buffer is writable for capacity bytes; written is

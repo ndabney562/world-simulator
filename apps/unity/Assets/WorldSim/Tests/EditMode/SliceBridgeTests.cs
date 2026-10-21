@@ -21,7 +21,7 @@ namespace WorldSim.Tests.EditMode
         static void U64(byte[] bytes,int at,ulong value) {Array.Copy(BitConverter.GetBytes(value),0,bytes,at,8);}
         static SliceGeometry Geometry()
         {
-            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v6"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
+            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v7"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
         }
         [Test]
         public void SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients()
@@ -32,7 +32,7 @@ namespace WorldSim.Tests.EditMode
             Assert.That(Marshal.SizeOf<NativeSliceOperation>(),Is.EqualTo(64));
             string[] operation={"Version","Size","Tag","Reserved","A","B","C","D","E","F"};int[] operationOffsets={0,4,8,12,16,24,32,40,48,56};
             for(int i=0;i<operation.Length;i++) Assert.That(Marshal.OffsetOf<NativeSliceOperation>(operation[i]).ToInt32(),Is.EqualTo(operationOffsets[i]));
-            for(uint old=1;old<=4;old++)
+            for(uint old=1;old<=6;old++)
             {
                 Assert.Throws<InvalidOperationException>(()=>NativeWorld.RequireVersion(old));
                 var input=new NativeSliceConfig {Version=old,Size=32,Seed=71449,Start=Start};var pointer=NativeSliceMethods.Create(in input);
@@ -44,7 +44,7 @@ namespace WorldSim.Tests.EditMode
         public void SharedRealSliceFixturesMatchNativeGeometryIdentitiesPositionsCountsAndSky()
         {
             var expectedGeometry=Geometry();var expected=new SliceFrame();
-            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v6"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
+            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v7"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
             Assert.That(expectedGeometry.Buildings.Length,Is.EqualTo(58));Assert.That(expectedGeometry.FeaturedIds.Length,Is.EqualTo(4));
             Assert.That(expectedGeometry.Vertices.Length,Is.EqualTo(2245));Assert.That(expectedGeometry.Indices.Length,Is.EqualTo(3693));
             Assert.That(expected.Population,Is.EqualTo(30));Assert.That(expected.Tick,Is.EqualTo(20));Assert.That(expected.StateHash,Is.Zero);
@@ -66,7 +66,7 @@ namespace WorldSim.Tests.EditMode
                     Assert.That(frame.Residents[i].Location,Is.EqualTo(expected.Residents[i].Location));Assert.That(Vector3.Distance(frame.Residents[i].Foot,expected.Residents[i].Foot),Is.LessThan(0.0002f));
                 }
                 Assert.That(frame.RenderedResidents,Is.GreaterThan(0));Assert.That(frame.StateHash,Is.EqualTo(frame.Sky.StateHash));Assert.That(frame.Tick,Is.EqualTo(frame.Sky.Tick));
-                byte[] skyBytes=Fixture("slice-sky-v6");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
+                byte[] skyBytes=Fixture("slice-sky-v7");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
                 try
                 {
                     var sky=Marshal.PtrToStructure<CalendarSky>(pinned.AddrOfPinnedObject());sky.Validate();Assert.That(sky.StateHash,Is.Zero);
@@ -78,7 +78,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidGeometryIsRejectedBeforeAnyPartialCacheIsPublished()
         {
-            byte[] original=Fixture("slice-geometry-v6");
+            byte[] original=Fixture("slice-geometry-v7");
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
                 b=>U32(b,0,4),b=>U32(b,20,uint.MaxValue),b=>U32(b,24,uint.MaxValue),b=>U32(b,36,25),b=>U32(b,44,1),
                 b=>U64(b,96+48,BitConverter.ToUInt64(b,96)),b=>U32(b,96+36,2),b=>U32(b,96+16,1),
@@ -92,7 +92,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidDynamicRowsLeaveTheCompletePreviousFrameUntouched()
         {
-            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v6");var frame=new SliceFrame();
+            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v7");var frame=new SliceFrame();
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) SliceDecoder.DecodeSnapshot(bytes,bytes.Length,geometry,frame);
             ulong tick=frame.Tick,first=frame.Residents[0].Id;Matrix4x4 matrix=frame.ResidentMatrices[0];
             foreach(Action<byte[]> damage in new Action<byte[]>[] {

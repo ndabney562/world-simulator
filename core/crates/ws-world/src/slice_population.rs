@@ -388,7 +388,16 @@ mod tests {
     #[test]
     fn purposes_are_distinct_from_all_existing_world_purposes() {
         let mut all = crate::ids::PURPOSES.to_vec();
-        all.extend([HOUSEHOLD_ID, WORKPLACE_ID, SIZE, AGE, GIVEN, FAMILY]);
+        all.extend([
+            HOUSEHOLD_ID,
+            WORKPLACE_ID,
+            SIZE,
+            AGE,
+            GIVEN,
+            FAMILY,
+            crate::slice::vitals::SEX,
+            crate::slice::vitals::STATE,
+        ]);
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {
                 assert_ne!(a.value(), b.value());

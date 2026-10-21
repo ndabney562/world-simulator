@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.0304518">
+  <test-suite type="TestSuite" id="1000" name="World Simulator" fullname="World Simulator" runstate="Runnable" testcasecount="65" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.030452" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1083" name="WorldSim.Tests.EditMode.dll" fullname="/Users/noahdabney/.codex/.chatgpt-projects/g-p-6ad24ebdfa708191b16f3c23ce0edb2a/world-simulator-73/apps/unity/Library/ScriptAssemblies/WorldSim.Tests.EditMode.dll" runstate="Runnable" testcasecount="65" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.025661" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="45066" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1084" name="WorldSim" fullname="WorldSim" runstate="Runnable" testcasecount="65" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.024752" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1085" name="Tests" fullname="WorldSim.Tests" runstate="Runnable" testcasecount="65" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.024053" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1086" name="EditMode" fullname="WorldSim.Tests.EditMode" runstate="Runnable" testcasecount="65" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.023301" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1065" name="SliceBridgeTests" fullname="WorldSim.Tests.EditMode.SliceBridgeTests" classname="WorldSim.Tests.EditMode.SliceBridgeTests" runstate="Runnable" testcasecount="8" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.021776" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1066" name="SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients" fullname="WorldSim.Tests.EditMode.SliceBridgeTests.SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients" methodname="SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients" classname="WorldSim.Tests.EditMode.SliceBridgeTests" runstate="Runnable" seed="343322780" result="Passed" start-time="2026-10-21 18:55:09Z" end-time="2026-10-21 18:55:09Z" duration="0.014472" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Saving results to: /Users/noahdabney/Library/Application Support/World Simulator/World Simulator/TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

@@ -35,7 +35,7 @@ def main():
         raise SystemExit("usage: generate-slice-fixtures.py /absolute/path/to/built/libws_ffi")
     lib = c.CDLL(str(Path(sys.argv[1]).resolve()))
     lib.ws_abi_version.restype = c.c_uint32
-    assert lib.ws_abi_version() == 6
+    assert lib.ws_abi_version() == 7
     lib.ws_utc_to_sim.argtypes = [c.POINTER(Utc), c.POINTER(c.c_int64)]
     lib.ws_slice_create.argtypes, lib.ws_slice_create.restype = [c.POINTER(Config)], c.c_void_p
     lib.ws_slice_destroy.argtypes = [c.c_void_p]
@@ -45,10 +45,10 @@ def main():
     lib.ws_slice_inspect.argtypes = [c.c_void_p, c.c_uint64, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
     lib.ws_slice_get_calendar_sky.argtypes = [c.c_void_p, c.POINTER(Sky)]
     assert (c.sizeof(Utc), c.sizeof(Config), c.sizeof(Operation), c.sizeof(Sky), c.alignment(Sky)) == (40, 32, 64, 160, 8)
-    utc = Utc(6, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
+    utc = Utc(7, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
     start = c.c_int64()
     assert lib.ws_utc_to_sim(c.byref(utc), c.byref(start)) == 0
-    handle = lib.ws_slice_create(c.byref(Config(6, 32, 71449, start.value, 0)))
+    handle = lib.ws_slice_create(c.byref(Config(7, 32, 71449, start.value, 0)))
     assert handle
 
     def fill(name):
@@ -60,12 +60,12 @@ def main():
 
     try:
         geometry = fill("ws_slice_fill_geometry")
-        camera = Operation(6, 64, 4, 0, (c.c_uint64 * 6)(0, 0, 0, struct.unpack("<Q", struct.pack("<d", 500.0))[0], 0, 0))
+        camera = Operation(7, 64, 4, 0, (c.c_uint64 * 6)(0, 0, 0, struct.unpack("<Q", struct.pack("<d", 500.0))[0], 0, 0))
         assert lib.ws_slice_apply(handle, c.byref(camera)) == 0
-        assert lib.ws_slice_apply(handle, c.byref(Operation(6, 64, 1, 0, (c.c_uint64 * 6)(20, 0, 0, 0, 0, 0)))) == 0
+        assert lib.ws_slice_apply(handle, c.byref(Operation(7, 64, 1, 0, (c.c_uint64 * 6)(20, 0, 0, 0, 0, 0)))) == 0
         snapshot = bytearray(fill("ws_slice_fill_snapshot"))
         sky = Sky()
-        struct.pack_into("<II", sky, 0, 6, 160)
+        struct.pack_into("<II", sky, 0, 7, 160)
         assert lib.ws_slice_get_calendar_sky(handle, c.byref(sky)) == 0
         calendar = bytearray(c.string_at(c.byref(sky), 160))
         assert snapshot[8:32] == calendar[8:32]
@@ -77,9 +77,9 @@ def main():
             size = c.c_size_t()
             assert lib.ws_slice_inspect(handle, entity, out, len(out), c.byref(size)) == 0
             data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
-            (fixture_dir / ("inspect-" + label + "-v6.hex")).write_text(data.hex() + "\n")
+            (fixture_dir / ("inspect-" + label + "-v7.hex")).write_text(data.hex() + "\n")
             print("inspect-" + label, len(data), "bytes")
-        for name, data in (("slice-geometry-v6", geometry), ("slice-snapshot-v6", snapshot), ("slice-sky-v6", calendar)):
+        for name, data in (("slice-geometry-v7", geometry), ("slice-snapshot-v7", snapshot), ("slice-sky-v7", calendar)):
             text = "\n".join(data[i:i+32].hex() for i in range(0, len(data), 32)) + "\n"
             (fixture_dir / (name + ".hex")).write_text(text)
             print(name, len(data), "bytes")
