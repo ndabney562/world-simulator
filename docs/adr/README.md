@@ -37,3 +37,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0031](0031-real-slice-render-transport-and-camera.md) | Real-slice footprint transport and presentation camera | Accepted |
 | [0032](0032-read-only-slice-inspection.md) | Read-only real-slice tap inspection and bounded recent actor events | Accepted |
 | [0033](0033-resident-vitals-and-inspection.md) | Resident sex, health/life state and ABI7 inspection extension | Accepted |
+| [0034](0034-slice-illness-and-consequences.md) | Real-slice illness, recovery and bounded causal consequences | Accepted |
