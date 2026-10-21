@@ -1,0 +1,4 @@
+events,index_and_arena_capacity_bytes,recent_result_capacity_bytes,median_recent_ns
+1000,827488,128,130
+10000,13238368,128,155
+100000,105906272,128,135

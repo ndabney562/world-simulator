@@ -90,3 +90,5 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 ## Real-slice inspection contract (VS-009)
 
 [ADR0032](../adr/0032-read-only-slice-inspection.md) proposes a bounded tap-driven record query over the real-slice handle, with occlusion-aware picking of published identities, explicit source-context handling and a timestamped inspector. Core identity, needs, timetable and factual actor events remain authoritative. The contract passed independent review and records delegated acceptance; final-head review/CI precede design merge and separate runtime implementation. It adds no runtime or device evidence.
+
+VS-009 implements the ADR0032 query/picker/panel on the existing real-slice host. Cached triangles include context occluders; inverse-transformed capsule directions retain world-ray parameter scale. Gesture cancellation is latched; UI capture blocks camera/picking for the gesture. A complete record is validated before replacing the panel, with one existing sky query under the same gate supplying its matching civil timestamp. Rendering does not poll inspection. Actual device acceptance remains open.

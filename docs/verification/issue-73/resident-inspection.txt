@@ -1,0 +1,33 @@
+Snapshot UTC 2026-06-22 11:22:31
+Tick 10 · tap again to refresh
+Eden Singh · synthetic resident
+Age 35 · Employed · L1
+Home 6540909979499836610 · household 7954081246751951303
+Assigned workplace 8227976776222935465
+Activity: Commute · held action: Travel
+In transit: building 6540909979499836610 → building 7303396584798758991
+Need deficits /100000 (lower is better)
+Rest 57336 · Hunger 11089 · Social 23924 · Duty 25931
+Model timetable (elapsed week; shifted -8 minutes)
+Weekdays:
+00:00 Sleep → building 6540909979499836610
+06:22 Home → building 6540909979499836610
+07:22 Commute → building 7303396584798758991
+07:52 Work → building 7303396584798758991
+16:52 Commute → building 6540909979499836610
+17:22 Home → building 6540909979499836610
+17:52 Commute → building 7303396584798758991
+18:02 Errands → building 7303396584798758991
+18:32 Commute → building 6540909979499836610
+18:42 Home → building 6540909979499836610
+21:52 Sleep → building 6540909979499836610
+Weekend:
+00:00 Sleep → building 6540909979499836610
+07:52 Home → building 6540909979499836610
+10:52 Commute → building 7303396584798758991
+11:02 Errands → building 7303396584798758991
+11:32 Commute → building 6540909979499836610
+11:42 Home → building 6540909979499836610
+21:52 Sleep → building 6540909979499836610
+Recent recorded actor events:
+No matching recorded events.

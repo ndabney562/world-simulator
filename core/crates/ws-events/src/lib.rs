@@ -43,6 +43,14 @@ impl<T: Copy, const N: usize> Small<T, N> {
         self.len == 0
     }
 }
+/// Bounded factual actor-event projection; does not discard retained history.
+#[derive(Debug, PartialEq)]
+pub struct RecentEvents<'a> {
+    /// At most sixteen events in descending occurrence-time/EventId order.
+    pub records: Vec<&'a Event>,
+    /// A seventeenth matching retained event exists.
+    pub more: bool,
+}
 /// Stable nonzero world-scoped event identity, never reused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EventId(pub u64);
@@ -602,6 +610,8 @@ pub struct EventStore {
     time: Vec<(SimTime, EventId)>,
     // One append-only ID list per sorted registered actor; never shift history.
     actors: Vec<Vec<EventId>>,
+    // Rebuildable occurrence-time/ID order for bounded recent actor queries.
+    actor_time: Vec<Vec<EventId>>,
     known: Vec<EntityId>,
     ordinal: u64,
     digest: u64,
@@ -613,6 +623,7 @@ impl EventStore {
         known.dedup();
         Self {
             actors: vec![Vec::new(); known.len()],
+            actor_time: vec![Vec::new(); known.len()],
             known,
             ..Self::default()
         }
@@ -642,7 +653,13 @@ impl EventStore {
     }
     /// Allocated arena/index bytes, excluding registered actor IDs.
     pub fn capacity_bytes(&self) -> usize {
-        self.events.capacity() * size_of::<Event>()
+        self.actor_time.capacity() * size_of::<Vec<EventId>>()
+            + self
+                .actor_time
+                .iter()
+                .map(|v| v.capacity() * size_of::<EventId>())
+                .sum::<usize>()
+            + self.events.capacity() * size_of::<Event>()
             + self.time.capacity() * size_of::<(SimTime, EventId)>()
             + self.actors.capacity() * size_of::<Vec<EventId>>()
             + self
@@ -903,6 +920,9 @@ impl EventStore {
             self.actors[actor]
                 .try_reserve(end - at)
                 .map_err(|_| EventError::Resource)?;
+            self.actor_time[actor]
+                .try_reserve(end - at)
+                .map_err(|_| EventError::Resource)?;
             at = end;
         }
         Ok(PreparedEvents {
@@ -935,6 +955,30 @@ impl EventStore {
                 .filter_map(|(_, id)| self.get(*id))
                 .collect()
         }
+    }
+    /// Newest sixteen distinct actor facts at or before an inclusive cutoff.
+    /// Traverses at most seventeen results after a logarithmic cutoff lookup.
+    /// # Errors
+    /// Bounded result-storage reservation failure.
+    pub fn recent(&self, actor: EntityId, to: SimTime) -> Result<RecentEvents<'_>, EventError> {
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(16)
+            .map_err(|_| EventError::Resource)?;
+        let mut more = false;
+        if let Ok(index) = self.known.binary_search(&actor) {
+            let ids = &self.actor_time[index];
+            let end =
+                ids.partition_point(|id| self.get(*id).expect("indexed event").record.time <= to);
+            for id in ids[..end].iter().rev().take(17) {
+                if records.len() == 16 {
+                    more = true;
+                    break;
+                }
+                records.push(self.get(*id).expect("indexed event"));
+            }
+        }
+        Ok(RecentEvents { records, more })
     }
     /// Deterministic bounded backward causal traversal, with explicit truncation.
     pub fn backward(&self, root: EventId, max_depth: usize, max_results: usize) -> Traversal {
@@ -1060,7 +1104,15 @@ impl PreparedEvents<'_> {
             let time = (e.record.time, e.id);
             let i = self.store.time.partition_point(|v| *v <= time);
             self.store.time.insert(i, time);
-            for a in e.record.actors.iter() {
+            for (role_index, a) in e.record.actors.iter().enumerate() {
+                if e.record
+                    .actors
+                    .iter()
+                    .take(role_index)
+                    .any(|prior| prior.id == a.id)
+                {
+                    continue;
+                }
                 let i = self
                     .store
                     .known
@@ -1070,6 +1122,21 @@ impl PreparedEvents<'_> {
                 if ids.last() != Some(&e.id) {
                     ids.push(e.id);
                 }
+                let arena = &self.store.events;
+                let ordered = &mut self.store.actor_time[i];
+                let key = (e.record.time, e.id);
+                let position = if ordered.last().is_none_or(|id| {
+                    let prior = &arena[(id.0 - 1) as usize];
+                    (prior.record.time, prior.id) <= key
+                }) {
+                    ordered.len()
+                } else {
+                    ordered.partition_point(|id| {
+                        let prior = &arena[(id.0 - 1) as usize];
+                        (prior.record.time, prior.id) <= key
+                    })
+                };
+                ordered.insert(position, e.id);
             }
             self.store.ordinal = e.ordinal;
             self.store.digest = ws_rng::hash(0, 0x4556_4c4f_4731, &[self.store.digest, e.digest()]);
@@ -1126,7 +1193,13 @@ mod tests {
         }
         assert_eq!(
             store.capacity_bytes(),
-            store.events.capacity() * size_of::<Event>()
+            store.actor_time.capacity() * size_of::<Vec<EventId>>()
+                + store
+                    .actor_time
+                    .iter()
+                    .map(|v| v.capacity() * size_of::<EventId>())
+                    .sum::<usize>()
+                + store.events.capacity() * size_of::<Event>()
                 + store.time.capacity() * size_of::<(SimTime, EventId)>()
                 + store.actors.capacity() * size_of::<Vec<EventId>>()
                 + store

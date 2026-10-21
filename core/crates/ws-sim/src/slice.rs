@@ -8,6 +8,8 @@ use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
+#[path = "slice_inspect.rs"]
+pub mod inspect;
 #[path = "slice_render.rs"]
 pub mod render;
 

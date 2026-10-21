@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## VS-009 implementation (2026-10-21)
+
+Implements ADR0032 with pure bounded core inspection, separate chronological actor index, ABI6 query/fixtures/C consumer, strict managed staging, tap gestures, occlusion-aware cached-mesh picking and timestamped HUD samples. Retains old indices/fixtures/consumer sources and all earlier behavioral checks; scaled picking and inconsistent commute records have explicit regressions. No new packages/data, event/save vocabulary, intervention, signing/device or stage-exit result.
+
 ## ADR0032 accepted (2026-10-21)
 
 Independent review of published design head8be42c50f86529487eb7b8ae24d99b7130305c3f approved with zero open findings; the preliminary returning-drag ambiguity was resolved. Applied Noah’s named technical delegation on#77: status/index/pointers record Accepted. Final published-head review and all five green checks still precede merge. #73 runtime and device acceptance remain separate; no source/test/event/save behavior changes here.

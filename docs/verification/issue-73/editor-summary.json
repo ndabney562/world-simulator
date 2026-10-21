@@ -1,0 +1,49 @@
+{
+    "backend": "real-slice",
+    "cases": [
+        {
+            "scale": 1,
+            "frames": 7844,
+            "population": 30,
+            "buildings": 58,
+            "vertices": 2245,
+            "indices": 3693,
+            "width": 960,
+            "height": 540,
+            "seconds": 10.000212199985981,
+            "fps": 784.3833553862984,
+            "ticks_per_second": 9.999787804516807,
+            "mean_frame_ms": 1.2748868179482383,
+            "p95_frame_ms": 1.6481999773532153,
+            "max_frame_ms": 4.956700024195015,
+            "mean_fill_ms": 0.0755967236104036,
+            "mean_render_fence_ms": 0.7439875188928329,
+            "native_apply_per_tick_ms": 0.008306,
+            "max_native_apply_ms": 0.0368,
+            "first_tick": 32,
+            "last_tick": 132
+        },
+        {
+            "scale": 100,
+            "frames": 8114,
+            "population": 30,
+            "buildings": 58,
+            "vertices": 2245,
+            "indices": 3693,
+            "width": 960,
+            "height": 540,
+            "seconds": 10.000514699961059,
+            "fps": 811.3582393945779,
+            "ticks_per_second": 1003.8483319302646,
+            "mean_frame_ms": 1.2325011954598298,
+            "p95_frame_ms": 1.539599965326488,
+            "max_frame_ms": 4.612800024915487,
+            "mean_fill_ms": 0.07308852600443688,
+            "mean_render_fence_ms": 0.720586307457698,
+            "native_apply_per_tick_ms": 0.0021213865922900686,
+            "max_native_apply_ms": 0.2089,
+            "first_tick": 2076,
+            "last_tick": 12115
+        }
+    ]
+}

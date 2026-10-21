@@ -17,6 +17,14 @@ namespace WorldSim.Rendering
         SliceHost host;
         readonly SliceFrame frame=new SliceFrame();
         SliceCamera orbit;
+        SlicePicker picker;
+        readonly SliceTapGesture tap=new SliceTapGesture();
+        SliceInspection inspection;
+        string inspectionText="";
+        Vector2 inspectionScroll;
+        public SliceInspection CurrentInspection=>inspection;
+        public string InspectorText=>inspectionText;
+        public int InspectionQueries {get;private set;}
         CalendarPresentation calendar;
         Camera sceneCamera;
         GameObject staticRoot,groundRoot;
@@ -26,7 +34,7 @@ namespace WorldSim.Rendering
         readonly Matrix4x4[] aggregateMatrices=new Matrix4x4[4];
         readonly SliceBuilding[] featured=new SliceBuilding[4];
         Bounds drawBounds;
-        bool streetRequested;
+        bool streetRequested,pointerUiCapture;
         string notice="",status="",logPath="";
         StreamWriter log;
         double runStart,nextLog,nextStatus;
@@ -67,6 +75,7 @@ namespace WorldSim.Rendering
             host=new SliceHost(unchecked((ulong)Seed),start);LastFillMs=host.Fill(frame,out var stats);LastAdvance=stats;
             BuildGeometry(host.Geometry);UpdateLayout();orbit=new SliceCamera(sceneCamera,host.Geometry.Bounds);
             capsuleMesh=ToyMeshes.Capsule();barMesh=ToyMeshes.Box();residentMaterial=Material("Real slice residents",new Color(1,0.3f,0),true);
+            picker=new SlicePicker(host.Geometry,capsuleMesh);
             aggregateMaterial=Material("Coarse occupancy bars",new Color(0.15f,0.45f,1),true);
             drawBounds=host.Geometry.Bounds;drawBounds.Expand(30);Application.targetFrameRate=60;
             runStart=Time.realtimeSinceStartupAsDouble;nextLog=runStart+1;nextStatus=runStart+0.5;tickStart=frame.Tick;
@@ -105,15 +114,60 @@ namespace WorldSim.Rendering
             sceneCamera.rect=new Rect(0,0,1,Mathf.Clamp((Screen.height-reserved)/Mathf.Max(1,Screen.height),0.25f,1));
             sceneCamera.ResetAspect();orbit?.ResizeIfNeeded();
         }
+        bool WideHud()=>Screen.width/HudScale()>=900;
+        Rect InspectorRect()=>new Rect(WideHud()?446:8,8,430,250);
+        bool OverHud(Vector2 position)
+        {
+            Vector2 logical=new Vector2(position.x,Screen.height-position.y)/HudScale();
+            return new Rect(8,8,430,250).Contains(logical)||(inspection!=null&&InspectorRect().Contains(logical));
+        }
         bool PointerOverHud()
         {
-            Vector2 point=Input.mousePosition;if(Input.touchCount>0) point=Input.GetTouch(0).position;
-            return new Rect(8,8,430,250).Contains(new Vector2(point.x,Screen.height-point.y)/HudScale());
+            if(tap.UiCaptured||pointerUiCapture) return true;
+            for(int i=0;i<Input.touchCount;i++) if(OverHud(Input.GetTouch(i).position)) return true;
+            return OverHud(Input.mousePosition);
         }
+        void ReadTap()
+        {
+            double now=Time.realtimeSinceStartupAsDouble;
+            if(Input.touchCount==0&&!Input.GetMouseButton(0)) pointerUiCapture=false;
+            for(int i=0;i<Input.touchCount;i++) if(Input.GetTouch(i).phase==TouchPhase.Began&&OverHud(Input.GetTouch(i).position)) pointerUiCapture=true;
+            if(Input.GetMouseButtonDown(0)&&OverHud(Input.mousePosition)) pointerUiCapture=true;
+            if(Input.touchCount>1) {tap.Cancel();return;}
+            if(Input.touchCount==1)
+            {
+                var t=Input.GetTouch(0);Vector2 logical=t.position/HudScale();bool ui=OverHud(t.position);
+                if(t.phase==TouchPhase.Began) tap.Begin(t.fingerId,logical,now,ui);
+                else if(t.phase==TouchPhase.Moved||t.phase==TouchPhase.Stationary) tap.Move(t.fingerId,logical,ui);
+                else if(t.phase==TouchPhase.Ended) {if(tap.End(t.fingerId,logical,now,ui)) InspectScreenPoint(t.position);}
+                else tap.Cancel();
+            }
+            else
+            {
+                Vector2 position=Input.mousePosition,logical=position/HudScale();bool ui=OverHud(position);
+                if(Input.GetMouseButtonDown(1)||Input.GetMouseButtonDown(2)) tap.Cancel();
+                if(Input.GetMouseButtonDown(0)) tap.Begin(-1,logical,now,ui);
+                if(Input.GetMouseButton(0)) tap.Move(-1,logical,ui);
+                if(Input.GetMouseButtonUp(0)&&tap.End(-1,logical,now,ui)) InspectScreenPoint(position);
+            }
+        }
+        public bool InspectScreenPoint(Vector2 position)
+        {
+            if(host==null||OverHud(position)||!sceneCamera.pixelRect.Contains(position)) return false;
+            if(!picker.TryPick(sceneCamera.ScreenPointToRay(position),frame,out var hit)) {ClearInspection();return false;}
+            if(hit.Id==0) {ClearInspection();notice="Source context BIN "+hit.Bin+"; no simulated population.";return false;}
+            try
+            {
+                InspectionQueries++;var sample=host.Inspect(hit.Id);string text=SliceInspectionText.Format(sample);
+                inspection=sample;inspectionText=text;inspectionScroll=Vector2.zero;notice="Tap again to refresh this snapshot.";return true;
+            }
+            catch(Exception error) {notice="Inspection failed: "+error.Message;return false;}
+        }
+        public void ClearInspection() {inspection=null;inspectionText="";inspectionScroll=Vector2.zero;}
         void Update()
         {
             if(host==null) return;if(host.Failure!=null) throw new InvalidOperationException("Real slice worker stopped.",host.Failure);
-            UpdateLayout();orbit.Update(PointerOverHud());
+            UpdateLayout();ReadTap();orbit.Update(PointerOverHud());
             if(streetRequested) TryFocusStreetResident();
             if(orbit.TryInterest(Time.realtimeSinceStartupAsDouble,out var target,out double radius)) host.SetCamera(target,radius);
             LastFillMs=host.Fill(frame,out var stats);LastAdvance=stats;calendar.Apply(frame.Sky);DrawInstances();
@@ -197,16 +251,35 @@ namespace WorldSim.Rendering
         }
         void OnGUI()
         {
-            if(host==null) return;GUI.matrix=Matrix4x4.Scale(Vector3.one*HudScale());GUI.Box(new Rect(8,8,430,250),GUIContent.none);
-            GUILayout.BeginArea(new Rect(14,12,418,242));GUILayout.Label(calendar.Text);GUILayout.Label(status);
-            GUILayout.BeginHorizontal();if(GUILayout.Button("Pause")) SetSpeed(0);if(GUILayout.Button("x1")) SetSpeed(1);if(GUILayout.Button("x10")) SetSpeed(10);if(GUILayout.Button("x100")) SetSpeed(100);GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();if(GUILayout.Button("Overview")) ResetView();if(GUILayout.Button("Street")) RequestStreetView();GUILayout.EndHorizontal();
-            GUILayout.Label("Drag: orbit · right/two-finger drag: pan · wheel/pinch: zoom\nBlue bars: coarse current occupants.");if(notice.Length>0) GUILayout.Label(notice);GUILayout.EndArea();
+            if(host==null) return;Matrix4x4 previousMatrix=GUI.matrix;
+            GUI.matrix=Matrix4x4.Scale(new Vector3(HudScale(),HudScale(),1));
+            // The camera clears only the viewport below this strip. Clear the
+            // entire strip opaquely so changing text never accumulates there.
+            Color previous=GUI.color;GUI.color=Color.black;
+            GUI.DrawTexture(new Rect(0,0,Screen.width/HudScale(),266),Texture2D.whiteTexture);GUI.color=previous;
+            if(inspection==null||WideHud())
+            {
+                GUI.Box(new Rect(8,8,430,250),GUIContent.none);
+                GUILayout.BeginArea(new Rect(14,12,418,242));GUILayout.Label(calendar.Text);GUILayout.Label(status);
+                GUILayout.BeginHorizontal();if(GUILayout.Button("Pause")) SetSpeed(0);if(GUILayout.Button("x1")) SetSpeed(1);if(GUILayout.Button("x10")) SetSpeed(10);if(GUILayout.Button("x100")) SetSpeed(100);GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();if(GUILayout.Button("Overview")) ResetView();if(GUILayout.Button("Street")) RequestStreetView();GUILayout.EndHorizontal();
+                GUILayout.Label("Tap: inspect · Drag: orbit · right/two-finger drag: pan · wheel/pinch: zoom\nBlue bars: coarse current occupants.");if(notice.Length>0) GUILayout.Label(notice);GUILayout.EndArea();
+            }
+            if(inspection!=null)
+            {
+                Rect panel=InspectorRect();GUI.Box(panel,GUIContent.none);
+                GUILayout.BeginArea(new Rect(panel.x+6,panel.y+6,panel.width-12,panel.height-12));
+                if(GUILayout.Button("Close inspection")) ClearInspection();
+                else {inspectionScroll=GUILayout.BeginScrollView(inspectionScroll);GUILayout.Label(inspectionText);GUILayout.EndScrollView();}
+                GUILayout.EndArea();
+            }
+            GUI.matrix=previousMatrix;
         }
         void OnDisable() {Release();}
         void OnDestroy() {Release();}
         void Release()
         {
+            ClearInspection();tap.Cancel();pointerUiCapture=false;picker=null;InspectionQueries=0;
             host?.Dispose();host=null;log?.Dispose();log=null;
             if(staticRoot!=null) DestroyImmediate(staticRoot);if(groundRoot!=null) DestroyImmediate(groundRoot);staticRoot=groundRoot=null;
             foreach(var mesh in new[]{staticMesh,groundMesh,capsuleMesh,barMesh}) if(mesh!=null) DestroyImmediate(mesh);staticMesh=groundMesh=capsuleMesh=barMesh=null;

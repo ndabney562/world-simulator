@@ -1,5 +1,7 @@
-//! ADR0031 separate real-slice ownership and bounded coarse ABI5 transport.
+//! ADR0031 separate real-slice ownership and bounded coarse ABI6 transport.
 use super::*;
+mod inspection;
+pub use inspection::ws_slice_inspect;
 use ws_sim::slice::{Operation, SliceConfig, SliceSimulation, render};
 
 const GEOMETRY_HEADER: usize = 96;
@@ -13,7 +15,7 @@ const MAX_DYNAMIC: usize = SNAPSHOT_HEADER + (MAX_POPULATION + SUMMARY_COUNT) * 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceConfig {
-    /// Exact current native ABI5.
+    /// Exact current native ABI6.
     pub abi_version: u32,
     /// Exactly32.
     pub struct_size: u32,
@@ -28,7 +30,7 @@ pub struct WsSliceConfig {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceOperation {
-    /// Exact current ABI5.
+    /// Exact current ABI6.
     pub abi_version: u32,
     /// Exactly64.
     pub struct_size: u32,
