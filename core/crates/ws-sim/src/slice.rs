@@ -551,6 +551,9 @@ impl SliceSimulation {
                         severity,
                         duration_us,
                     } if record.report.committed == 0 => {
+                        world
+                            .afflict_preflight(resident, severity, duration_us)
+                            .map_err(|_| ReplayError::Record(index))?;
                         world.operation_hash.write_words(&[
                             7,
                             resident.raw(),

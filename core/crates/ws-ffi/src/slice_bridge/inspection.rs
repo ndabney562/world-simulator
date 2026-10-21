@@ -328,6 +328,15 @@ pub unsafe extern "C" fn ws_slice_inspect(
     }
 }
 
+fn consequence_error(error: ws_sim::slice::SliceError) -> (WsStatus, &'static str) {
+    match error {
+        ws_sim::slice::SliceError::Rejected(ws_sim::slice::illness::Rejection::Target) => {
+            (INVALID_ARGUMENT, "unknown consequence root")
+        }
+        _ => (STEP_FAILED, "consequence query resource or domain failure"),
+    }
+}
+
 /// Pure bounded real-slice produced consequences with explicit causal confidence.
 /// # Safety
 /// Live exclusive handle; buffer and aligned written storage writable/disjoint.
@@ -352,12 +361,7 @@ pub unsafe extern "C" fn ws_slice_consequences(
             let (g, events) = h
                 .world
                 .consequences(ws_sim::ws_events::EventId(root))
-                .map_err(|_| {
-                    (
-                        INVALID_ARGUMENT,
-                        "unknown consequence root or query failure",
-                    )
-                })?;
+                .map_err(consequence_error)?;
             let mut scratch = [0u8; MAX];
             let mut w = Writer {
                 bytes: &mut scratch,
@@ -438,6 +442,23 @@ fn ws_world_dataset() -> u64 {
 mod tests {
     use super::*;
     use ws_sim::ws_events::{Actor, Candidate, EventStore, Origin, Role};
+    #[test]
+    fn consequence_query_resource_and_invariant_failures_are_not_misreported_as_bad_input() {
+        use ws_sim::slice::{SliceError, illness::Rejection};
+        use ws_sim::ws_events::EventError;
+        assert_eq!(
+            consequence_error(SliceError::Rejected(Rejection::Target)).0,
+            INVALID_ARGUMENT
+        );
+        for error in [
+            EventError::Resource,
+            EventError::Cause,
+            EventError::Limit,
+            EventError::Order,
+        ] {
+            assert_eq!(consequence_error(SliceError::History(error)).0, STEP_FAILED);
+        }
+    }
     #[test]
     fn event_words_truncation_unknown_vocabulary_and_text_caps_are_explicit() {
         let world = SliceSimulation::new(SliceConfig {

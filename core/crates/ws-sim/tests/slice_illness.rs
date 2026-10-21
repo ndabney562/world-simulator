@@ -473,3 +473,101 @@ fn an_already_homebound_journey_never_gets_a_fabricated_illness_return_link() {
             .any(|e| matches!(e.record.payload, Payload::ReturnedHome { .. }))
     );
 }
+
+#[test]
+fn environmental_stop_replay_refuses_impossible_semantically_rejected_illness_commands() {
+    use ws_sim::slice::{OperationRecord, ReplayError, Report};
+    use ws_sim::ws_events::EventError;
+    let w = world(0);
+    let id = w.population().residents().ids()[0];
+    let building = w.population().world().buildings().ids()[0];
+    let cases = [
+        (
+            Operation::Afflict {
+                resident: id,
+                severity: 0,
+                duration_us: 100_000,
+            },
+            Rejection::Severity,
+        ),
+        (
+            Operation::Afflict {
+                resident: id,
+                severity: 11,
+                duration_us: 100_000,
+            },
+            Rejection::Severity,
+        ),
+        (
+            Operation::Afflict {
+                resident: building,
+                severity: 1,
+                duration_us: 100_000,
+            },
+            Rejection::Target,
+        ),
+        (
+            Operation::Afflict {
+                resident: id,
+                severity: 1,
+                duration_us: 0,
+            },
+            Rejection::Duration,
+        ),
+        (
+            Operation::Afflict {
+                resident: id,
+                severity: 1,
+                duration_us: 100_001,
+            },
+            Rejection::Duration,
+        ),
+        (
+            Operation::Afflict {
+                resident: id,
+                severity: 1,
+                duration_us: 86_400_100_000,
+            },
+            Rejection::Duration,
+        ),
+    ];
+    let check = |w: &SliceSimulation, operation, reason| {
+        let mut actual = w.clone();
+        assert_eq!(
+            actual.apply(operation).unwrap().error,
+            Some(SliceError::Rejected(reason))
+        );
+        assert_eq!(actual.checkpoint(), w.checkpoint());
+        for error in [
+            SliceError::History(EventError::Resource),
+            SliceError::Behavior(ws_life::behavior::BehaviorError::Resource),
+            SliceError::Lod(ws_life::lod::LodError::Resource),
+        ] {
+            let forged = OperationRecord {
+                operation,
+                report: Report {
+                    committed: 0,
+                    error: Some(error),
+                },
+                stop: Some(w.checkpoint()),
+            };
+            assert!(matches!(
+                SliceSimulation::replay(w.config(), &[forged]),
+                Err(ReplayError::Record(0))
+            ));
+        }
+    };
+    for (operation, reason) in cases {
+        check(&w, operation, reason);
+    }
+    let extreme = world(i64::MAX - i64::MAX % 100_000);
+    check(
+        &extreme,
+        Operation::Afflict {
+            resident: id,
+            severity: 1,
+            duration_us: 100_000,
+        },
+        Rejection::Deadline,
+    );
+}

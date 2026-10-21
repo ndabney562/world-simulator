@@ -33,3 +33,7 @@ No measurable quiet-tick slowdown in this probe. Query work is a root binary sea
 ## Limits
 
 No contagion, deaths, balancing, other interventions or real-slice saves. Same-building check-ins model a five-minute social hold, not unit geometry or inter-building travel. A later independent intervention can interrupt that intended visit. Device acceptance for #72/#73 and the #76 stage run remain separate; no stage completion is claimed.
+
+## Independent review fixes
+
+The published-head review found one Major replay-fence gap and one Minor native status error. Execution and environmental-stop replay now share one nonmutating Afflict semantic preflight: forged resource outcomes for invalid targets/severity/duration/deadlines fail replay; valid injected stops still replay their unchanged boundary without retrying effects. Consequence-query unknown roots use INVALID_ARGUMENT; resource/invariant failures use STEP_FAILED. Focused regression runs:12 illness integration cases,2 rollback/arbitration units and32 native tests passed; final all-target workspace clippy passed. The renderer/action/normal health trajectory is unchanged. Raw review-fix logs are retained; the original complete suites/screenshots above are not relabelled as a fresh full run.

@@ -72,6 +72,11 @@ pub(super) struct Illness {
     episodes: Vec<Episode>,
     groups: Vec<Group>,
 }
+pub(super) struct Affliction {
+    home: EntityId,
+    end: SimTime,
+    duplicate: bool,
+}
 /// Current authoritative inspection extension; no query changes the episode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct State {
@@ -522,12 +527,13 @@ impl SliceSimulation {
         self.illness.groups = groups;
         Ok(())
     }
-    pub(super) fn afflict(
-        &mut self,
+    /// Deterministic semantic validation shared by execution and stop-fence replay.
+    pub(super) fn afflict_preflight(
+        &self,
         resident: EntityId,
         severity: u32,
         duration_us: u64,
-    ) -> Result<(), SliceError> {
+    ) -> Result<Affliction, SliceError> {
         let reject = SliceError::Rejected;
         let identity = self
             .population
@@ -557,6 +563,24 @@ impl SliceSimulation {
             .illness
             .episode(resident)
             .is_some_and(|e| !e.recovered || e.return_at.is_some() && !e.returned);
+        Ok(Affliction {
+            home,
+            end,
+            duplicate,
+        })
+    }
+    pub(super) fn afflict(
+        &mut self,
+        resident: EntityId,
+        severity: u32,
+        duration_us: u64,
+    ) -> Result<(), SliceError> {
+        let Affliction {
+            home,
+            end,
+            duplicate,
+        } = self.afflict_preflight(resident, severity, duration_us)?;
+        let time = self.clock.now();
         self.illness
             .groups
             .try_reserve(1)
