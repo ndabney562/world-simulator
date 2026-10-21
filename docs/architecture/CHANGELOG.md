@@ -208,6 +208,6 @@ ADR0033 (#99) records delegated acceptance, after clean proposed-contract review
 ## 2026-10-21 — Resident vitals implementation
 Implements merged ADR0033 with a retained independent core vitals column, stable sex draw, health100/Alive initial state, canonical hash envelope and ABI7/schema2 inspection/validation. Five-field UI now reads actual values. Old population/behavior goldens, fixtures and consumer sources remain. No disease/mortality transitions, save-format change or device/stage claim.
 
-## 2026-10-21 — Proposed VS-010 illness
+## 2026-10-21 — Accepted VS-010 illness
 
-ADR0034 (#101) proposes real-slice finite fever state/behavior/provenance, bounded produced-consequence query and ABI8/schema3. Preserves old healthy/toy paths, goldens and fixtures; no mortality, new dependency/source, save format or device/stage claim.
+ADR0034 (#101) accepts real-slice finite fever state/behavior/provenance, bounded produced-consequence query and ABI8/schema3. Preserves old healthy/toy paths, goldens and fixtures; no mortality, new dependency/source, save format or device/stage claim.

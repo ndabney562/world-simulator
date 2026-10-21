@@ -99,6 +99,6 @@ Every intervention has an inspector record: what it targeted, what it changed at
 
 [ADR 0021](../adr/0021-god-intervention-contract.md) records the first intervention: the `Intervene` command (target, effect, timing; provenance is the journal entry), the one-effect vocabulary `afflict(illness, severity)` at L1 and L2, the `intervention.applied` / `life.illness` / `agent.returned_home` events and links of §14.8, and `why_ill`. Aggregate application, other effects and the FFI are later work.
 
-## Proposed real-slice illness increment
+## Accepted real-slice illness increment
 
-[ADR0034](../adr/0034-slice-illness-and-consequences.md) proposes #74’s finite fever operation, continuous home/rest/rejoin overrides, actual missed duty, L1 apartment-neighbour check-in and recovery. Native consequences preserve direct versus contributing claims; player details remain five fields. Runtime follows independent design acceptance.
+[ADR0034](../adr/0034-slice-illness-and-consequences.md) accepts #74’s finite fever operation, continuous home/rest/rejoin overrides, actual missed duty, L1 apartment-neighbour check-in and recovery. Native consequences preserve direct versus contributing claims; player details remain five fields. Runtime follows this separately reviewed and accepted design.

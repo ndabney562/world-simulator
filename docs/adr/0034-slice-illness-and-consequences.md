@@ -1,8 +1,8 @@
 # ADR0034: Real-slice illness and linked consequences
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-21
-- Decided by: Product Owner's direct #74 continuation and recorded #77 technical delegation; Codex proposal, independent review
+- Decided by: Product Owner's direct #74 continuation and recorded #77 technical delegation; Codex acceptance under delegated technical authority, independent review
 - Issue: #101 (design), #74 (runtime)
 - Supersedes: none; extends ADR0021's real-slice vocabulary, ADR0033's state and ADR0032's inspection boundary
 
