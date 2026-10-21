@@ -80,4 +80,4 @@ Issue bodies are drafts of the scope: the Product Owner authorizes each issue be
 
 ### VS-009 inspection design checkpoint
 
-[ADR0032](../adr/0032-read-only-slice-inspection.md) is a local Proposed design for #73. A separate architecture-change issue and docs-only PR remain pending publication approval. No inspection runtime begins before accepted design and #72 engineering integration; #72/#73 device criteria remain open.
+[ADR0032](../adr/0032-read-only-slice-inspection.md) is a Proposed design for #73, tracked by architecture-change issue#96 and a separate docs-only draft PR authorized by Noah on2026-10-21. No inspection runtime begins before accepted design and #72 engineering integration; #72/#73 device criteria remain open.

@@ -2,7 +2,7 @@
 
 ## ADR0032: read-only inspection (2026-10-21, Proposed)
 
-Local docs-only VS-009 proposal for core-owned identity/needs/timetables, bounded recent actor events and a tap-driven versioned inspection query. Pins output caps, failure preservation, source-context identity handling and occlusion/gesture rules. Runtime follows independent review/acceptance and VS-008 engineering integration; device screenshots/core-dump agreement remain outstanding. Publication of a separate architecture issue/PR awaits approval following an automatic-review rejection.
+Local docs-only VS-009 proposal for core-owned identity/needs/timetables, bounded recent actor events and a tap-driven versioned inspection query. Pins output caps, failure preservation, source-context identity handling and occlusion/gesture rules. Runtime follows independent review/acceptance and VS-008 engineering integration; device screenshots/core-dump agreement remain outstanding. Noah explicitly authorized publication on2026-10-21; architecture issue#96 tracks this proposed decision.
 
 ## ADR0031 accepted (2026-10-20)
 

@@ -3,12 +3,12 @@
 - Status: Proposed
 - Date: 2026-10-21
 - Decided by: Pending independent review and delegated technical acceptance; proposed by Codex
-- Issue: #73; separate architecture-change issue pending publication approval
+- Issue: #96 (design), #73 (runtime)
 - Supersedes: none; extends ADRs0018/0019/0031
 
 ## Context
 
-[VS-009](https://github.com/ndabney562/world-simulator/issues/73) requires tapping a resident or building to inspect identity, schedule, activity, needs and recent factual events. ADR0031 exposes a separate real-slice handle, immutable geometry and coherent dynamic rendering, but no inspection query. Its runtime is currently PR#95 at6628fd5e60439ca53fca9f6594e64b31b1bf17aa, pending clean independent review; device acceptance stays open. This proposal changes only documentation and does not assume that PR is merged.
+[VS-009](https://github.com/ndabney562/world-simulator/issues/73) requires tapping a resident or building to inspect identity, schedule, activity, needs and recent factual events. ADR0031 exposes a separate real-slice handle, immutable geometry and coherent dynamic rendering, but no inspection query. Its runtime is currently PR#95 at50a536aaf7f0d0435ae1f51c8e57e99c65530354, independently approved and awaiting final CI; device acceptance stays open. This proposal changes only documentation and does not assume that PR is merged.
 
 The core already retains synthetic identity, immutable weekday/weekend timetables, logical location, integer need deficits and exact building counts. EventStore indexes actors, but its existing query collects all matching events before returning. Calling it and truncating afterwards would produce unbounded temporary storage in a supposedly bounded inspector. Source-context footprints have BINs and zero EntityIds; they are not simulated buildings. A query must preserve these distinctions and must not promote a resident merely to inspect them.
 
