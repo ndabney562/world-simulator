@@ -596,6 +596,41 @@ impl Behavior {
             }
         }
     }
+    /// Read-only outgoing local route heading in the fixed render basis.
+    /// Zero when stationary or off-map; this never materializes an L2 resident.
+    /// # Errors
+    /// Unknown resident, invalid time or failed route/frame conversion.
+    pub fn render_heading(&self, id: EntityId, time: SimTime) -> Result<f32, BehaviorError> {
+        if !matches!(
+            self.projected_location(id, time)?,
+            FineLocation::Local { walking: true, .. }
+        ) {
+            return Ok(0.0);
+        }
+        let profile = self
+            .schedules
+            .get(id)
+            .ok_or(BehaviorError::UnknownResident)?;
+        let Location::InTransit {
+            from,
+            to,
+            departure,
+            arrival,
+        } = profile.at(self.schedules.epoch(), time).location
+        else {
+            return Ok(0.0);
+        };
+        let path = self.navigation.route(from, to)?;
+        let start = if matches!(from, Place::OffMap(..)) {
+            arrival - i128::from(path.walking_ticks()) * STEP
+        } else {
+            departure
+        };
+        let ticks = ((micros(time) - start) / STEP).max(0) as u64;
+        self.navigation
+            .render_heading(from, to, ticks.saturating_mul(MM_PER_TICK))
+            .map_err(BehaviorError::Navigation)
+    }
     /// Explicit canonical anchors, levels, rules and geometry; no capacities/caches.
     /// Current simulation time is hashed separately by the owning orchestrator.
     pub fn state_hash(&self) -> u64 {

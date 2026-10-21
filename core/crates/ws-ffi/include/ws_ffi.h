@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 4
+#define ABI_VERSION 5
 
 /**
  * Most residents per building a config may ask for.
@@ -65,11 +65,16 @@
 typedef struct WsHandle WsHandle;
 
 /**
+ * Opaque serialized real-slice owner. Never cast to/from the toy WsHandle.
+ */
+typedef struct WsSliceHandle WsSliceHandle;
+
+/**
  * Creation configuration, 32 bytes aligned to 8 on supported targets.
  */
 typedef struct {
   /**
-   * Must equal 4.
+   * Must equal 5.
    */
   uint32_t abi_version;
   /**
@@ -104,7 +109,7 @@ typedef uint32_t WsStatus;
  */
 typedef struct {
   /**
-   * Caller requests ABI4; returned as4 on success.
+   * Caller requests ABI5; returned as5 on success.
    */
   uint32_t abi_version;
   /**
@@ -122,50 +127,57 @@ typedef struct {
 } WsControlState;
 
 /**
- * Validated UTC input label, exactly40 bytes aligned to4.
+ * Real-slice creation,32 bytes aligned8. Population is the pinned synthetic cohort.
  */
 typedef struct {
   /**
-   * ABI4.
+   * Exact current native ABI5.
    */
   uint32_t abi_version;
   /**
-   * Exactly40.
+   * Exactly32.
    */
   uint32_t struct_size;
   /**
-   * Astronomical Gregorian year; conversion separately checks SimTime range.
+   * Procedural seed, retaining the existing seed-generated10–30 residents.
    */
-  int32_t year;
+  uint64_t seed;
   /**
-   * Month1..=12.
+   * Configured100-ms-grid SimTime; creation must be in UTC2000–2099.
    */
-  uint32_t month;
+  int64_t start_us;
   /**
-   * Day of month.
+   * Zero.
    */
-  uint32_t day;
+  uint64_t reserved;
+} WsSliceConfig;
+
+/**
+ * One coarse input,64 bytes aligned8; no per-entity operation is exposed here.
+ */
+typedef struct {
   /**
-   * Hour0..=23.
+   * Exact current ABI5.
    */
-  uint32_t hour;
+  uint32_t abi_version;
   /**
-   * Minute0..=59.
+   * Exactly64.
    */
-  uint32_t minute;
+  uint32_t struct_size;
   /**
-   * Second0..=60,60 only at a tabulated UTC leap second.
+   * 1steps,2scale,3host elapsed microseconds,4camera target/radius.
    */
-  uint32_t second;
+  uint32_t tag;
   /**
-   * Microsecond0..=999999.
-   */
-  uint32_t microsecond;
-  /**
-   * Must be zero.
+   * Zero.
    */
   uint32_t reserved;
-} WsUtcLabel;
+  /**
+   * Tags1–3: unsigned word0 and remaining words0. Tag4: four finite f64
+   * bit patterns (ENU target metres,radius metres), last two words0.
+   */
+  uint64_t words[6];
+} WsSliceOperation;
 
 /**
  * Coherent environment output, exactly160 bytes aligned to8. Initialize only
@@ -173,7 +185,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * ABI4.
+   * ABI5.
    */
   uint32_t abi_version;
   /**
@@ -299,7 +311,53 @@ typedef struct {
 } WsCalendarSky;
 
 /**
- * Snapshot v4 header, serialized little-endian without alignment assumptions.
+ * Validated UTC input label, exactly40 bytes aligned to4.
+ */
+typedef struct {
+  /**
+   * ABI5.
+   */
+  uint32_t abi_version;
+  /**
+   * Exactly40.
+   */
+  uint32_t struct_size;
+  /**
+   * Astronomical Gregorian year; conversion separately checks SimTime range.
+   */
+  int32_t year;
+  /**
+   * Month1..=12.
+   */
+  uint32_t month;
+  /**
+   * Day of month.
+   */
+  uint32_t day;
+  /**
+   * Hour0..=23.
+   */
+  uint32_t hour;
+  /**
+   * Minute0..=59.
+   */
+  uint32_t minute;
+  /**
+   * Second0..=60,60 only at a tabulated UTC leap second.
+   */
+  uint32_t second;
+  /**
+   * Microsecond0..=999999.
+   */
+  uint32_t microsecond;
+  /**
+   * Must be zero.
+   */
+  uint32_t reserved;
+} WsUtcLabel;
+
+/**
+ * Snapshot v5 header, serialized little-endian without alignment assumptions.
  */
 typedef struct {
   /**
@@ -417,6 +475,69 @@ WsStatus ws_fill_render_snapshot(WsHandle *handle, uint8_t *buf, size_t cap, siz
 size_t ws_last_error(WsHandle *handle,
                      char *buf,
                      size_t cap);
+
+/**
+ * Creates an explicit real slice, null on validation/construction failure or panic.
+ * Creation uses the stored calendar-aligned Monday epoch; no wall clock is read.
+ * # Safety
+ * Non-null config points to one readable aligned initialized WsSliceConfig.
+ */
+WsSliceHandle *ws_slice_create(const WsSliceConfig *config);
+
+/**
+ * Destroys exactly one live slice handle; null is a no-op.
+ * # Safety
+ * Non-null handle is live, exclusively owned and not destroyed before.
+ */
+void ws_slice_destroy(WsSliceHandle *handle);
+
+/**
+ * Validates then applies one coarse operation. Failure preserves the core's
+ * committed prefix and recorded stop; query the snapshot for that boundary.
+ * Wire validation failure performs no domain operation. No pointers are retained.
+ * # Safety
+ * Handle is live/exclusive; input points to one readable aligned initialized operation.
+ */
+WsStatus ws_slice_apply(WsSliceHandle *handle, const WsSliceOperation *input);
+
+/**
+ * Copies the once-built static geometry. Short capacity reports required bytes
+ * without touching data; other failures leave both output arguments unchanged.
+ * # Safety
+ * Handle is live/exclusive; non-null buffer is writable for capacity bytes;
+ * written is aligned writable usize storage, disjoint from buffer/handle.
+ */
+WsStatus ws_slice_fill_geometry(WsSliceHandle *handle,
+                                uint8_t *buffer,
+                                size_t capacity,
+                                size_t *written);
+
+/**
+ * Copies one pure complete committed resident/count snapshot. All serialization
+ * finishes in bounded scratch storage before any caller data is written.
+ * # Safety
+ * Same live/exclusive/disjoint buffer contract as ws_slice_fill_geometry.
+ */
+WsStatus ws_slice_fill_snapshot(WsSliceHandle *handle,
+                                uint8_t *buffer,
+                                size_t capacity,
+                                size_t *written);
+
+/**
+ * Pure160-byte slice sky query in the same fixed geometry basis. Caller initializes
+ * only ABI/size; no output bytes change on validation error, poison or panic.
+ * # Safety
+ * Handle is live/exclusive; output is aligned writable160-byte storage disjoint
+ * from the handle. Serialize across dynamic fill and this query before pairing.
+ */
+WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output);
+
+/**
+ * Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.
+ * # Safety
+ * Non-null handle is live/exclusive; positive capacity requires a writable buffer.
+ */
+size_t ws_slice_last_error(WsSliceHandle *handle, char *buffer, size_t capacity);
 
 /**
  * Pure UTC configuration conversion; no world, clock read or grid rounding.

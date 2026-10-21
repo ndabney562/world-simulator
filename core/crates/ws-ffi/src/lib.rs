@@ -1,4 +1,4 @@
-//! Synchronous C ABI v4; see ADRs 0018/0019/0022/0030 and this crate's README for ownership.
+//! Synchronous C ABI v5; see ADRs 0018/0019/0022/0030/0031 and this crate's README for ownership.
 #![allow(unsafe_code)] // The only native-pointer boundary in the workspace.
 
 use std::{
@@ -11,7 +11,13 @@ use ws_sim::{
 };
 
 /// Exact native/managed contract version.
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
+mod slice_bridge;
+pub use slice_bridge::{
+    WsSliceConfig, WsSliceHandle, WsSliceOperation, ws_slice_apply, ws_slice_create,
+    ws_slice_destroy, ws_slice_fill_geometry, ws_slice_fill_snapshot, ws_slice_get_calendar_sky,
+    ws_slice_last_error,
+};
 mod calendar;
 pub use calendar::{WsCalendarSky, WsUtcLabel, ws_get_calendar_sky, ws_utc_to_sim};
 /// Most residents per building a config may ask for.
@@ -43,7 +49,7 @@ pub const RECORD_SIZE: usize = 32;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct WsConfig {
-    /// Must equal 4.
+    /// Must equal 5.
     pub abi_version: u32,
     /// Must equal 32.
     pub struct_size: u32,
@@ -61,7 +67,7 @@ pub struct WsConfig {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WsControlState {
-    /// Caller requests ABI4; returned as4 on success.
+    /// Caller requests ABI5; returned as5 on success.
     pub abi_version: u32,
     /// Caller provides 16 bytes; returned as 16 on success.
     pub struct_size: u32,
@@ -71,7 +77,7 @@ pub struct WsControlState {
     pub reserved: u32,
 }
 
-/// Snapshot v4 header, serialized little-endian without alignment assumptions.
+/// Snapshot v5 header, serialized little-endian without alignment assumptions.
 #[repr(C)]
 pub struct WsSnapshotHeader {
     /// ABI version.

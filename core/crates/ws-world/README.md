@@ -161,3 +161,8 @@ Fixed-seed property tests verify the home/unit/member counts, adult head, exact 
 ## VS-007 derived calendar/sky
 
 `environment` composes exact UTC, bounded New York policy1 and pure solar rule1. `SOLAR_SITE` is computed at compile time from the complete58-source-footprint envelope with i128 midpoint/floor arithmetic; the pinned registered dataset supplies its version. `calendar_sky(time, render_basis)` returns exact UTC throughout SimTime and explicit unavailable local/sun status outside UTC2000–2099. The sun is rotated site ENU→ECEF→the supplied render ENU basis; azimuth/elevation remain fixed-site values. `ToyWorld::render_basis` returns precisely the basis already used by render records, without treating navigation millimetres as ENU. The dedicated query direction has new exact Tier1 goldens across four seeds; general coordinate policy stays Tier3. This owns no mutable state/events and consumes no RNG.
+
+
+## VS-008 immutable render geometry
+
+`slice_render` implements ADR0031's source/frame version1: all58 registered footprints become concave roof/wall extrusions in the fixed site ENU frame, with exact integer topology and separate BIN/featured EntityId mapping. Deterministic integer ear quality and source-order tie breaking avoid sliver roof shading; all original wall edges remain. Geometry is bounded, derived and cached by the adapter, never authoritative state or an event producer. Explicit geodetic/ECEF/ENU conversions use ellipsoidal height0 plus source above-ground roof height; NAVD88 is not treated as ellipsoidal. New topology goldens, exact area/source coverage, winding/unit normals and Tier3 coordinate round trips preserve every earlier baseline/golden.

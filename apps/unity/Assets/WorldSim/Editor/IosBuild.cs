@@ -18,6 +18,17 @@ namespace WorldSim.EditorTools
         [MenuItem("WorldSim/Build iOS performance spike")]
         public static void Build()
         {
+            BuildScene(Scene,OutputFolder,"org.worldsimulator.tp011","17.0");
+        }
+
+        [MenuItem("WorldSim/Build iOS real block")]
+        public static void BuildRealBlock()
+        {
+            BuildScene("Assets/WorldSim/Scenes/RealBlock.unity","Builds/iOS-RealBlock","org.worldsimulator.vs008");
+        }
+
+        static void BuildScene(string scene,string outputFolder,string buildBundleId,string minimumOverride=null)
+        {
             if (!File.Exists(Plugin))
             {
                 EditorUtility.DisplayDialog("Native plugin missing",
@@ -32,30 +43,32 @@ namespace WorldSim.EditorTools
             // leaves ProjectSettings unchanged (the project skeleton tests pin the bundle id and minimum iOS).
             string bundleId = PlayerSettings.GetApplicationIdentifier(NamedBuildTarget.iOS);
             string minimumOs = PlayerSettings.iOS.targetOSVersionString;
-            Shader added = null;
+            Shader added = null, addedLit = null;
             int instancingStripping = SetInstancingStripping(KeepAllInstancingVariants);
             try
             {
-                PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, "org.worldsimulator.tp011");
-                PlayerSettings.iOS.targetOSVersionString = "17.0";
+                PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, buildBundleId);
+                if(minimumOverride!=null) PlayerSettings.iOS.targetOSVersionString = minimumOverride;
                 added = AlwaysInclude("Universal Render Pipeline/Unlit");
+                addedLit = AlwaysInclude("Universal Render Pipeline/Lit");
                 var options = new BuildPlayerOptions
                 {
-                    scenes = new[] { Scene },
+                    scenes = new[] { scene },
                     target = BuildTarget.iOS,
-                    locationPathName = OutputFolder,
+                    locationPathName = outputFolder,
                     options = BuildOptions.None,
                 };
                 BuildReport report = BuildPipeline.BuildPlayer(options);
                 if (report.summary.result != BuildResult.Succeeded)
                     throw new BuildFailedException($"iOS build {report.summary.result}: {report.summary.totalErrors} errors");
-                Debug.Log($"Xcode project written to {OutputFolder}. Open Unity-iPhone.xcodeproj, pick your personal team, and run on the device.");
+                Debug.Log($"Xcode project written to {outputFolder}. Open Unity-iPhone.xcodeproj, pick your personal team, and run on the device.");
             }
             finally
             {
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, bundleId);
                 PlayerSettings.iOS.targetOSVersionString = minimumOs;
                 if (added != null) RemoveAlwaysIncluded(added);
+                if (addedLit != null) RemoveAlwaysIncluded(addedLit);
                 SetInstancingStripping(instancingStripping);
             }
         }

@@ -8,6 +8,10 @@ Independent review of published design head8be42c50f86529487eb7b8ae24d99b7130305
 
 Local docs-only VS-009 proposal for core-owned identity/needs/timetables, bounded recent actor events and a tap-driven versioned inspection query. Pins output caps, failure preservation, source-context identity handling and occlusion/gesture rules. Runtime follows independent review/acceptance and VS-008 engineering integration; device screenshots/core-dump agreement remain outstanding. Noah explicitly authorized publication on2026-10-21; architecture issue#96 tracks this proposed decision.
 
+## VS-008 implementation (2026-10-20)
+
+Implements accepted ADR0031: separate ABI5 slice ownership, bounded complete58-source footprint meshes and coherent30-resident/aggregate/sky transport, checked navigation/site ENU adapters and integer camera normalization, retained toy behavior, instanced real-block presentation and orbit/pan/pinch controls. New source/topology/layout/replay/Editor/pixel/allocation/frame evidence leaves every previous core golden and Bootstrap-only default-build guard intact. The explicit real-block iOS build entry preserves the committed minimum OS; no missing module, unsigned export, signing/device budget or stage acceptance is claimed as complete.
+
 ## ADR0031 accepted (2026-10-20)
 
 Independent review of the actual published proposal approved at455da9b1 with zero open findings after camera mapping and heading clarifications. Applied Noah's named technical delegation on #77: status, index and pointers now record Accepted. Final published-head review and all five green hosted checks remain merge gates; runtime starts in a separate PR after design merge. Device acceptance remains unchecked and #72 stays open.

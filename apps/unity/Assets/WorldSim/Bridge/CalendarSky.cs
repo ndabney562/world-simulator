@@ -12,7 +12,7 @@ namespace WorldSim.Bridge
         internal uint Month, Day, Hour, Minute, Second, Microsecond, Reserved;
     }
 
-    /// <summary>ABI4 committed calendar/sky value. Core owns all time, timezone and solar calculations.</summary>
+    /// <summary>ABI5 committed calendar/sky value. Core owns all time, timezone and solar calculations.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CalendarSky
     {
