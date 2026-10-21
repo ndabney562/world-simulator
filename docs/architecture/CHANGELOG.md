@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR0032 accepted (2026-10-21)
+
+Independent review of published design head8be42c50f86529487eb7b8ae24d99b7130305c3f approved with zero open findings; the preliminary returning-drag ambiguity was resolved. Applied Noah’s named technical delegation on#77: status/index/pointers record Accepted. Final published-head review and all five green checks still precede merge. #73 runtime and device acceptance remain separate; no source/test/event/save behavior changes here.
+
 ## ADR0032: read-only inspection (2026-10-21, Proposed)
 
 Local docs-only VS-009 proposal for core-owned identity/needs/timetables, bounded recent actor events and a tap-driven versioned inspection query. Pins output caps, failure preservation, source-context identity handling and occlusion/gesture rules. Runtime follows independent review/acceptance and VS-008 engineering integration; device screenshots/core-dump agreement remain outstanding. Noah explicitly authorized publication on2026-10-21; architecture issue#96 tracks this proposed decision.

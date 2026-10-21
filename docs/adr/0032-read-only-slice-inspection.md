@@ -1,8 +1,8 @@
 # ADR 0032: read-only real-slice entity inspection
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-21
-- Decided by: Pending independent review and delegated technical acceptance; proposed by Codex
+- Decided by: Noah under the named technical delegation on #77, after independent review; proposed by Codex
 - Issue: #96 (design), #73 (runtime)
 - Supersedes: none; extends ADRs0018/0019/0031
 

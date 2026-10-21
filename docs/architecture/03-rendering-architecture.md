@@ -87,6 +87,6 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 
 [Accepted ADR0031](../adr/0031-real-slice-render-transport-and-camera.md) specifies #72's separate real-slice handle, ABI5 bounded static footprint meshes and dynamic resident/aggregate view, fixed site ENU adapters, core-owned camera-interest normalization and Unity orbit/pan/pinch presentation. Source context retains BINs without invented simulation identities. It preserves the toy regression path and requires actual device evidence before #72 acceptance; the accepted design precedes separate runtime implementation.
 
-## Proposed real-slice inspection (VS-009)
+## Real-slice inspection contract (VS-009)
 
-[ADR0032](../adr/0032-read-only-slice-inspection.md) proposes a bounded tap-driven record query over the real-slice handle, with occlusion-aware picking of published identities, explicit source-context handling and a timestamped inspector. Core identity, needs, timetable and factual actor events remain authoritative. This proposal is pending review/acceptance; it adds no runtime or device evidence.
+[ADR0032](../adr/0032-read-only-slice-inspection.md) proposes a bounded tap-driven record query over the real-slice handle, with occlusion-aware picking of published identities, explicit source-context handling and a timestamped inspector. Core identity, needs, timetable and factual actor events remain authoritative. The contract passed independent review and records delegated acceptance; final-head review/CI precede design merge and separate runtime implementation. It adds no runtime or device evidence.
