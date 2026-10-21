@@ -45,4 +45,4 @@ PluginImporter:
   assetBundleName: 
   assetBundleVariant: 
 META
-printf 'Built %s plugin: %s\nIn Unity run WorldSim > Build iOS performance spike.\n' "$target" "$plugin/libws_ffi.a"
+printf 'Built %s plugin: %s\nIn Unity choose WorldSim > Build iOS real block (slice) or Build iOS performance spike (toy).\n' "$target" "$plugin/libws_ffi.a"

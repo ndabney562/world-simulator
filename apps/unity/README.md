@@ -2,7 +2,7 @@
 
 The Unity 6 / URP application shell. Unity owns rendering, presentation, input, and platform integration; it never owns simulation state, which stays in the Rust core (`core/`). See [03-rendering-architecture.md](../../docs/architecture/03-rendering-architecture.md) §4.1.
 
-The Bootstrap scene loads the Rust native bridge and draws the toy world (TP-011 plus VS-007, ABI4): five buildings as boxes and residents as capsules from one snapshot per frame, with an orbit camera and a debug HUD. The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Providers and gameplay UI are not implemented.
+The Bootstrap scene loads the Rust native bridge and draws the toy world (TP-011 plus VS-007, ABI5): five buildings as boxes and residents as capsules from one snapshot per frame, with an orbit camera and a debug HUD. The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Providers and gameplay UI are not implemented.
 
 ## Editor version
 
@@ -19,7 +19,7 @@ Changing the editor version is a deliberate change: update `ProjectVersion.txt` 
 | `Assets/WorldSim/Providers/` | none yet | Visual backdrop providers; the only place provider code may live ([17-repository-structure.md](../../docs/architecture/17-repository-structure.md) §18.2 rule 4). Empty until TP-012. |
 | `Assets/WorldSim/UI/` | none yet | UI Toolkit views. Empty placeholder. |
 | `Assets/WorldSim/Tests/EditMode/` | `WorldSim.Tests.EditMode` (Editor only) | Edit-mode tests. |
-| `Assets/WorldSim/Scenes/Bootstrap.unity` | | The only scene: camera, directional light, and the native toy-world host (`BridgeDemo`). |
+| `Assets/WorldSim/Scenes/Bootstrap.unity` | | Default build scene: camera, directional light, and the native toy-world host (`BridgeDemo`). |
 
 ## Settings
 
@@ -95,7 +95,7 @@ The static CI checker also requires the serialized `iOSSupport` API list to cont
 
 ## Running the native demo
 
-Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. Cyan boxes (buildings) and orange capsules (residents,30 at start; the HUD also offers50,500 or5,000) are rendered from ABI4 snapshots; positions come from the Rust core, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
+Close any Editor using this checkout, run `scripts/build-native-macos.sh` from the repository root, then open Bootstrap and press Play. Cyan boxes (buildings) and orange capsules (residents,30 at start; the HUD also offers50,500 or5,000) are rendered from ABI5 snapshots; positions come from the Rust core, not C# entity movement. Rebuilding a loaded dylib requires restarting Unity. A missing library or ABI mismatch stops the demo with a Console error rather than silently falling back to managed simulation.
 
 Bridge owns one persistent NativeArray and one SafeHandle; it serializes calls and disposal. Only Bridge enables unsafe C# to lend the buffer pointer for a synchronous call. Rendering uses safe decoded matrices in reusable storage and instanced draws. Fixed-step catch-up is capped at 100 ticks per frame; excess whole steps after a stall are dropped and only the sub-step remainder is retained, matching the Rust host clock. No per-entity native calls or callbacks occur. Disable/scene teardown disposes the world, buffer, material and mesh.
 
@@ -117,6 +117,19 @@ Run `scripts/build-native-ios.sh`, then **WorldSim → Build iOS performance spi
 
 ## VS-007 calendar and sun
 
-Bootstrap exposes an explicit UTC start in the BridgeDemo Inspector (default2026-06-21T17:00:00Z). `NativeWorld.UtcToSim` delegates civil validation and epoch/leap conversion to Rust; the integer start config is never inferred from Unity frame time. The HUD presents paired core UTC/New York labels, offset and committed speed; pause/1×/10×/100× all submit the existing structured command. A30-resident option matches the maximum slice population for measurement, while the native backend remains explicitly toy until#72.
+Bootstrap exposes an explicit UTC start in the BridgeDemo Inspector (default2026-06-21T17:00:00Z). `NativeWorld.UtcToSim` delegates civil validation and epoch/leap conversion to Rust; the integer start config is never inferred from Unity frame time. The HUD presents paired core UTC/New York labels, offset and committed speed; pause/1×/10×/100× all submit the existing structured command. A30-resident option matches the maximum slice population for measurement, while this Bootstrap backend remains explicitly toy. VS-008 adds the separate RealBlock scene described below.
 
 One serialized render fill plus calendar query publishes a matching tick, with caller-owned buffers and value structs. `CalendarPresentation` caches labels by core UTC second/committed scale and directs the existing directional light opposite the core toward-sun vector (ENU→Unity axes only). Lit materials respond to it; at night/unavailable dates direct sunlight is off, with fixed ambient presentation illumination. No renderer solar model or second clock exists. New tests preserve the previous pixel/allocation/control coverage and add layout, leap conversion, pairing, HUD/light, old-client refusal, pause and actual100× Editor measurement. The Editor CSV is `worldsim71-editor-100x.csv` in the OS temp directory, with backend/population/scale/frame/fill/worker timing. [Verification and device limitations](../../docs/verification/issue-71/README.md).
+
+
+## Real block (VS-008 / ABI5)
+
+Open `Assets/WorldSim/Scenes/RealBlock.unity` and press Play after rebuilding/restarting the native plugin. This scene uses the separate `NativeSlice`/`SliceHost` path:58 exact source footprint extrusions, four featured simulation identities and the seed-generated10–30 residents. Default seed71449 has30people and starts at explicit UTC2026-06-22T11:22:30Z (Monday07:22:30 New York), never from a renderer clock. The complete context stays source-only massing. Coloured footprints identify the four featured buildings; orange capsules are actual local fine residents. Blue bars show actual current occupants only for coarse buildings.
+
+Drag to orbit; right/middle mouse or two-finger drag pans; wheel/pinch zooms. **Overview** fits all58 source bounds and resets the camera-interest latch; **Street** first requests nearby detail, then focuses an actually published nearby perimeter walker when one is available. Camera shortcuts preserve the selected speed/pause; resume1× or10× when nearby fine detail needs a physical policy tick. Indoor/off-map/coarse people are not invented at street positions. Portrait/wide framing uses the camera's actual viewport; the HUD has reserved space so it cannot cover the default massing. Pause/1×/10×/100×, UTC/New York labels and light consume committed core output. Above10× the existing core L2 cap remains active.
+
+The per-frame native/managed pair validates tick/time/hash/scale/dataset before publication, reuses bounded buffers/matrices and submits instanced people/occupancy bars. Geometry uploads once into a shared five-submesh cache. The warmed fill/decode/render path allocates no managed bytes; changing date labels and the periodic HUD/CSV naturally format text. A worker sends elapsed integer host microseconds to the core, which owns cap/drop/remainder. There is no second simulation-step accumulator in this host.
+
+CSV files `vs008-real-<seed>-<capture-time>.csv` in the app documents folder include backend, seed, population, mesh counts, committed scale/tick, frame/fill/native-apply timing, count partitions and memory/thermal fields. Process memory is blank/unavailable on desktop, not reported as a measured zero. Editor GPU-fenced full960×540 measurements and native/managed/source evidence are recorded in [issue-72 verification](../../docs/verification/issue-72/README.md); they do not establish iPhone performance.
+
+**WorldSim → Build iOS real block** explicitly builds this scene to `Builds/iOS-RealBlock`, includes URP Lit/Unlit and instancing variants, and retains the committed minimum iOS version. Bootstrap remains the only default build scene; its existing test/TP-011 build entry stays intact. The new scene's Editor tests use Unity's asset-path play-mode loader. Install the pinned Editor's iOS Build Support, run `scripts/build-native-ios.sh`, then use the menu to export an unsigned Xcode project. Signing, installation and actual iPhone screenshots/CSV remain the separately authorized device handoff. The current local Editor has only Mac Standalone Support, so no Unity iOS export/device result is claimed.

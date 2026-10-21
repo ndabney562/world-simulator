@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace WorldSim.Bridge
 {
-    /// <summary>Reusable ABI4 frame: building/resident matrices and a calendar/sky value from the same tick.</summary>
+    /// <summary>Reusable ABI5 frame: building/resident matrices and a calendar/sky value from the same tick.</summary>
     public sealed class RenderFrame
     {
         public readonly Matrix4x4[] Buildings;

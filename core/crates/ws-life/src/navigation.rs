@@ -13,6 +13,23 @@ pub const VERSION: u32 = 1;
 pub const MM_PER_TICK: u64 = 140;
 const MAX_NODES: usize = 10;
 
+fn project_point(origin: GeoPoint, p: GeoPoint) -> Result<Point, NavError> {
+    let east = ((i128::from(p.lon_pdeg) - i128::from(origin.lon_pdeg)) * 84_500_000)
+        .div_euclid(1_000_000_000_000i128);
+    let north = ((i128::from(p.lat_pdeg) - i128::from(origin.lat_pdeg)) * 111_200_000)
+        .div_euclid(1_000_000_000_000i128);
+    Ok(Point {
+        east: i64::try_from(east).map_err(|_| NavError::Geometry)?,
+        north: i64::try_from(north).map_err(|_| NavError::Geometry)?,
+    })
+}
+fn render_error(e: ws_world::slice_render::RenderError) -> NavError {
+    match e {
+        ws_world::slice_render::RenderError::Resource => NavError::Resource,
+        _ => NavError::Geometry,
+    }
+}
+
 /// A point in the approximate local navigation plane, never ENU/ECEF/elevation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Point {
@@ -216,16 +233,7 @@ impl Navigation {
                 .min()
                 .ok_or(NavError::Geometry)?,
         };
-        let project = |p: GeoPoint| -> Result<Point, NavError> {
-            let east = ((i128::from(p.lon_pdeg) - i128::from(origin.lon_pdeg)) * 84_500_000)
-                .div_euclid(1_000_000_000_000i128);
-            let north = ((i128::from(p.lat_pdeg) - i128::from(origin.lat_pdeg)) * 111_200_000)
-                .div_euclid(1_000_000_000_000i128);
-            Ok(Point {
-                east: i64::try_from(east).map_err(|_| NavError::Geometry)?,
-                north: i64::try_from(north).map_err(|_| NavError::Geometry)?,
-            })
-        };
+        let project = |p: GeoPoint| project_point(origin, p);
         let points = source
             .into_iter()
             .map(project)
@@ -364,6 +372,57 @@ impl Navigation {
     pub fn position(&self, from: Place, to: Place, distance_mm: u64) -> Result<Point, NavError> {
         Ok(self.graph.position(self.route(from, to)?, distance_mm))
     }
+    /// Explicit approximate navigation-plane→geodetic→ECEF→fixed render ENU.
+    /// No graph/route/source coordinate changes or query-side materialization.
+    /// # Errors
+    /// Unsupported integer range or coordinate conversion.
+    pub fn to_render(&self, p: Point) -> Result<[f64; 3], NavError> {
+        if p.east.unsigned_abs() > 1_000_000_000 || p.north.unsigned_abs() > 1_000_000_000 {
+            return Err(NavError::Geometry);
+        }
+        let lon = (i128::from(p.east) * 1_000_000_000_000).div_euclid(84_500_000)
+            + i128::from(self.origin.lon_pdeg);
+        let lat = (i128::from(p.north) * 1_000_000_000_000).div_euclid(111_200_000)
+            + i128::from(self.origin.lat_pdeg);
+        let geo = GeoPoint {
+            lon_pdeg: i64::try_from(lon).map_err(|_| NavError::Geometry)?,
+            lat_pdeg: i64::try_from(lat).map_err(|_| NavError::Geometry)?,
+        };
+        ws_world::slice_render::geo_to_render(geo, 0.0).map_err(render_error)
+    }
+    /// Checked reverse camera adapter, retaining the original integer floor projection.
+    /// # Errors
+    /// Nonfinite/out-of-range frame input or a projected coordinate beyond1e9mm.
+    pub fn from_render(&self, p: [f64; 3]) -> Result<Point, NavError> {
+        let geo = ws_world::slice_render::render_to_geo(p).map_err(render_error)?;
+        let p = project_point(self.origin, geo)?;
+        if p.east.unsigned_abs() > 1_000_000_000 || p.north.unsigned_abs() > 1_000_000_000 {
+            return Err(NavError::Geometry);
+        }
+        Ok(p)
+    }
+    /// Outgoing route tangent in the fixed render basis, zero once at the endpoint.
+    /// # Errors
+    /// Unknown endpoint or unsupported coordinate conversion.
+    pub fn render_heading(
+        &self,
+        from: Place,
+        to: Place,
+        mut distance: u64,
+    ) -> Result<f32, NavError> {
+        for edge in self.route(from, to)?.nodes().windows(2) {
+            let length = self.graph.length(edge[0], edge[1]);
+            if distance < length {
+                return ws_world::slice_render::heading(
+                    self.to_render(self.graph.points[edge[0]])?,
+                    self.to_render(self.graph.points[edge[1]])?,
+                )
+                .map_err(render_error);
+            }
+            distance -= length;
+        }
+        Ok(0.0)
+    }
     /// Explicit graph/policy/source/semantic fingerprint; route cache capacity is excluded.
     pub fn fingerprint(&self) -> u64 {
         let mut h = SipHasher24::new(0, Purpose::new("ws-life/navigation").value());
@@ -390,5 +449,67 @@ impl Navigation {
             h.write_u64(node as u64);
         }
         h.finish()
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use proptest::prelude::*;
+    #[test]
+    fn source_and_graph_points_use_explicit_adapters_without_changing_navigation() {
+        let pop = PopulatedSlice::new(71449).unwrap();
+        let nav = Navigation::new(&pop).unwrap();
+        let before = nav.fingerprint();
+        for point in nav.graph().points() {
+            let render = nav.to_render(*point).unwrap();
+            let back = nav.from_render(render).unwrap();
+            assert!(point.east.abs_diff(back.east) <= 2 && point.north.abs_diff(back.north) <= 2);
+        }
+        for source in BLOCK_BUILDINGS {
+            let p = project_point(nav.origin, source.centroid).unwrap();
+            let rendered = nav.to_render(p).unwrap();
+            let exact = ws_world::slice_render::geo_to_render(source.centroid, 0.0).unwrap();
+            assert!(
+                rendered
+                    .iter()
+                    .zip(exact)
+                    .all(|(a, b)| (a - b).abs() < 0.002)
+            );
+        }
+        for &(a, _) in nav.places() {
+            for &(b, _) in nav.places() {
+                let path = nav.route(a, b).unwrap();
+                for distance in [0, path.distance_mm() / 2, path.distance_mm(), u64::MAX] {
+                    let heading = nav.render_heading(a, b, distance).unwrap();
+                    assert!(heading.is_finite());
+                    assert!(heading.abs() <= core::f32::consts::PI);
+                    if distance >= path.distance_mm() {
+                        assert_eq!(heading.to_bits(), 0);
+                    }
+                }
+            }
+        }
+        assert_eq!(nav.fingerprint(), before);
+        assert_eq!(
+            nav.to_render(Point {
+                east: i64::MAX,
+                north: 0
+            }),
+            Err(NavError::Geometry)
+        );
+        assert_eq!(
+            nav.from_render([f64::NAN, 0.0, 0.0]),
+            Err(NavError::Geometry)
+        );
+    }
+    proptest! {
+        #[test]
+        fn block_navigation_render_round_trip_is_within_two_millimetres(east in -500_000i64..500_000,north in -500_000i64..500_000) {
+            let nav=Navigation::new(&PopulatedSlice::new(42).unwrap()).unwrap();
+            let p=Point {east,north};let back=nav.from_render(nav.to_render(p).unwrap()).unwrap();
+            prop_assert!(east.abs_diff(back.east)<=2);
+            prop_assert!(north.abs_diff(back.north)<=2);
+        }
     }
 }
