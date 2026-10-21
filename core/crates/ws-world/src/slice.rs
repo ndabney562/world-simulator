@@ -32,6 +32,9 @@ pub use block::{BLOCK_BUILDINGS, DATASET_VERSION, EXTRACT_SHA256};
 #[path = "slice_population.rs"]
 pub mod population;
 
+#[path = "slice_vitals.rs"]
+pub mod vitals;
+
 /// Version of the structural loader; changes to its output require review.
 pub const GENERATOR_VERSION: u32 = 1;
 const PDEG: i64 = 1_000_000_000_000;

@@ -61,7 +61,7 @@ namespace WorldSim.Bridge
     /// <summary>Owns one serialized native world and a persistent caller-owned snapshot buffer.</summary>
     public sealed class NativeWorld : IDisposable
     {
-        public const uint AbiVersion = 5;
+        public const uint AbiVersion = 7;
         /// <summary>The toy world has five buildings (ADR 0022).</summary>
         public const int BuildingCount = 5;
         public const int MaxResidentsPerBuilding = 2000;

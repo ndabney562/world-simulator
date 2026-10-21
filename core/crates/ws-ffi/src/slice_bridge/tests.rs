@@ -63,7 +63,7 @@ fn slice_config_operation_layout_and_old_library_creation_refusal_are_exact() {
     // SAFETY: only valid stack configs/null pointers; successful ownership destroyed once.
     unsafe {
         assert!(ws_slice_create(null()).is_null());
-        for version in 1..=4 {
+        for version in 1..=6 {
             assert!(
                 ws_slice_create(&WsSliceConfig {
                     abi_version: version,
@@ -125,7 +125,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                 u32_from(&geometry, 4),
                 u64_from(&geometry, 8)
             ),
-            (5, 96, ws_sim::SITE_DATASET_VERSION)
+            (7, 96, ws_sim::SITE_DATASET_VERSION)
         );
         assert_eq!(
             (
@@ -158,7 +158,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                     u32_from(&bytes, 52),
                     u32_from(&bytes, 56)
                 ),
-                (5, 128, 30, 30, 4)
+                (7, 128, 30, 30, 4)
             );
             assert_eq!(&bytes[92..128], &[0; 36]);
             let mut sky = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
@@ -354,9 +354,9 @@ fn close_f32(a: &[u8], b: &[u8], at: usize, tolerance: f32) {
 }
 #[test]
 fn shared_real_slice_samples_pin_integers_and_respect_coordinate_determinism_tiers() {
-    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v5.hex"));
-    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v5.hex"));
-    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v5.hex"));
+    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v7.hex"));
+    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v7.hex"));
+    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v7.hex"));
     // SAFETY: live exclusive native handle and initialized disjoint output storage.
     unsafe {
         let h = ws_slice_create(&config());
@@ -514,5 +514,112 @@ fn all_three_queries_publish_nothing_when_an_actual_prepublication_unwind_is_cau
             assert!((*h).poisoned);
             ws_slice_destroy(h);
         }
+    }
+}
+
+#[test]
+fn inspection_is_bounded_coherent_pure_and_preserves_data_on_every_error() {
+    // SAFETY: exclusive handles and disjoint initialized storage, destroyed once.
+    unsafe {
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        let checkpoint = (*h).world.checkpoint();
+        let operations = (*h).world.operation_digest();
+        let resident = (*h).world.population().residents().ids()[0].raw();
+        let building = (*h).world.population().world().buildings().ids()[0].raw();
+        let mut bytes = [0xa5; 8192];
+        let mut written = 777;
+        for (id, kind, state_size) in [(resident, 1, 80), (building, 2, 48)] {
+            assert_eq!(
+                ws_slice_inspect(h, id, null_mut(), 0, &mut written),
+                BUFFER_TOO_SMALL
+            );
+            let required = written;
+            assert!((96..=8192).contains(&required));
+            assert_eq!(
+                ws_slice_inspect(h, id, bytes.as_mut_ptr(), required - 1, &mut written),
+                BUFFER_TOO_SMALL
+            );
+            assert!(bytes.iter().all(|b| *b == 0xa5));
+            assert_eq!(written, required);
+            assert_eq!(
+                ws_slice_inspect(h, id, bytes.as_mut_ptr(), bytes.len(), &mut written),
+                OK
+            );
+            assert_eq!(written, required);
+            assert_eq!(u32_from(&bytes, 0), ABI_VERSION);
+            assert_eq!(u32_from(&bytes, 4), 96);
+            assert_eq!(u64_from(&bytes, 8), checkpoint.tick);
+            assert_eq!(u64_from(&bytes, 24), checkpoint.state);
+            assert_eq!(u64_from(&bytes, 40), id);
+            assert_eq!(u32_from(&bytes, 48), 2);
+            assert_eq!(u32_from(&bytes, 52), kind);
+            assert_eq!(u32_from(&bytes, 56) as usize, required);
+            assert_eq!(u32_from(&bytes, 68), state_size);
+            assert_eq!(u32_from(&bytes, 96), 2);
+            if kind == 1 {
+                let at = 96 + u32_from(&bytes, 64) as usize;
+                let v = (*h)
+                    .world
+                    .vitals()
+                    .get(ws_sim::EntityId::from_raw(id).unwrap())
+                    .unwrap();
+                assert_eq!(u32_from(&bytes, 136), v.sex() as u32);
+                assert_eq!(u32_from(&bytes, at + 56), u32::from(v.health()));
+                assert_eq!(u32_from(&bytes, at + 60), v.life() as u32);
+            }
+            assert_eq!((u32_from(&bytes, 80), u32_from(&bytes, 84)), (48, 80));
+            assert!(bytes[required..].iter().all(|b| *b == 0xa5));
+            bytes.fill(0xa5);
+        }
+        for id in [0, 1, (*h).world.population().households().ids()[0].raw()] {
+            written = 777;
+            assert_eq!(
+                ws_slice_inspect(h, id, bytes.as_mut_ptr(), bytes.len(), &mut written),
+                INVALID_ARGUMENT
+            );
+            assert_eq!(written, 0);
+            assert!(bytes.iter().all(|b| *b == 0xa5));
+        }
+        written = 777;
+        assert_eq!(
+            ws_slice_inspect(h, resident, null_mut(), 8192, &mut written),
+            INVALID_ARGUMENT
+        );
+        assert_eq!(written, 0);
+        assert_eq!(
+            ws_slice_inspect(h, resident, bytes.as_mut_ptr(), 8192, null_mut()),
+            INVALID_ARGUMENT
+        );
+        let mut misaligned_control = [0usize; 2];
+        let misaligned = misaligned_control
+            .as_mut_ptr()
+            .cast::<u8>()
+            .add(1)
+            .cast::<usize>();
+        assert_eq!(
+            ws_slice_inspect(h, resident, bytes.as_mut_ptr(), 8192, misaligned),
+            INVALID_ARGUMENT
+        );
+        assert_eq!(misaligned_control, [0; 2]);
+        assert_eq!((*h).world.checkpoint(), checkpoint);
+        assert_eq!((*h).world.operation_digest(), operations);
+        (*h).panic_before_output = true;
+        written = 777;
+        assert_eq!(
+            ws_slice_inspect(h, resident, bytes.as_mut_ptr(), 8192, &mut written),
+            PANIC
+        );
+        assert_eq!(written, 0);
+        assert!(bytes.iter().all(|b| *b == 0xa5));
+        assert_eq!(
+            ws_slice_inspect(h, resident, bytes.as_mut_ptr(), 8192, &mut written),
+            POISONED
+        );
+        ws_slice_destroy(h);
+        assert_eq!(
+            ws_slice_inspect(null_mut(), resident, bytes.as_mut_ptr(), 8192, &mut written),
+            INVALID_ARGUMENT
+        );
     }
 }

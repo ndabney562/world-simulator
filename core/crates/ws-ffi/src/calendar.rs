@@ -1,11 +1,11 @@
-//! Coarse pure UTC configuration and committed calendar/sky ABI5 (ADR0030).
+//! Coarse pure UTC configuration and committed calendar/sky ABI6 (ADR0030).
 use super::*;
 
 /// Validated UTC input label, exactly40 bytes aligned to4.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WsUtcLabel {
-    /// ABI5.
+    /// ABI6.
     pub abi_version: u32,
     /// Exactly40.
     pub struct_size: u32,
@@ -32,7 +32,7 @@ pub struct WsUtcLabel {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WsCalendarSky {
-    /// ABI5.
+    /// ABI6.
     pub abi_version: u32,
     /// Exactly160.
     pub struct_size: u32,
@@ -249,7 +249,7 @@ mod tests {
     use std::ptr::{null, null_mut};
     fn label() -> WsUtcLabel {
         WsUtcLabel {
-            abi_version: 5,
+            abi_version: 7,
             struct_size: 40,
             year: 2026,
             month: 6,
@@ -263,7 +263,7 @@ mod tests {
     }
     fn config(start: i64) -> WsConfig {
         WsConfig {
-            abi_version: 5,
+            abi_version: 7,
             struct_size: 32,
             seed: 7,
             start_us: start,
@@ -315,11 +315,11 @@ mod tests {
             assert_eq!(ws_utc_to_sim(&utc, &mut start), OK);
             assert_eq!(
                 std::slice::from_raw_parts((&utc as *const WsUtcLabel).cast::<u8>(), 40),
-                fixture(include_str!("../tests/fixtures/utc-label-v5.hex"))
+                fixture(include_str!("../tests/fixtures/utc-label-v7.hex"))
             );
             let h = ws_create(&config(start));
             assert!(!h.is_null());
-            let mut out = SkyBytes::request(5, 160);
+            let mut out = SkyBytes::request(7, 160);
             assert_eq!(ws_get_calendar_sky(h, out.ptr()), OK);
             let mut sky = out.ptr().read();
             assert_eq!(sky.state_hash, (*h).world.state_hash());
@@ -329,7 +329,7 @@ mod tests {
             sky.state_hash = 0;
             assert_eq!(
                 std::slice::from_raw_parts((&sky as *const WsCalendarSky).cast::<u8>(), 160),
-                fixture(include_str!("../tests/fixtures/calendar-sky-v5.hex"))
+                fixture(include_str!("../tests/fixtures/calendar-sky-v7.hex"))
             );
             ws_destroy(h);
         }
@@ -432,7 +432,7 @@ mod tests {
                 assert_eq!(ws_utc_to_sim(&bad, &mut out), INVALID_ARGUMENT);
                 assert_eq!(out, 999);
             }
-            for v in [1, 2, 3, 4] {
+            for v in [1, 2, 3, 4, 5, 6] {
                 out = 999;
                 assert_eq!(
                     ws_utc_to_sim(
@@ -476,7 +476,7 @@ mod tests {
             let original = (*h).world.clone();
             let mut out = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
             let p = out.as_mut_ptr();
-            std::ptr::addr_of_mut!((*p).abi_version).write(5);
+            std::ptr::addr_of_mut!((*p).abi_version).write(7);
             std::ptr::addr_of_mut!((*p).struct_size).write(160);
             assert_eq!(ws_get_calendar_sky(h, p), OK);
             let sky = out.assume_init();
@@ -489,7 +489,7 @@ mod tests {
                     sky.state_hash,
                     sky.scale_tag
                 ),
-                (5, 160, 0, start, original.state_hash(), 1)
+                (7, 160, 0, start, original.state_hash(), 1)
             );
             assert_eq!(
                 (sky.utc_year, sky.utc_month, sky.utc_day, sky.utc_hour),
@@ -548,15 +548,15 @@ mod tests {
                 (2, 160, VERSION_MISMATCH),
                 (3, 160, VERSION_MISMATCH),
                 (4, 160, VERSION_MISMATCH),
-                (5, 159, INVALID_ARGUMENT),
-                (5, 168, INVALID_ARGUMENT),
+                (7, 159, INVALID_ARGUMENT),
+                (7, 168, INVALID_ARGUMENT),
             ] {
                 let mut out = SkyBytes::request(v, n);
                 let before = out.0;
                 assert_eq!(ws_get_calendar_sky(h, out.ptr()), status);
                 assert_eq!(out.0, before);
             }
-            let mut out = SkyBytes::request(5, 160);
+            let mut out = SkyBytes::request(7, 160);
             let original = out.0;
             assert_eq!(ws_get_calendar_sky(null_mut(), out.ptr()), INVALID_ARGUMENT);
             assert_eq!(out.0, original);
@@ -576,7 +576,7 @@ mod tests {
             for start in [i64::MIN / 100000 * 100000, i64::MAX / 100000 * 100000] {
                 let h = ws_create(&config(start));
                 assert!(!h.is_null());
-                let mut out = SkyBytes::request(5, 160);
+                let mut out = SkyBytes::request(7, 160);
                 assert_eq!(ws_get_calendar_sky(h, out.ptr()), OK);
                 let sky = out.ptr().read();
                 assert_eq!(sky.flags, 0);
@@ -590,7 +590,7 @@ mod tests {
                 assert_eq!(sky.sim_time_us, start);
                 ws_destroy(h);
             }
-            for v in [1, 2, 3, 4] {
+            for v in [1, 2, 3, 4, 5, 6] {
                 assert!(
                     ws_create(&WsConfig {
                         abi_version: v,

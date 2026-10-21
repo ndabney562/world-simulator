@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 5
+#define ABI_VERSION 7
 
 /**
  * Most residents per building a config may ask for.
@@ -131,7 +131,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current native ABI5.
+   * Exact current native ABI6.
    */
   uint32_t abi_version;
   /**
@@ -157,7 +157,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current ABI5.
+   * Exact current ABI6.
    */
   uint32_t abi_version;
   /**
@@ -185,7 +185,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * ABI5.
+   * ABI6.
    */
   uint32_t abi_version;
   /**
@@ -315,7 +315,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * ABI5.
+   * ABI6.
    */
   uint32_t abi_version;
   /**
@@ -538,6 +538,20 @@ WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output)
  * Non-null handle is live/exclusive; positive capacity requires a writable buffer.
  */
 size_t ws_slice_last_error(WsSliceHandle *handle, char *buffer, size_t capacity);
+
+/**
+ * One pure bounded entity inspection, schema2. Short output reports its exact
+ * required length; other failures zero written and leave data untouched.
+ * # Safety
+ * Handle is live/exclusive; buffer is writable for capacity bytes; written is
+ * aligned writable usize storage. All outputs are disjoint from each other,
+ * the handle and input. No pointer is retained.
+ */
+WsStatus ws_slice_inspect(WsSliceHandle *handle,
+                          uint64_t entity_id,
+                          uint8_t *buffer,
+                          size_t capacity,
+                          size_t *written);
 
 /**
  * Pure UTC configuration conversion; no world, clock read or grid rounding.

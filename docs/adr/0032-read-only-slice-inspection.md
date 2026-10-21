@@ -96,3 +96,7 @@ Required runtime checks:
 ## Consequences
 
 Inspection exposes core truth through one bounded tap-driven query. The panel intentionally holds a labeled sample until re-tapped. Index traversal, wire validation and occlusion-aware picking require dedicated tests; these protect bounded memory, honest associations and identity correctness. #74 extends illness/consequences separately, #75 owns slice persistence, and #76 owns the final device run and stage report. No stage acceptance is established here.
+
+## Product Owner presentation amendment — 2026-10-21
+
+The Product Owner requested that resident inspection show only age, sex, employment, health and alive/dead. This supersedes the resident-facing detail/sample-time display above; it does not change the bounded read-only transport, core query, building panel or snapshot refresh semantics. Keep full native validation and existing data/replay tests. Age and employment are sourced from the existing baseline identity/role. Sex, health and life status are absent from the real-slice core and explicitly display `Not tracked`; do not infer them from names, need deficits or retained-entity presence. The panel hides resident names, IDs, LOD, needs, schedules, events and technical sample metadata. #74 remains the separate illness model; this presentation change does not implement demographic generation, health or mortality. Authorization is recorded on #73 and the PR.

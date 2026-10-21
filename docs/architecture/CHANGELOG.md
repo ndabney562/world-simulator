@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## VS-009 implementation (2026-10-21)
+
+Implements ADR0032 with pure bounded core inspection, separate chronological actor index, ABI6 query/fixtures/C consumer, strict managed staging, tap gestures, occlusion-aware cached-mesh picking and timestamped HUD samples. Retains old indices/fixtures/consumer sources and all earlier behavioral checks; scaled picking and inconsistent commute records have explicit regressions. No new packages/data, event/save vocabulary, intervention, signing/device or stage-exit result.
+
 ## ADR0032 accepted (2026-10-21)
 
 Independent review of published design head8be42c50f86529487eb7b8ae24d99b7130305c3f approved with zero open findings; the preliminary returning-drag ambiguity was resolved. Applied Noah’s named technical delegation on#77: status/index/pointers record Accepted. Final published-head review and all five green checks still precede merge. #73 runtime and device acceptance remain separate; no source/test/event/save behavior changes here.
@@ -199,3 +203,7 @@ Implements accepted ADR 0019's typed bounded command queue, boundary journal, me
 ## 2026-10-21 — Resident vitals design
 
 ADR0033 (#99) records delegated acceptance, after clean proposed-contract review, of a separate version1 deterministic core vitals column and ABI7/schema2 inspection extension for the Product Owner’s real-value request. Initial health100/alive is explicit; disease/mortality dynamics remain separate. Existing population/goldens and device gates are preserved.
+
+
+## 2026-10-21 — Resident vitals implementation
+Implements merged ADR0033 with a retained independent core vitals column, stable sex draw, health100/Alive initial state, canonical hash envelope and ABI7/schema2 inspection/validation. Five-field UI now reads actual values. Old population/behavior goldens, fixtures and consumer sources remain. No disease/mortality transitions, save-format change or device/stage claim.

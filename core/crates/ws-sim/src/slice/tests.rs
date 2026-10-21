@@ -312,3 +312,61 @@ fn typed_replay_verifies_normal_and_environmentally_stopped_operation_digests() 
         ));
     }
 }
+
+#[test]
+fn old_hash_regressions_and_new_vitals_envelope_are_independent() {
+    for (seed, legacy) in [
+        (0, 12243142442886412300),
+        (42, 4644431189437526967),
+        (71449, 15645245484537560688),
+        (u64::MAX, 12037866834627665270),
+    ] {
+        let w =
+            SliceSimulation::new(SliceConfig::calendar_aligned_v1(seed, SimTime::EPOCH).unwrap())
+                .unwrap();
+        assert_eq!(w.legacy_state_hash(), legacy);
+        assert_eq!(
+            w.state_hash(),
+            ws_rng::hash(
+                0,
+                Purpose::new("ws-sim/slice-state/v2").value(),
+                &[legacy, 1, w.vitals().state_hash()]
+            )
+        );
+        assert_ne!(w.state_hash(), legacy);
+    }
+}
+#[test]
+fn retained_vitals_survive_steps_camera_lod_queries_and_operation_replay() {
+    let mut w = SliceSimulation::new(config(0)).unwrap();
+    let original = w.vitals.clone();
+    let resident = w.vitals.ids()[0];
+    for operation in [
+        Operation::SetDetail {
+            resident,
+            level: Detail::L1,
+        },
+        Operation::Steps(100),
+        Operation::SetScale(TimeScale::X100),
+        Operation::CameraInterest(CameraInterest {
+            center: ws_life::navigation::Point { east: 0, north: 0 },
+            radius_mm: 1_000_000_000,
+        }),
+        Operation::Steps(100),
+    ] {
+        assert!(w.apply(operation).unwrap().error.is_none());
+        assert_eq!(w.vitals, original);
+        let before = (w.checkpoint(), w.operation_digest());
+        for &id in w.vitals.ids() {
+            assert!(w.inspect(id).is_ok());
+        }
+        assert_eq!((w.checkpoint(), w.operation_digest()), before);
+    }
+    let (mut replay, stopped) = SliceSimulation::replay(w.config(), w.operations()).unwrap();
+    assert!(!stopped);
+    assert_eq!(replay.vitals, original);
+    assert_eq!(replay.checkpoint(), w.checkpoint());
+    w.apply(Operation::Steps(50)).unwrap();
+    replay.apply(Operation::Steps(50)).unwrap();
+    assert_eq!(replay.checkpoint(), w.checkpoint());
+}

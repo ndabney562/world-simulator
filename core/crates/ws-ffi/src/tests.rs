@@ -2,7 +2,7 @@ use super::*;
 use std::ptr::{null, null_mut};
 fn config(n: u32) -> WsConfig {
     WsConfig {
-        abi_version: 5,
+        abi_version: 7,
         struct_size: 32,
         seed: 7,
         start_us: 0,
@@ -23,7 +23,7 @@ fn layout() {
 fn invalid_arguments_and_config() {
     // SAFETY: documented null paths and live stack configurations; no dangling pointers.
     unsafe {
-        assert_eq!(ws_abi_version(), 5);
+        assert_eq!(ws_abi_version(), 7);
         assert!(ws_create(null()).is_null());
         assert!(ws_last_error(null_mut(), null_mut(), 0) > 1);
         for bad in [
@@ -132,7 +132,7 @@ fn snapshot_and_noop_leave_canonical_state_unchanged() {
             OK
         );
         assert_eq!(&buf[504..], &[0xa5; 16]);
-        assert_eq!(&buf[..8], &[5, 0, 0, 0, 24, 0, 0, 0]);
+        assert_eq!(&buf[..8], &[7, 0, 0, 0, 24, 0, 0, 0]);
         assert_eq!(&buf[16..24], &[15, 0, 0, 0, 32, 0, 0, 0]);
         assert_eq!(&buf[32..36], &1u32.to_le_bytes()); // first record is a building
         assert_eq!(&buf[24 + 5 * 32 + 8..24 + 5 * 32 + 12], &2u32.to_le_bytes()); // then residents
@@ -195,7 +195,7 @@ fn panic_poison_and_utf8_diagnostics() {
 
 #[test]
 fn shared_managed_fixture_matches_native_bytes() {
-    let hex = include_str!("../tests/fixtures/snapshot-v5.hex").trim();
+    let hex = include_str!("../tests/fixtures/snapshot-v7.hex").trim();
     let expected: Vec<u8> = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
@@ -287,7 +287,7 @@ fn batch(actions: Vec<ws_sim::commands::Action>) -> Vec<u8> {
 }
 fn control_request() -> WsControlState {
     WsControlState {
-        abi_version: 5,
+        abi_version: 7,
         struct_size: 16,
         scale_tag: 999,
         reserved: 999,
@@ -357,14 +357,14 @@ fn control_state_layout_validation_and_uninitialized_output_fields() {
         let h = ws_create(&config(1));
         let mut out = std::mem::MaybeUninit::<WsControlState>::uninit();
         let ptr = out.as_mut_ptr();
-        std::ptr::addr_of_mut!((*ptr).abi_version).write(5);
+        std::ptr::addr_of_mut!((*ptr).abi_version).write(7);
         std::ptr::addr_of_mut!((*ptr).struct_size).write(16);
         let before = (*h).world.checkpoint();
         assert_eq!(ws_get_control_state(h, ptr), OK);
         assert_eq!(
             out.assume_init(),
             WsControlState {
-                abi_version: 5,
+                abi_version: 7,
                 struct_size: 16,
                 scale_tag: 1,
                 reserved: 0
@@ -376,8 +376,9 @@ fn control_state_layout_validation_and_uninitialized_output_fields() {
             (2, 16, VERSION_MISMATCH),
             (3, 16, VERSION_MISMATCH),
             (4, 16, VERSION_MISMATCH),
-            (5, 0, INVALID_ARGUMENT),
-            (5, 20, INVALID_ARGUMENT),
+            (5, 16, VERSION_MISMATCH),
+            (7, 0, INVALID_ARGUMENT),
+            (7, 20, INVALID_ARGUMENT),
         ] {
             let mut state = WsControlState {
                 abi_version: version,

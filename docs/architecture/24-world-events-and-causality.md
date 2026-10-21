@@ -139,3 +139,5 @@ These queries run over structured data. An LLM may later phrase the answer ([16]
 ## Inspection projection contract (VS-009)
 
 [ADR0032](../adr/0032-read-only-slice-inspection.md) proposes a pure bounded recent-actor query and tap-only inspection transport. Its16-event display cap preserves the complete underlying log and reports more matches explicitly. Actor association is factual membership, with no inferred proximity or causal claims. Illness/consequence traversal remains VS-010; this independently reviewed, delegated accepted contract changes no event schema or history behavior until separate implementation.
+
+VS-009 implements the bounded recent-actor projection using a separate derived chronological index. Existing append-only actor references, event records/digests and full-query results remain intact. Cutoff lookup is logarithmic; result traversal is at most17facts, with16published and `more` explicit. Future unknown event payloads fail this query version explicitly rather than being dropped or relabeled.

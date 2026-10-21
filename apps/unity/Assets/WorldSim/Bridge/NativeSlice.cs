@@ -40,6 +40,8 @@ namespace WorldSim.Bridge
         internal static extern uint Fill(SliceHandle handle,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_get_calendar_sky")]
         internal static extern uint Sky(SliceHandle handle,ref CalendarSky sky);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_inspect")]
+        internal static extern uint Inspect(SliceHandle handle,ulong id,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_last_error")]
         internal static extern UIntPtr Error(IntPtr handle,byte[] bytes,UIntPtr capacity);
     }
@@ -58,6 +60,7 @@ namespace WorldSim.Bridge
         readonly object gate=new object();
         SliceHandle handle;
         NativeArray<byte> bytes;
+        NativeArray<byte> inspectionBytes;
         bool disposed;
         long applyTicks,maxApplyTicks;
         int applyCalls;
@@ -97,10 +100,11 @@ namespace WorldSim.Bridge
                 if(Population<10 || Population>30) throw new InvalidOperationException("Invalid native cohort.");
                 bytes=new NativeArray<byte>((int)length,Allocator.Persistent);
                 residentIds=new ulong[Population];
+                inspectionBytes=new NativeArray<byte>(8192,Allocator.Persistent);
             }
             catch
             {
-                if(bytes.IsCreated) bytes.Dispose();handle.Dispose();throw;
+                if(bytes.IsCreated) bytes.Dispose();if(inspectionBytes.IsCreated) inspectionBytes.Dispose();handle.Dispose();throw;
             }
         }
         static string ReadError(IntPtr pointer)
@@ -175,12 +179,27 @@ namespace WorldSim.Bridge
                 return tick;
             }
         }
+        /// <summary>One tap sample; no render-loop polling. Publish only a wholly validated native record.</summary>
+        public unsafe SliceInspection Inspect(ulong id)
+        {
+            lock(gate)
+            {
+                RequireLive();
+                Check(NativeSliceMethods.Inspect(handle,id,(IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(inspectionBytes),(UIntPtr)inspectionBytes.Length,out var written));
+                ulong size=written.ToUInt64();if(size>8192) throw new InvalidOperationException("Oversized inspection.");
+                var record=InspectionDecoder.Decode(inspectionBytes,(int)size,Geometry,id);
+                var sky=ReadSky();
+                if(record.Tick!=sky.Tick||record.Time!=sky.SimTimeMicroseconds||record.StateHash!=sky.StateHash||record.Dataset!=sky.SiteDatasetVersion||record.Scale!=sky.ScaleTag)
+                    throw new InvalidOperationException("Incoherent inspection/sky pair.");
+                record.Sky=sky;return record;
+            }
+        }
         public void Dispose()
         {
             lock(gate)
             {
                 if(disposed) return;disposed=true;
-                try {handle.Dispose();} finally {if(bytes.IsCreated) bytes.Dispose();}
+                try {handle.Dispose();} finally {if(bytes.IsCreated) bytes.Dispose();if(inspectionBytes.IsCreated) inspectionBytes.Dispose();}
             }
         }
     }

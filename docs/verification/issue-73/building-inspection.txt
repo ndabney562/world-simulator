@@ -1,0 +1,10 @@
+Snapshot UTC 2026-06-22 11:22:30
+Tick 1 · tap again to refresh
+8703 3 AVENUE
+shop with apartment above · class S1
+BIN 3153706 · BBL 3060490008
+Above-ground height 7.33m · 1 residential units
+Mode L2 · current occupants 3 · governed people 4
+Sleep 0 Commute 0 Work 0 School 0 Errands 0 Home 3
+Recent recorded actor events:
+No matching recorded events.

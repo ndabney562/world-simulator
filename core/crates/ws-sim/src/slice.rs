@@ -8,6 +8,8 @@ use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
+#[path = "slice_inspect.rs"]
+pub mod inspect;
 #[path = "slice_render.rs"]
 pub mod render;
 
@@ -134,6 +136,7 @@ impl std::error::Error for ReplayError {}
 pub struct SliceSimulation {
     config: SliceConfig,
     population: PopulatedSlice,
+    vitals: ws_world::slice::vitals::Vitals,
     schedules: Schedules,
     behavior: Behavior,
     lod: Controller,
@@ -168,6 +171,7 @@ impl SliceSimulation {
             return Err(SliceError::Grid);
         }
         let population = PopulatedSlice::new(config.seed).map_err(SliceError::Population)?;
+        let vitals = ws_world::slice::vitals::Vitals::new(&population);
         let schedules =
             Schedules::new(&population, config.schedule_epoch).map_err(SliceError::Destination)?;
         let behavior =
@@ -208,6 +212,7 @@ impl SliceSimulation {
         Ok(Self {
             config,
             population,
+            vitals,
             schedules,
             behavior,
             lod,
@@ -229,6 +234,10 @@ impl SliceSimulation {
     /// Immutable baseline.
     pub const fn population(&self) -> &PopulatedSlice {
         &self.population
+    }
+    /// Retained authoritative sex, health and life state.
+    pub const fn vitals(&self) -> &ws_world::slice::vitals::Vitals {
+        &self.vitals
     }
     /// Immutable pure schedule domain.
     pub const fn schedules(&self) -> &Schedules {
@@ -282,6 +291,17 @@ impl SliceSimulation {
     /// Canonical state/configuration in explicit integer words. Host pacing,
     /// factual/operation histories, capacities and derived boundary cache are separate.
     pub fn state_hash(&self) -> u64 {
+        ws_rng::hash(
+            0,
+            Purpose::new("ws-sim/slice-state/v2").value(),
+            &[
+                self.legacy_state_hash(),
+                u64::from(ws_world::slice::vitals::VERSION),
+                self.vitals.state_hash(),
+            ],
+        )
+    }
+    fn legacy_state_hash(&self) -> u64 {
         let b = self.population.baseline();
         ws_rng::hash(
             0,
