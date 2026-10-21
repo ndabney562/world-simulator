@@ -5,6 +5,7 @@ using NUnit.Framework;
 using Unity.Collections;
 using UnityEngine;
 using WorldSim.Bridge;
+using WorldSim.Rendering;
 
 namespace WorldSim.Tests.EditMode
 {
@@ -129,6 +130,51 @@ namespace WorldSim.Tests.EditMode
                 long before=GC.GetAllocatedBytesForCurrentThread();for(int i=0;i<20;i++) world.Fill(frame,out _);
                 Assert.That(GC.GetAllocatedBytesForCurrentThread()-before,Is.Zero);
             }
+        }
+        [Test]
+        public void TwentyMinuteHostCadenceIsBoundedAndPausedTimeNeverReachesTheCore()
+        {
+            var clock=new SliceHostClock(1000000,0);long now=0;int calls=0;ulong micros=0;
+            using(var world=new NativeSlice(71449,Start))
+            {
+                var frame=new SliceFrame();
+                // Twenty minutes of2ms scheduler polls, without wall-clock waiting.
+                for(int i=0;i<600000;i++)
+                {
+                    now+=2000;
+                    if(clock.Advance(now,false,out ulong elapsed)) {calls++;micros+=elapsed;world.HostElapsed(elapsed);}
+                }
+                world.Fill(frame,out _);
+                Assert.That(calls,Is.EqualTo(24000),"Retained host records must be bounded to20Hz, not500Hz.");
+                Assert.That(micros,Is.EqualTo(1200000000UL));Assert.That(frame.Tick,Is.EqualTo(12000UL));
+                world.SetScale(0);clock.Paused=true;ulong pausedHash=frame.StateHash;
+                world.Fill(frame,out _);pausedHash=frame.StateHash;
+                for(int i=0;i<600000;i++)
+                {
+                    now+=2000;
+                    Assert.That(clock.Advance(now,false,out _),Is.False,"Paused time must produce no native operation records.");
+                }
+                world.Fill(frame,out _);Assert.That(frame.StateHash,Is.EqualTo(pausedHash));Assert.That(frame.Tick,Is.EqualTo(12000UL));
+                // Close the paused interval before resuming, exactly as SetScale does.
+                now+=17000;Assert.That(clock.Advance(now,true,out _),Is.False);
+                world.SetScale(100);clock.Paused=false;
+                for(int i=0;i<500;i++) {now+=2000;if(clock.Advance(now,false,out ulong elapsed)) world.HostElapsed(elapsed);}
+                world.Fill(frame,out _);Assert.That(frame.Tick,Is.EqualTo(13000UL),"Only one resumed second is attributed to100x.");
+            }
+        }
+        [Test]
+        public void HostClockClosesOldScaleIntervalsAndPreservesFractionalStopwatchUnits()
+        {
+            var clock=new SliceHostClock(3000001,0);ulong total=0;
+            // Sub-cadence control changes flush at their actual timestamp, not the next worker wake.
+            Assert.That(clock.Advance(10000,false,out _),Is.False);
+            Assert.That(clock.Advance(10000,true,out ulong beforePause),Is.True);total+=beforePause;
+            clock.Paused=true;Assert.That(clock.Advance(999999999,true,out _),Is.False);clock.Paused=false;
+            Assert.That(clock.Advance(1000009999,true,out ulong afterResume),Is.True);total+=afterResume;
+            Assert.That(total,Is.EqualTo(20000UL*1000000/3000001));
+            Assert.That(clock.Advance(1000009999,true,out _),Is.False);
+            Assert.Throws<InvalidOperationException>(()=>clock.Advance(1000009998,false,out _));
+            Assert.Throws<ArgumentOutOfRangeException>(()=>new SliceHostClock(0,0));
         }
     }
 }
