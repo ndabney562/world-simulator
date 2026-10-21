@@ -37,6 +37,7 @@ pub mod ids;
 pub mod illness;
 pub mod lod;
 pub mod slice;
+pub mod slice_render;
 
 use core::fmt;
 use std::collections::{BTreeMap, BTreeSet};

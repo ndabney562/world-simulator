@@ -30,11 +30,11 @@ namespace WorldSim.Bridge
     internal static class NativeMethods
     {
 #if UNITY_IOS && !UNITY_EDITOR
-        const string Library = "__Internal";
+        internal const string Library = "__Internal";
 #elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-        const string Library = "ws_ffi";
+        internal const string Library = "ws_ffi";
 #else
-        const string Library = "ws_ffi_unsupported_platform";
+        internal const string Library = "ws_ffi_unsupported_platform";
 #endif
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_abi_version")]
         internal static extern uint Version();
@@ -61,7 +61,7 @@ namespace WorldSim.Bridge
     /// <summary>Owns one serialized native world and a persistent caller-owned snapshot buffer.</summary>
     public sealed class NativeWorld : IDisposable
     {
-        public const uint AbiVersion = 4;
+        public const uint AbiVersion = 5;
         /// <summary>The toy world has five buildings (ADR 0022).</summary>
         public const int BuildingCount = 5;
         public const int MaxResidentsPerBuilding = 2000;
@@ -131,7 +131,7 @@ namespace WorldSim.Bridge
         {
             lock(gate) { RequireLive(); Check(NativeMethods.Advance(handle,0)); return ReadControlState(); }
         }
-        /// <summary>Copy a canonical v2 command batch (unchanged in ABI4) into the native queue; success means pending.</summary>
+        /// <summary>Copy a canonical v2 command batch (unchanged in ABI5) into the native queue; success means pending.</summary>
         public void SubmitCommands(byte[] batch)
         {
             if(batch==null) throw new ArgumentNullException(nameof(batch));

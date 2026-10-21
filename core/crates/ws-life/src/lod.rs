@@ -256,7 +256,10 @@ fn select(node: Node, camera: CameraInterest, time: SimTime, scale: u32) -> Mode
         mode
     }
 }
-fn governing(location: Location, home: EntityId) -> EntityId {
+/// Canonical governing node, shared by controller counts and read-only transport.
+/// Off-map journeys/stationary people retain their home node ownership.
+#[must_use]
+pub fn governing(location: Location, home: EntityId) -> EntityId {
     match location {
         Location::AtBuilding(id)
         | Location::InTransit {

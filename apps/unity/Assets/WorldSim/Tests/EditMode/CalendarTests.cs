@@ -34,8 +34,8 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void SharedUtcAndSkyByteFixturesMatchNativeLayoutAndInvalidRecordsAreRejected()
         {
-            var label = new NativeUtcLabel { Version = 4, Size = 40, Year = 2026, Month = 6, Day = 21, Hour = 17 };
-            CollectionAssert.AreEqual(Fixture("utc-label-v4.hex"), NativeBytes(label));
+            var label = new NativeUtcLabel { Version = 5, Size = 40, Year = 2026, Month = 6, Day = 21, Hour = 17 };
+            CollectionAssert.AreEqual(Fixture("utc-label-v5.hex"), NativeBytes(label));
             using (var world = new NativeWorld(7, 6, NativeWorld.UtcToSim(2026, 6, 21, 17, 0, 0)))
             {
                 var sky = world.GetCalendarSky();
@@ -43,7 +43,7 @@ namespace WorldSim.Tests.EditMode
                 // The shared transport fixture uses a deliberate zero hash
                 // sentinel; canonical hash/query invariance is tested separately.
                 sky.StateHash = 0;
-                CollectionAssert.AreEqual(Fixture("calendar-sky-v4.hex"), NativeBytes(sky));
+                CollectionAssert.AreEqual(Fixture("calendar-sky-v5.hex"), NativeBytes(sky));
                 Assert.That(world.GetCalendarSky().StateHash, Is.EqualTo(realHash));
                 sky = world.GetCalendarSky(); sky.Version = 3;
                 Assert.Throws<InvalidOperationException>(() => sky.Validate());
@@ -65,7 +65,7 @@ namespace WorldSim.Tests.EditMode
             string[] names = { "Version", "Size", "Tick", "SimTimeMicroseconds", "StateHash", "UtcYear", "UtcMonth", "UtcDay", "UtcHour", "UtcMinute", "UtcSecond", "UtcMicrosecond", "LocalYear", "LocalMonth", "LocalDay", "LocalHour", "LocalMinute", "LocalSecond", "LocalMicrosecond", "UtcOffsetSeconds", "ScaleTag", "SolarVersion", "NyPolicyVersion", "Flags", "LeapTableVersion", "SiteDatasetVersion", "SunEast", "SunNorth", "SunUp", "AzimuthDegrees", "ElevationDegrees" };
             int[] offsets = { 0, 4, 8, 16, 24, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 120, 128, 136, 144, 152 };
             for (int i = 0; i < names.Length; i++) Assert.That(Marshal.OffsetOf<CalendarSky>(names[i]).ToInt32(), Is.EqualTo(offsets[i]), names[i]);
-            foreach (uint old in new uint[] { 1, 2, 3 })
+            foreach (uint old in new uint[] { 1, 2, 3, 4 })
             {
                 Assert.Throws<InvalidOperationException>(() => NativeWorld.RequireVersion(old));
                 var config = new NativeConfig { Version = old, Size = 32, Seed = 7, ResidentsPerBuilding = 1 };

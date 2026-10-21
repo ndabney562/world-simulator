@@ -8,6 +8,9 @@ use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
+#[path = "slice_render.rs"]
+pub mod render;
+
 /// Pinned baseline and explicit model-week origin. Both times use the 100-ms grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SliceConfig {

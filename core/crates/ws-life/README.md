@@ -41,3 +41,8 @@ Controller preparation stages four node records, member changes and any bounded 
 Recent observations retain the complete FineLocation union and actual automatic-demotion time for an inclusive120 model seconds, including the exact off-map variant at a gateway. Hits reconstruct current positions from retained state; misses/expiry/cache dropping produce the same view, needs and counters. Cache storage/capacity is derived and excluded from hashes. Canonical camera state consists of policy version/input and node mode/change times; the owning slice also hashes common resident levels. A valid camera change may change this whole-state hash; conserved resident quantities are tested separately.
 
 `tests/camera.rs` runs1000 randomized zoom cycles per property case, a maximum30-resident seed71449 through1000 additional cycles, an independent individual aggregation on every tick of a week, extreme epochs/coordinate ranges, off-map cache-hit/expiry boundaries and transaction-drop checks. See [issue-70 verification](../../../docs/verification/issue-70/README.md). No FFI, renderer, cohort economics or device result is introduced.
+
+
+## VS-008 presentation adapters
+
+Navigation now exposes checked approximate-plane→geodetic→ECEF→site ENU conversion and its camera inverse, reusing the unchanged integer floor projection. Round trips at block scale stay within2mm; graph/path lengths, navigation fingerprint and all prior goldens remain unchanged. Pure outgoing route headings use zero east, increasing north; stationary/off-map output is zero. The shared governing-node helper supplies both existing counts and transport ownership. These methods own no clock/history/RNG and never materialize residents.

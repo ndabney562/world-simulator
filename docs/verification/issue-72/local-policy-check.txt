@@ -1,0 +1,11 @@
+Rust workspace release:427 passed,0 failed,4 existing ignored
+Workspace fmt/all-target clippy -Dwarnings/all-target locked build/dependency direction:PASS
+Python scripts:61 passed
+Docs/static Unity:PASS
+Cbindgen0.29.2 header freshness:PASS
+Actual C ABI5 consumer:PASS
+CLI10000-tick journal record/replay and save/load:PASS
+Rust aarch64-apple-ios archive:PASS
+Pinned Unity6000.3.26f1 Metal:56 passed,0 failed,0 skipped
+All prior Bootstrap-only build-scene/source/fixture/golden assertions preserved
+Unity iOS Build Support:ABSENT; no Unity export/signing/device run claimed
