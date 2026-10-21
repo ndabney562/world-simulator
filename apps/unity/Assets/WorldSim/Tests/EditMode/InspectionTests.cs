@@ -21,7 +21,76 @@ namespace WorldSim.Tests.EditMode
         static ulong Id(byte[] b)=>BitConverter.ToUInt64(b,40);
         static void U32(byte[] b,int at,uint value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,4);
         static void U64(byte[] b,int at,ulong value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,8);
-        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v7"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
+        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v8"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
+        [Test]
+        public void ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies()
+        {
+            using(var world=new NativeSlice(71449,Start)) {
+                var frame=new SliceFrame();world.Fill(frame,out _);ulong id=frame.Residents[0].Id;
+                var original=world.Inspect(id);var sample=world.Illness(id,0,5,200000);
+                Assert.That(sample.Inspection.Health,Is.EqualTo(55));Assert.That(sample.Inspection.Life,Is.Zero);
+                Assert.That(sample.Inspection.Sex,Is.EqualTo(original.Sex));Assert.That(sample.Inspection.IllnessActive,Is.True);
+                Assert.That(sample.Consequences.Events[0].Tag,Is.EqualTo(13));Assert.That(sample.Consequences.Events[1].Tag,Is.EqualTo(5));
+                ulong root=sample.Consequences.Root,hash=sample.Inspection.StateHash;
+                var refreshed=world.Illness(id,root);Assert.That(refreshed.Inspection.StateHash,Is.EqualTo(hash));Assert.That(refreshed.Consequences.Events.Length,Is.EqualTo(sample.Consequences.Events.Length));
+                world.Steps(2);var recovered=world.Illness(id,root);Assert.That(recovered.Inspection.Health,Is.EqualTo(100));Assert.That(recovered.Inspection.IllnessActive,Is.False);
+                Assert.That(recovered.Consequences.Events[recovered.Consequences.Events.Length-1].Tag,Is.EqualTo(12));
+                StringAssert.Contains("Recovered",SliceInspectionText.Consequences(recovered));StringAssert.Contains("Direct",SliceInspectionText.Consequences(recovered));StringAssert.Contains("← Illness",SliceInspectionText.Consequences(recovered));
+                Assert.That(SliceInspectionText.Format(recovered.Inspection).Split('\n').Length,Is.EqualTo(5));
+            }
+        }
+        [Test]
+        public void ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction()
+        {
+            using(var world=new NativeSlice(42,NativeWorld.UtcToSim(2026,6,23,0,0,0))) {
+                var frame=new SliceFrame();world.Fill(frame,out _);SliceInspection patient=null;
+                for(int i=0;i<frame.Population&&patient==null;i++) {
+                    var a=world.Inspect(frame.Residents[i].Id);
+                    for(int j=i+1;j<frame.Population;j++) {
+                        var b=world.Inspect(frame.Residents[j].Id);
+                        if(a.Home==b.Home&&a.Household!=b.Household) {patient=a;break;}
+                    }
+                }
+                Assert.That(patient,Is.Not.Null);
+                foreach(var building in world.Geometry.Buildings) if(building.Id==patient.Home) world.SetCamera(new Vector3(building.Centroid.x,0,building.Centroid.y),50);
+                world.Steps(20);Assert.That(world.Inspect(patient.Id).Detail,Is.EqualTo(1));
+                var applied=world.Illness(patient.Id,0,5,600000000);
+                for(int i=0;i<6;i++) world.Steps(100);
+                var sample=world.Illness(patient.Id,applied.Consequences.Root);bool found=false;
+                for(int i=0;i<sample.Consequences.Events.Length;i++) if(sample.Consequences.Events[i].Tag==11) {
+                    var e=sample.Consequences.Events[i];Assert.That(world.Inspect(e.A).Action,Is.EqualTo(3));
+                    Assert.That(sample.Consequences.Causes[i][0].Relation,Is.EqualTo(3));Assert.That(sample.Consequences.Causes[i][0].Confidence,Is.EqualTo(1));found=true;
+                }
+                Assert.That(found,Is.True);StringAssert.Contains("Neighbour check-in · Contributing",SliceInspectionText.Consequences(sample));
+            }
+        }
+        [Test]
+        public void ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication()
+        {
+            var geometry=Geometry();byte[] raw=Fixture("consequences-v8");ulong root=BitConverter.ToUInt64(raw,40);SliceConsequences published;
+            using(var b=new NativeArray<byte>(raw,Allocator.Temp)) published=ConsequencesDecoder.Decode(b,b.Length,geometry,root);
+            Assert.That(published.Events.Length,Is.GreaterThanOrEqualTo(2));
+            foreach(Action<byte[]> corrupt in new Action<byte[]>[] {
+                b=>U32(b,4,95),b=>U64(b,32,0),b=>U64(b,40,0),b=>U64(b,48,0),b=>U32(b,56,17),b=>U32(b,60,17),b=>U32(b,64,127),b=>U32(b,68,1),b=>U32(b,72,2),b=>U32(b,76,0),
+                b=>U32(b,96+32,99),b=>U32(b,96+80,1),b=>U32(b,96+84,1),b=>U64(b,96+120,1),
+                b=>U64(b,96+128,root),b=>U32(b,96+128+36,2),b=>U64(b,96+128+56,4),b=>U32(b,96+128+80,3),b=>U64(b,96+128+88,ulong.MaxValue),b=>U32(b,96+128+96,3),b=>U32(b,96+128+100,1),b=>U64(b,96+128+104,root)
+            }) {
+                byte[] copy=(byte[])raw.Clone();corrupt(copy);using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
+            }
+            using(var b=new NativeArray<byte>(raw,Allocator.Temp)) {
+                Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length-1,geometry,root));
+                Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root+1));
+            }
+            byte[] missing=new byte[96+128];Array.Copy(raw,missing,missing.Length);U32(missing,56,1);U32(missing,60,1);
+            using(var b=new NativeArray<byte>(missing,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
+            byte[] old=(byte[])raw.Clone();U32(old,0,7);using(var b=new NativeArray<byte>(old,Allocator.Temp)) Assert.Throws<InvalidOperationException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
+            Assert.That(published.Root,Is.EqualTo(root));
+            byte[] ill=Fixture("inspect-ill-v8");int state=96+(int)BitConverter.ToUInt32(ill,64);
+            using(var b=new NativeArray<byte>(ill,Allocator.Temp)) Assert.That(InspectionDecoder.Decode(b,b.Length,geometry,Id(ill)).IllnessActive,Is.True);
+            foreach(Action<byte[]> corrupt in new Action<byte[]>[] {
+                b=>U32(b,state+8,6),b=>U64(b,state+32,ulong.MaxValue),b=>U32(b,state+80,3),b=>U32(b,state+84,2),b=>U64(b,state+88,0),b=>U64(b,state+96,0),b=>U64(b,state+104,0),b=>U32(b,state+56,100),b=>U32(b,state+60,1)
+            }) {byte[] copy=(byte[])ill.Clone();corrupt(copy);using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>InspectionDecoder.Decode(b,b.Length,geometry,Id(ill)));}
+        }
         [Test]
         public void NativeInspectionMatchesSharedCoreFixturesAndEveryRenderedIdentityWithoutMutation()
         {
@@ -29,7 +98,7 @@ namespace WorldSim.Tests.EditMode
             {
                 world.SetCamera(Vector3.zero,500);world.Steps(20);var frame=new SliceFrame();world.Fill(frame,out _);
                 ulong hash=frame.StateHash;
-                foreach(string name in new[]{"inspect-resident-v7","inspect-building-v7"})
+                foreach(string name in new[]{"inspect-resident-v8","inspect-building-v8"})
                 {
                     byte[] raw=Fixture(name);SliceInspection expected;
                     using(var b=new NativeArray<byte>(raw,Allocator.Temp)) expected=InspectionDecoder.Decode(b,b.Length,world.Geometry,Id(raw));
@@ -51,7 +120,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void MalformedInspectionNeverReplacesThePreviousCompleteRecord()
         {
-            byte[] original=Fixture("inspect-resident-v7");var geometry=Geometry();SliceInspection published;
+            byte[] original=Fixture("inspect-resident-v8");var geometry=Geometry();SliceInspection published;
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) published=InspectionDecoder.Decode(bytes,bytes.Length,geometry,Id(original));
             var saved=published;
             int state=96+(int)BitConverter.ToUInt32(original,64);
@@ -65,7 +134,7 @@ namespace WorldSim.Tests.EditMode
                 Assert.That(published,Is.SameAs(saved));
             }
             using(var b=new NativeArray<byte>(original,Allocator.Temp)) Assert.Catch<Exception>(()=>InspectionDecoder.Decode(b,b.Length-1,geometry,Id(original)));
-            int scheduleAt=state+80,commute=-1;
+            int scheduleAt=state+112,commute=-1;
             for(int i=0;i<BitConverter.ToUInt32(original,72);i++) if(BitConverter.ToUInt32(original,scheduleAt+i*48+16)!=0) {commute=scheduleAt+i*48;break;}
             Assert.That(commute,Is.GreaterThanOrEqualTo(0));
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
@@ -158,6 +227,21 @@ namespace WorldSim.Tests.EditMode
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
             yield return new WaitForSecondsRealtime(0.5f);
             yield return CaptureInspection("resident");
+            Assert.That(demo.InspectIllness(),Is.True);Assert.That(demo.CurrentInspection.Health,Is.EqualTo(55));
+            string illnessText=demo.InspectorText;StringAssert.Contains("Illness began",illnessText);StringAssert.Contains("Direct",illnessText);
+            File.WriteAllText(Path.Combine(Path.GetTempPath(),"worldsim74-illness.txt"),illnessText);
+            yield return new WaitForSecondsRealtime(0.5f);yield return CaptureInspection("illness");
+            sampledTick=demo.CurrentInspection.Tick;for(int i=0;i<6;i++) yield return null;
+            Assert.That(demo.CurrentInspection.Tick,Is.EqualTo(sampledTick));Assert.That(demo.InspectorText,Is.EqualTo(illnessText));
+            Assert.That(demo.InspectIllness(),Is.True);Assert.That(demo.InspectorText,Is.EqualTo(illnessText));
+            demo.SetSpeed(100);deadline=Time.realtimeSinceStartupAsDouble+110;
+            // The production button applies two model hours: at100x this takes72 seconds.
+            long end=demo.CurrentInspection.IllnessEnd;
+            while(demo.CurrentFrame.Sky.SimTimeMicroseconds<end&&Time.realtimeSinceStartupAsDouble<deadline) yield return null;
+            Assert.That(demo.CurrentFrame.Sky.SimTimeMicroseconds,Is.GreaterThanOrEqualTo(end));demo.SetSpeed(0);
+            Assert.That(demo.InspectIllness(),Is.True);Assert.That(demo.CurrentInspection.Health,Is.EqualTo(100));StringAssert.Contains("Recovered",demo.InspectorText);
+            File.WriteAllText(Path.Combine(Path.GetTempPath(),"worldsim74-recovery.txt"),demo.InspectorText);
+            yield return new WaitForSecondsRealtime(0.5f);yield return CaptureInspection("recovery");
             calls=demo.InspectionQueries;Assert.That(demo.InspectScreenPoint(new Vector2(10,Screen.height-10)),Is.False);Assert.That(demo.InspectionQueries,Is.EqualTo(calls));
             demo.enabled=false;Assert.That(demo.CurrentInspection,Is.Null);Assert.That(demo.InspectorText,Is.Empty);Object.DestroyImmediate(mesh);
             yield return new ExitPlayMode();
@@ -167,7 +251,7 @@ namespace WorldSim.Tests.EditMode
             // Batch mode does not composite the Game view. The visible run must
             // finish writing this frame before selection/camera state changes.
             if(Application.isBatchMode) yield break;
-            string path=Path.Combine(Path.GetTempPath(),"worldsim73-"+kind+"-inspection.png");
+            string path=Path.Combine(Path.GetTempPath(),(kind=="illness"||kind=="recovery"?"worldsim74-":"worldsim73-")+kind+"-inspection.png");
             if(File.Exists(path)) File.Delete(path);
             ScreenCapture.CaptureScreenshot(path);
             double deadline=Time.realtimeSinceStartupAsDouble+5;

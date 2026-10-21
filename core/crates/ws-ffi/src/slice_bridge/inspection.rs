@@ -34,6 +34,80 @@ impl Writer<'_> {
     }
 }
 
+fn event_words(payload: Payload) -> Result<[u64; 5], &'static str> {
+    Ok(match payload {
+        Payload::LifeIllness {
+            resident,
+            illness,
+            severity,
+        } => [
+            resident.raw(),
+            u64::from(illness),
+            u64::from(severity),
+            0,
+            0,
+        ],
+        Payload::ReturnedHome { resident, home } => [resident.raw(), home.raw(), 0, 0, 0],
+        Payload::MissedDuty {
+            resident,
+            destination,
+            activity,
+        } => [resident.raw(), destination.raw(), activity as u64, 0, 0],
+        Payload::NeighbourCheckIn {
+            visitor,
+            patient,
+            home,
+            intended_duration_us,
+        } => [
+            visitor.raw(),
+            patient.raw(),
+            home.raw(),
+            intended_duration_us,
+            0,
+        ],
+        Payload::Recovered { resident, health } => [resident.raw(), u64::from(health), 0, 0, 0],
+        Payload::SliceIllnessApplied {
+            resident,
+            sequence,
+            severity,
+            duration_us,
+            affected,
+        } => [
+            resident.raw(),
+            sequence,
+            u64::from(severity),
+            duration_us,
+            u64::from(affected),
+        ],
+        Payload::ScheduleChanged {
+            resident,
+            destination,
+            previous,
+            next,
+        } => [
+            resident.raw(),
+            destination.raw(),
+            previous as u64,
+            next as u64,
+            0,
+        ],
+        Payload::SliceLodChanged {
+            building,
+            from,
+            to,
+            demoted,
+            promoted,
+        } => [
+            building.raw(),
+            u64::from(from),
+            u64::from(to),
+            u64::from(demoted),
+            u64::from(promoted),
+        ],
+        _ => return Err("unsupported inspection event vocabulary"),
+    })
+}
+
 fn endpoint(p: ws_sim::slice::inspect::Place) -> (u64, u32) {
     use ws_sim::slice::inspect::Place;
     match p {
@@ -114,6 +188,12 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
             w.u64(record.schedule_epoch.as_micros_since_epoch() as u64)?;
             w.u32(i32::from(schedule.jitter) as u32)?;
             w.u32(1)?;
+            let illness = record.illness.ok_or("missing illness state")?;
+            w.u32(illness.override_kind)?;
+            w.u32(u32::from(illness.active))?;
+            w.u64(illness.override_root)?;
+            w.u64(illness.own_root)?;
+            w.u64(illness.end.map_or(0, |t| t.as_micros_since_epoch() as u64))?;
         }
         Entity::Building { summary: b, .. } => {
             w.u64(b.building.raw())?;
@@ -169,34 +249,7 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
         w.u64(e.ordinal)?;
         w.u32(e.record.payload.tag())?;
         w.u32(e.schema_version)?;
-        let words = match e.record.payload {
-            Payload::ScheduleChanged {
-                resident,
-                destination,
-                previous,
-                next,
-            } => [
-                resident.raw(),
-                destination.raw(),
-                previous as u64,
-                next as u64,
-                0,
-            ],
-            Payload::SliceLodChanged {
-                building,
-                from,
-                to,
-                demoted,
-                promoted,
-            } => [
-                building.raw(),
-                u64::from(from),
-                u64::from(to),
-                u64::from(demoted),
-                u64::from(promoted),
-            ],
-            _ => return Err("unsupported inspection event vocabulary"),
-        };
+        let words = event_words(e.record.payload)?;
         for value in words {
             w.u64(value)?;
         }
@@ -210,7 +263,7 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
     u64_at(w.bytes, 32, record.dataset);
     u64_at(w.bytes, 40, record.id.raw());
     for (at, value) in [
-        (48, 2),
+        (48, 3),
         (52, kind),
         (56, len as u32),
         (60, u32::from(record.events.more)),
@@ -226,7 +279,7 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
     }
     Ok(len)
 }
-/// One pure bounded entity inspection, schema2. Short output reports its exact
+/// One pure bounded entity inspection, schema3. Short output reports its exact
 /// required length; other failures zero written and leave data untouched.
 /// # Safety
 /// Handle is live/exclusive; buffer is writable for capacity bytes; written is
@@ -273,6 +326,112 @@ pub unsafe extern "C" fn ws_slice_inspect(
             fill_bytes(&scratch[..len], buffer, capacity, written)
         })
     }
+}
+
+/// Pure bounded real-slice produced consequences with explicit causal confidence.
+/// # Safety
+/// Live exclusive handle; buffer and aligned written storage writable/disjoint.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_consequences(
+    handle: *mut WsSliceHandle,
+    root: u64,
+    buffer: *mut u8,
+    capacity: usize,
+    written: *mut usize,
+) -> WsStatus {
+    if written.is_null() || !written.is_aligned() {
+        return INVALID_ARGUMENT;
+    }
+    // SAFETY: caller guarantees writable aligned disjoint control output.
+    unsafe {
+        written.write(0);
+    }
+    // SAFETY: caller guarantees exclusive live handle and disjoint output storage.
+    unsafe {
+        operate_slice(handle, |h| {
+            let (g, events) = h
+                .world
+                .consequences(ws_sim::ws_events::EventId(root))
+                .map_err(|_| {
+                    (
+                        INVALID_ARGUMENT,
+                        "unknown consequence root or query failure",
+                    )
+                })?;
+            let mut scratch = [0u8; MAX];
+            let mut w = Writer {
+                bytes: &mut scratch,
+                at: 96,
+            };
+            for e in &events {
+                w.u64(e.id.0).map_err(|m| (STEP_FAILED, m))?;
+                w.u64(e.record.time.as_micros_since_epoch() as u64)
+                    .map_err(|m| (STEP_FAILED, m))?;
+                w.u64(e.tick).map_err(|m| (STEP_FAILED, m))?;
+                w.u64(e.ordinal).map_err(|m| (STEP_FAILED, m))?;
+                w.u32(e.record.payload.tag())
+                    .map_err(|m| (STEP_FAILED, m))?;
+                w.u32(e.schema_version).map_err(|m| (STEP_FAILED, m))?;
+                for value in event_words(e.record.payload).map_err(|m| (STEP_FAILED, m))? {
+                    w.u64(value).map_err(|m| (STEP_FAILED, m))?;
+                }
+                if e.record.causes.len() > 2 {
+                    return Err((STEP_FAILED, "consequence cause cap"));
+                }
+                w.u32(e.record.causes.len() as u32)
+                    .map_err(|m| (STEP_FAILED, m))?;
+                w.u32(0).map_err(|m| (STEP_FAILED, m))?;
+                let mut causes = e.record.causes.iter();
+                for _ in 0..2 {
+                    let (id, relation, confidence) = if let Some(c) = causes.next() {
+                        let ws_sim::ws_events::Target::Id(id) = c.target else {
+                            return Err((STEP_FAILED, "unresolved cause"));
+                        };
+                        (id.0, c.relation as u32, c.confidence as u32)
+                    } else {
+                        (0, 0, 0)
+                    };
+                    w.u64(id).map_err(|m| (STEP_FAILED, m))?;
+                    w.u32(relation).map_err(|m| (STEP_FAILED, m))?;
+                    w.u32(confidence).map_err(|m| (STEP_FAILED, m))?;
+                }
+                w.u64(0).map_err(|m| (STEP_FAILED, m))?;
+            }
+            let len = w.at;
+            for (at, v) in [
+                (0, ABI_VERSION),
+                (4, 96),
+                (56, events.len() as u32),
+                (60, events.len() as u32),
+                (64, 128),
+                (68, 0),
+                (72, 1),
+                (76, g.severity),
+            ] {
+                u32_at(w.bytes, at, v);
+            }
+            for (at, v) in [
+                (8, h.world.clock().steps()),
+                (16, h.world.clock().now().as_micros_since_epoch() as u64),
+                (24, h.world.state_hash()),
+                (32, ws_world_dataset()),
+                (40, g.root.0),
+                (48, g.subject.raw()),
+                (80, g.applied.as_micros_since_epoch() as u64),
+                (88, g.end.map_or(0, |t| t.as_micros_since_epoch() as u64)),
+            ] {
+                u64_at(w.bytes, at, v);
+            }
+            #[cfg(test)]
+            if h.panic_before_output {
+                panic!("consequence output fault");
+            }
+            fill_bytes(&scratch[..len], buffer, capacity, written)
+        })
+    }
+}
+fn ws_world_dataset() -> u64 {
+    ws_sim::slice::inspect::DATASET_VERSION
 }
 
 #[cfg(test)]

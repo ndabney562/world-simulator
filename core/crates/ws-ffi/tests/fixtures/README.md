@@ -14,3 +14,5 @@ The six existing-layout `*-v6.hex` samples preserve every v5 byte after the ABI 
 
 
 ADR0033 adds v7 samples without replacing v1–6 files. Six existing-layout v7 bodies are byte-identical to v6 beyond the ABI word (hash sentinels remain documented zeros). New inspection schema2 has identity schema2, resident sex at136 and health/life at state-relative56/60; resident output is1103bytes, building299bytes for the shared cohort. Actual native generation remains the fixture source, compared with pure core fields and the independent vitals golden.
+
+ADR0034 adds ABI8 samples while preserving all ABI1–7 files. Existing-layout bodies differ only in the ABI word. Inspection schema3 appends32 resident-state bytes; healthy resident sample1135bytes, building299bytes. `inspect-ill-v8` and `consequences-v8` are generated from one actual severity5/two-tick command after the existing sample boundary; their hash fields use the same explicit zero sentinel. Consequence rows preserve actual producer IDs and direct cause classes. Generation is explicit, never performed by tests/CI.

@@ -46,3 +46,7 @@ Recent observations retain the complete FineLocation union and actual automatic-
 ## VS-008 presentation adapters
 
 Navigation now exposes checked approximate-plane→geodetic→ECEF→site ENU conversion and its camera inverse, reusing the unchanged integer floor projection. Round trips at block scale stay within2mm; graph/path lengths, navigation fingerprint and all prior goldens remain unchanged. Pure outgoing route headings use zero east, increasing north; stationary/off-map output is zero. The shared governing-node helper supplies both existing counts and transport ownership. These methods own no clock/history/RNG and never materialize residents.
+
+## VS-010 continuous temporary routines
+
+ADR0034 adds retained illness/home and same-building visitor overrides. The current exact journey finishes before a new routed homeward leg; after recovery the person finishes that leg and rejoins only at the same home or a departure from it. i128 endpoints and bounded daily-boundary search preserve extreme/negative times. Preparation drains minute and override-phase boundaries, integrates held actions exactly and increments decisions only on actual minutes. Planned fine projections, headings, common answers, counts and controller observations share the effective routine. Quiet ticks create no routine plan. No override preserves the previous behavior hash/goldens.

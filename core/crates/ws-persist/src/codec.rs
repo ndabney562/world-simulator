@@ -346,7 +346,11 @@ pub(crate) fn get_clock(bytes: &[u8]) -> Result<ClockRow> {
 
 fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
     match p {
-        Payload::ScheduleChanged { .. }
+        Payload::MissedDuty { .. }
+        | Payload::NeighbourCheckIn { .. }
+        | Payload::Recovered { .. }
+        | Payload::SliceIllnessApplied { .. }
+        | Payload::ScheduleChanged { .. }
         | Payload::SliceCreated { .. }
         | Payload::SliceLodChanged { .. } => {
             return Err(CodecError("slice payload requires a slice save format"));
@@ -1393,12 +1397,34 @@ mod slice_vocabulary_tests {
     use super::*;
     #[test]
     fn legacy_payload_codec_rejects_slice_tags_and_returns_typed_encode_error() {
-        for tag in [7, 8, 9] {
+        for tag in [7, 8, 9, 10, 11, 12, 13] {
             assert!(get_payload(&mut Reader::new(&[tag])).is_err());
         }
         let resident = EntityId::procedural(1);
         let destination = EntityId::procedural(2);
         for payload in [
+            Payload::MissedDuty {
+                resident,
+                destination,
+                activity: ws_events::Activity::Work,
+            },
+            Payload::NeighbourCheckIn {
+                visitor: resident,
+                patient: destination,
+                home: destination,
+                intended_duration_us: 300_000_000,
+            },
+            Payload::Recovered {
+                resident,
+                health: 100,
+            },
+            Payload::SliceIllnessApplied {
+                resident,
+                sequence: 0,
+                severity: 5,
+                duration_us: 100_000,
+                affected: 1,
+            },
             Payload::ScheduleChanged {
                 resident,
                 destination,

@@ -1,0 +1,7 @@
+Illness consequences
+Health: 100/100
+Curse applied
+Illness began · Direct ← Curse
+Missed work · Direct ← Illness
+Returned home · Direct contribution ← Illness
+Recovered · Direct ← Illness

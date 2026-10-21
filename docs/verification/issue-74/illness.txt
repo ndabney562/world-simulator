@@ -1,0 +1,4 @@
+Illness consequences
+Health: 55/100
+Curse applied
+Illness began · Direct ← Curse

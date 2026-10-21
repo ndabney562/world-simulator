@@ -17,6 +17,9 @@ pub const MAX_DEFICIT: u32 = 100_000;
 pub const INITIAL: Purpose = Purpose::new("ws-life/needs/initial");
 /// New independent equal-utility tie stream; address is resident and action.
 pub const TIE: Purpose = Purpose::new("ws-life/utility/tie");
+mod overrides;
+pub use overrides::{Journey, RoutineOverride};
+
 const STEP: i128 = 100_000;
 const MINUTE: i128 = 60_000_000;
 
@@ -205,6 +208,7 @@ struct ResidentState {
     // Derived: all logical transitions are on the same minute grid. Excluded
     // from hashing; a quiet tick need not re-evaluate the timetable for counts.
     logical: crate::Answer,
+    routine: Option<RoutineOverride>,
 }
 /// Common current individual quantities, without reconstructing fine geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -287,7 +291,8 @@ impl Prepared<'_> {
     /// # Errors
     /// Unknown identity, time or endpoint.
     pub fn projected_location(&self, id: EntityId) -> Result<FineLocation, BehaviorError> {
-        self.world.projected_location(id, self.time)
+        self.world
+            .project_answer(self.common(id)?.logical, self.time)
     }
     /// Stages one level change in this same transaction; never changes decisions.
     /// # Errors
@@ -311,6 +316,68 @@ impl Prepared<'_> {
         }
         self.planned.as_mut().unwrap().0[i].detail = detail;
         Ok(())
+    }
+    fn writable(&mut self) -> Result<&mut Vec<ResidentState>, BehaviorError> {
+        if self.planned.is_none() {
+            let mut states = Vec::new();
+            states
+                .try_reserve(self.world.states.len())
+                .map_err(|_| BehaviorError::Resource)?;
+            states.extend_from_slice(&self.world.states);
+            self.planned = Some((states, self.world.next));
+        }
+        Ok(&mut self.planned.as_mut().unwrap().0)
+    }
+    /// Planned override, including earlier choices in this transaction.
+    pub fn routine(&self, id: EntityId) -> Result<Option<RoutineOverride>, BehaviorError> {
+        let i = self.world.index(id)?;
+        Ok(self
+            .planned
+            .as_ref()
+            .map_or(self.world.states[i].routine, |(s, _)| s[i].routine))
+    }
+    fn install(&mut self, id: EntityId, routine: RoutineOverride) -> Result<(), BehaviorError> {
+        let i = self.world.index(id)?;
+        let common = self.common(id)?;
+        let time = self.time;
+        let s = &mut self.writable()?[i];
+        s.needs = common.needs;
+        s.anchor = time;
+        s.logical = routine.answer(time);
+        s.action = routine.action(time);
+        s.routine = Some(routine);
+        Ok(())
+    }
+    /// Stages a finite illness routine, preserving any current journey.
+    pub fn afflict(
+        &mut self,
+        id: EntityId,
+        home: EntityId,
+        until: SimTime,
+        root: u64,
+    ) -> Result<RoutineOverride, BehaviorError> {
+        let routine = RoutineOverride::illness(
+            self.world,
+            id,
+            self.common(id)?.logical,
+            self.time,
+            until,
+            root,
+            home,
+        )?;
+        self.install(id, routine)?;
+        Ok(routine)
+    }
+    /// Stages an actual same-building check-in; callers validate eligibility first.
+    pub fn visit(
+        &mut self,
+        id: EntityId,
+        home: EntityId,
+        until: SimTime,
+        root: u64,
+    ) -> Result<(), BehaviorError> {
+        let routine = RoutineOverride::visit(self.world, id, self.time, until, root, home)?;
+        self.install(id, routine)
     }
     /// Publishes already validated/reserved records with no allocation or failure.
     pub fn commit(self) {
@@ -386,6 +453,7 @@ impl Behavior {
                     ),
                     decisions: 1,
                     logical: p.at(schedules.epoch(), start),
+                    routine: None,
                 }
             })
             .collect();
@@ -396,6 +464,27 @@ impl Behavior {
             states,
             next: next_minute(schedules.epoch(), start),
         })
+    }
+    /// Retained routine, without advancing behavior.
+    pub fn routine(&self, id: EntityId) -> Result<Option<RoutineOverride>, BehaviorError> {
+        Ok(self.states[self.index(id)?].routine)
+    }
+    fn effective_answer(
+        &self,
+        id: EntityId,
+        time: SimTime,
+    ) -> Result<crate::Answer, BehaviorError> {
+        let routine = self.routine(id)?;
+        Ok(
+            match routine.filter(|r| time >= r.started && r.rejoin.is_none_or(|t| time < t)) {
+                Some(r) => r.answer(time),
+                None => self
+                    .schedules
+                    .get(id)
+                    .ok_or(BehaviorError::UnknownResident)?
+                    .at(self.schedules.epoch(), time),
+            },
+        )
     }
     /// Immutable navigation proxy and derived route cache.
     pub const fn navigation(&self) -> &Navigation {
@@ -429,7 +518,13 @@ impl Behavior {
         if self.states.iter().any(|s| time < s.anchor) {
             return Err(BehaviorError::Time);
         }
-        let Some(mut at) = self.next.filter(|t| *t <= time) else {
+        let first = self
+            .states
+            .iter()
+            .filter_map(|s| s.routine.and_then(|r| r.next(s.anchor)))
+            .chain(self.next)
+            .min();
+        let Some(mut at) = first.filter(|t| *t <= time) else {
             return Ok(Prepared {
                 world: self,
                 planned: None,
@@ -441,21 +536,47 @@ impl Behavior {
             .try_reserve(self.states.len())
             .map_err(|_| BehaviorError::Resource)?;
         states.extend_from_slice(&self.states);
-        let next = loop {
+        let mut next = self.next;
+        loop {
+            let minute = next == Some(at);
             for (s, p) in states.iter_mut().zip(self.schedules.profiles()) {
-                let count = s.decisions.checked_add(1).ok_or(BehaviorError::Counter)?;
+                let phase = s.routine.is_some_and(|r| r.next(s.anchor) == Some(at));
+                if !minute && !phase {
+                    continue;
+                }
+                let count = if minute {
+                    s.decisions.checked_add(1).ok_or(BehaviorError::Counter)?
+                } else {
+                    s.decisions
+                };
                 let ticks = ((micros(at) - micros(s.anchor)) / STEP) as u64;
                 s.needs = s.needs.advanced(s.action, ticks);
                 s.anchor = at;
-                s.logical = p.at(self.schedules.epoch(), at);
-                s.action = choose(self.seed, s.id, s.decisions, s.logical.activity, s.needs);
+                if s.routine.is_some_and(|r| r.rejoin.is_some_and(|t| at >= t)) {
+                    s.routine = None;
+                }
+                s.logical = s
+                    .routine
+                    .map_or_else(|| p.at(self.schedules.epoch(), at), |r| r.answer(at));
+                s.action = s.routine.map_or_else(
+                    || choose(self.seed, s.id, s.decisions, s.logical.activity, s.needs),
+                    |r| r.action(at),
+                );
                 s.decisions = count;
             }
-            match next_minute(self.schedules.epoch(), at) {
-                Some(next) if next <= time => at = next,
-                other => break other,
+            if minute {
+                next = next_minute(self.schedules.epoch(), at);
             }
-        };
+            let due = states
+                .iter()
+                .filter_map(|s| s.routine.and_then(|r| r.next(s.anchor)))
+                .chain(next)
+                .min();
+            match due {
+                Some(t) if t <= time => at = t,
+                _ => break,
+            }
+        }
         Ok(Prepared {
             world: self,
             planned: Some((states, next)),
@@ -532,7 +653,7 @@ impl Behavior {
             decisions: s.decisions,
             logical: s.logical,
             fine: if s.detail == Detail::L1 {
-                Some(self.projected_location(s.resident, time)?)
+                Some(self.project_answer(s.logical, time)?)
             } else {
                 None
             },
@@ -550,17 +671,21 @@ impl Behavior {
         if !grid(time) {
             return Err(BehaviorError::Grid);
         }
-        let p = self
-            .schedules
-            .get(id)
-            .ok_or(BehaviorError::UnknownResident)?;
+        self.index(id)?;
+        self.project_answer(self.effective_answer(id, time)?, time)
+    }
+    fn project_answer(
+        &self,
+        answer: crate::Answer,
+        time: SimTime,
+    ) -> Result<FineLocation, BehaviorError> {
         let local = |place| -> Result<_, BehaviorError> {
             Ok(FineLocation::Local {
                 point: self.navigation.position(place, place, 0)?,
                 walking: false,
             })
         };
-        match p.at(self.schedules.epoch(), time).location {
+        match answer.location {
             Location::AtBuilding(id) => local(Place::Building(id)),
             Location::OffMap(workplace, exit) => Ok(FineLocation::OffMap { workplace, exit }),
             Location::InTransit {
@@ -607,16 +732,12 @@ impl Behavior {
         ) {
             return Ok(0.0);
         }
-        let profile = self
-            .schedules
-            .get(id)
-            .ok_or(BehaviorError::UnknownResident)?;
         let Location::InTransit {
             from,
             to,
             departure,
             arrival,
-        } = profile.at(self.schedules.epoch(), time).location
+        } = self.effective_answer(id, time)?.location
         else {
             return Ok(0.0);
         };
@@ -651,6 +772,17 @@ impl Behavior {
             ]);
             for v in s.needs.values() {
                 h.write_u64(u64::from(v));
+            }
+        }
+        let baseline = h.finish();
+        if self.states.iter().all(|s| s.routine.is_none()) {
+            return baseline;
+        }
+        let mut h = SipHasher24::new(baseline, Purpose::new("ws-life/overrides/v1").value());
+        for s in &self.states {
+            h.write_words(&[s.id.raw(), u64::from(s.routine.is_some())]);
+            if let Some(r) = s.routine {
+                r.hash(&mut h);
             }
         }
         h.finish()
