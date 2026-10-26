@@ -1,0 +1,15 @@
+[package]
+name = "worldsim-browser-core-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ws-sim = { path = "../../../core/crates/ws-sim" }
+
+[profile.release]
+overflow-checks = true
