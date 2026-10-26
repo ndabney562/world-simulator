@@ -10,7 +10,7 @@ Product Owner
   → Implementer fixes
   → CI
   → Product Owner approval (when required)
-  → merge (Product Owner)
+  → merge (Product Owner or explicitly delegated implementer)
 ```
 
 ## 1. Issue
@@ -56,14 +56,14 @@ Product Owner
 
 ## 8. Approval and merge
 
-- The Product Owner approves where [human-approval-gates.md](human-approval-gates.md) requires it, and merges.
+- The Product Owner approves where [human-approval-gates.md](human-approval-gates.md) requires it. The Product Owner merges, or the implementer merges within recorded named-workstream delegation after independent review and latest-head green CI.
 - Merge method: **squash and merge** for normal issue PRs, so each issue lands as one commit on `main` whose message references the issue. Use **create a merge commit** only when the branch history itself must be preserved (as with the Architecture V1 freeze).
 - After merge, the issue closes automatically through `Closes #N`; the implementer confirms it closed and updates any tracking issue.
 
 ## 9. Stop
 
-After opening the PR, the implementer stops and waits for review. It does not start the next issue until the Product Owner authorizes it.
+After opening the PR, the implementer waits for independent review and owns fixes, CI, readiness and the next handoff. When technical merging and dependent starts are already delegated, finish that loop and continue from updated `main` without asking again. Otherwise record the concrete decision needed and stop only the work dependent on it. A CI monitor reporting recovery does not transfer ownership. See [current-workstream.md](current-workstream.md).
 
 ## Isolated work and handoffs
 
-Use the [shared development guide](shared-development.md) for task ownership, separate checkouts, phone/Mac responsibilities, and the handoff format. Assign implementation to one assistant and review to another; the Product Owner still authorizes work and performs every merge.
+Use the [shared development guide](shared-development.md) for task ownership, separate checkouts, phone/Mac responsibilities, and the handoff format. Assign implementation to one assistant and review to another; the Product Owner authorizes work and either performs merges or explicitly delegates them.

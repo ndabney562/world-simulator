@@ -17,6 +17,10 @@ These decisions belong to the Product Owner alone. An AI collaborator may propos
 | **Irreversible actions** | Force-pushing or rewriting `main`, deleting branches with unmerged work, deleting issues or releases. |
 | **Stage exit** | Declaring a stage (for example the Technical Prototype) complete. |
 
+## Recorded delegation
+
+Check [current-workstream.md](current-workstream.md) and the linked issue/PR authorization before requesting approval. A direct Product Owner instruction may authorize multiple named issues, dependent starts or technical merges; record its scope and exclusions once. Do not reimpose per-issue/per-merge stops already superseded by that delegation. Do not extend delegation to new issues, architecture decisions, spending or excluded gates by inference.
+
 ## What does not need a gate
 
 Reversible work inside an authorized issue: creating its branch, commits, a draft PR, tests, local experiments, documentation updates within scope, and replying to review findings.

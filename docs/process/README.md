@@ -4,6 +4,8 @@ How World Simulator is built from Architecture V1 onwards. GitHub is the canonic
 
 | Document | Covers |
 |---|---|
+| [current-workstream.md](current-workstream.md) | Current status, owner, recorded delegation and next handoff |
+| [friend-distribution.md](friend-distribution.md) | Ready-to-play sharing target, distribution options and pending decisions |
 | [shared-development.md](shared-development.md) | Daily workflow, isolated checkouts, handoffs, phone/Mac access, and first milestone |
 | [roles-and-responsibilities.md](roles-and-responsibilities.md) | Product Owner, assigned implementation engineer and independent assistant reviewer |
 | [ai-development-workflow.md](ai-development-workflow.md) | The issue → branch → PR → CI → review → fix → approval → merge loop |
