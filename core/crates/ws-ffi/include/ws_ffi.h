@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 7
+#define ABI_VERSION 8
 
 /**
  * Most residents per building a config may ask for.
@@ -131,7 +131,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current native ABI6.
+   * Exact current native ABI8.
    */
   uint32_t abi_version;
   /**
@@ -153,11 +153,11 @@ typedef struct {
 } WsSliceConfig;
 
 /**
- * One coarse input,64 bytes aligned8; no per-entity operation is exposed here.
+ * One coarse input,64 bytes aligned8; including explicit single-resident god interventions.
  */
 typedef struct {
   /**
-   * Exact current ABI6.
+   * Exact current ABI8.
    */
   uint32_t abi_version;
   /**
@@ -540,7 +540,7 @@ WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output)
 size_t ws_slice_last_error(WsSliceHandle *handle, char *buffer, size_t capacity);
 
 /**
- * One pure bounded entity inspection, schema2. Short output reports its exact
+ * One pure bounded entity inspection, schema3. Short output reports its exact
  * required length; other failures zero written and leave data untouched.
  * # Safety
  * Handle is live/exclusive; buffer is writable for capacity bytes; written is
@@ -552,6 +552,17 @@ WsStatus ws_slice_inspect(WsSliceHandle *handle,
                           uint8_t *buffer,
                           size_t capacity,
                           size_t *written);
+
+/**
+ * Pure bounded real-slice produced consequences with explicit causal confidence.
+ * # Safety
+ * Live exclusive handle; buffer and aligned written storage writable/disjoint.
+ */
+WsStatus ws_slice_consequences(WsSliceHandle *handle,
+                               uint64_t root,
+                               uint8_t *buffer,
+                               size_t capacity,
+                               size_t *written);
 
 /**
  * Pure UTC configuration conversion; no world, clock read or grid rounding.

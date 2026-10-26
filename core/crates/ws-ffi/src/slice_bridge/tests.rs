@@ -63,7 +63,7 @@ fn slice_config_operation_layout_and_old_library_creation_refusal_are_exact() {
     // SAFETY: only valid stack configs/null pointers; successful ownership destroyed once.
     unsafe {
         assert!(ws_slice_create(null()).is_null());
-        for version in 1..=6 {
+        for version in 1..=7 {
             assert!(
                 ws_slice_create(&WsSliceConfig {
                     abi_version: version,
@@ -125,7 +125,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                 u32_from(&geometry, 4),
                 u64_from(&geometry, 8)
             ),
-            (7, 96, ws_sim::SITE_DATASET_VERSION)
+            (8, 96, ws_sim::SITE_DATASET_VERSION)
         );
         assert_eq!(
             (
@@ -158,7 +158,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                     u32_from(&bytes, 52),
                     u32_from(&bytes, 56)
                 ),
-                (7, 128, 30, 30, 4)
+                (8, 128, 30, 30, 4)
             );
             assert_eq!(&bytes[92..128], &[0; 36]);
             let mut sky = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
@@ -354,9 +354,9 @@ fn close_f32(a: &[u8], b: &[u8], at: usize, tolerance: f32) {
 }
 #[test]
 fn shared_real_slice_samples_pin_integers_and_respect_coordinate_determinism_tiers() {
-    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v7.hex"));
-    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v7.hex"));
-    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v7.hex"));
+    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v8.hex"));
+    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v8.hex"));
+    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v8.hex"));
     // SAFETY: live exclusive native handle and initialized disjoint output storage.
     unsafe {
         let h = ws_slice_create(&config());
@@ -529,7 +529,7 @@ fn inspection_is_bounded_coherent_pure_and_preserves_data_on_every_error() {
         let building = (*h).world.population().world().buildings().ids()[0].raw();
         let mut bytes = [0xa5; 8192];
         let mut written = 777;
-        for (id, kind, state_size) in [(resident, 1, 80), (building, 2, 48)] {
+        for (id, kind, state_size) in [(resident, 1, 112), (building, 2, 48)] {
             assert_eq!(
                 ws_slice_inspect(h, id, null_mut(), 0, &mut written),
                 BUFFER_TOO_SMALL
@@ -552,7 +552,7 @@ fn inspection_is_bounded_coherent_pure_and_preserves_data_on_every_error() {
             assert_eq!(u64_from(&bytes, 8), checkpoint.tick);
             assert_eq!(u64_from(&bytes, 24), checkpoint.state);
             assert_eq!(u64_from(&bytes, 40), id);
-            assert_eq!(u32_from(&bytes, 48), 2);
+            assert_eq!(u32_from(&bytes, 48), 3);
             assert_eq!(u32_from(&bytes, 52), kind);
             assert_eq!(u32_from(&bytes, 56) as usize, required);
             assert_eq!(u32_from(&bytes, 68), state_size);
@@ -621,5 +621,127 @@ fn inspection_is_bounded_coherent_pure_and_preserves_data_on_every_error() {
             ws_slice_inspect(null_mut(), resident, bytes.as_mut_ptr(), 8192, &mut written),
             INVALID_ARGUMENT
         );
+    }
+}
+
+#[test]
+fn illness_wire_semantics_health_and_bounded_explicit_consequences_are_coherent() {
+    // SAFETY: exclusive live handle and disjoint initialized inputs/outputs.
+    unsafe {
+        let h = ws_slice_create(&config());
+        let id = (*h).world.population().residents().ids()[0];
+        let before = (*h).world.checkpoint();
+        let journal = (*h).world.operations().len();
+        let mut command = op(5, 0);
+        command.words = [id.raw(), u64::from(u32::MAX) + 1, 100_000, 0, 0, 0];
+        assert_eq!(ws_slice_apply(h, &command), INVALID_COMMAND);
+        assert_eq!((*h).world.operations().len(), journal);
+        command.words[1] = 0;
+        assert_eq!(ws_slice_apply(h, &command), STEP_FAILED);
+        assert_eq!((*h).world.operations().len(), journal + 1);
+        assert_eq!((*h).world.checkpoint(), before);
+        command.words[1] = 5;
+        command.words[2] = 200_000;
+        assert_eq!(ws_slice_apply(h, &command), OK);
+        assert_eq!((*h).world.vitals().get(id).unwrap().health(), 55);
+        let root = (*h).world.illness_state(id).unwrap().own_root;
+        let mut out = [0xa5u8; 8192];
+        let mut written = 999;
+        assert_eq!(
+            ws_slice_consequences(h, root, null_mut(), 0, &mut written),
+            BUFFER_TOO_SMALL
+        );
+        let required = written;
+        assert!((352..=2144).contains(&required));
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), required - 1, &mut written),
+            BUFFER_TOO_SMALL
+        );
+        assert!(out.iter().all(|b| *b == 0xa5));
+        assert_eq!(written, required);
+        let checkpoint = (*h).world.checkpoint();
+        let operations = (*h).world.operation_digest();
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
+            OK
+        );
+        assert_eq!(u32_from(&out, 0), 8);
+        assert_eq!(u32_from(&out, 4), 96);
+        assert_eq!(u64_from(&out, 24), checkpoint.state);
+        assert_eq!(u64_from(&out, 40), root);
+        assert_eq!(u64_from(&out, 48), id.raw());
+        assert_eq!(u32_from(&out, 64), 128);
+        assert_eq!(u32_from(&out, 96 + 32), 13);
+        assert_eq!(u32_from(&out, 96 + 128 + 32), 5);
+        assert_eq!(u64_from(&out, 96 + 128 + 88), root);
+        assert_eq!(u32_from(&out, 96 + 128 + 96), 0);
+        assert_eq!(u32_from(&out, 96 + 128 + 100), 0);
+        assert!(out[written..].iter().all(|b| *b == 0xa5));
+        assert_eq!((*h).world.checkpoint(), checkpoint);
+        assert_eq!((*h).world.operation_digest(), operations);
+        out.fill(0xa5);
+        for unknown in [0, 1, u64::MAX] {
+            written = 999;
+            assert_eq!(
+                ws_slice_consequences(h, unknown, out.as_mut_ptr(), 8192, &mut written),
+                INVALID_ARGUMENT
+            );
+            assert_eq!(written, 0);
+            assert!(out.iter().all(|b| *b == 0xa5));
+        }
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, null_mut()),
+            INVALID_ARGUMENT
+        );
+        let mut steps = op(1, 0);
+        steps.words[0] = 2;
+        assert_eq!(ws_slice_apply(h, &steps), OK);
+        assert_eq!((*h).world.vitals().get(id).unwrap().health(), 100);
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
+            OK
+        );
+        let count = u32_from(&out, 60) as usize;
+        assert_eq!(u32_from(&out, 96 + (count - 1) * 128 + 32), 12);
+        ws_slice_destroy(h);
+    }
+}
+#[test]
+fn consequence_unwind_poison_and_null_outputs_preserve_all_bytes() {
+    // SAFETY: exclusive live handles; initialized disjoint output/control storage.
+    unsafe {
+        let h = ws_slice_create(&config());
+        let id = (*h).world.population().residents().ids()[0];
+        let mut command = op(5, 0);
+        command.words = [id.raw(), 5, 100_000, 0, 0, 0];
+        assert_eq!(ws_slice_apply(h, &command), OK);
+        let root = (*h).world.illness_state(id).unwrap().own_root;
+        let mut out = [0xa5u8; 8192];
+        let mut written = 99;
+        assert_eq!(
+            ws_slice_consequences(h, root, null_mut(), 8192, &mut written),
+            INVALID_ARGUMENT
+        );
+        assert_eq!(written, 0);
+        let mut control = [0usize; 2];
+        let bad = control.as_mut_ptr().cast::<u8>().add(1).cast::<usize>();
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, bad),
+            INVALID_ARGUMENT
+        );
+        (*h).panic_before_output = true;
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
+            PANIC
+        );
+        assert_eq!(written, 0);
+        assert!(out.iter().all(|b| *b == 0xa5));
+        assert_eq!(
+            ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
+            POISONED
+        );
+        assert_eq!(written, 0);
+        assert!(out.iter().all(|b| *b == 0xa5));
+        ws_slice_destroy(h);
     }
 }

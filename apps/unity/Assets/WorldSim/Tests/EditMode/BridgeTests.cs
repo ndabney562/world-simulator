@@ -10,7 +10,7 @@ namespace WorldSim.Tests.EditMode
 {
     public sealed class BridgeTests
     {
-        static byte[] Fixture(string name="snapshot-v7.hex")
+        static byte[] Fixture(string name="snapshot-v8.hex")
         {
             string hex=File.ReadAllText(Path.Combine(Application.dataPath,"../../../core/crates/ws-ffi/tests/fixtures/"+name)).Trim();
             var bytes=new byte[hex.Length/2];
@@ -34,7 +34,7 @@ namespace WorldSim.Tests.EditMode
             Assert.That(Marshal.OffsetOf<NativeControlState>("Size").ToInt32(),Is.EqualTo(4));
             Assert.That(Marshal.OffsetOf<NativeControlState>("Scale").ToInt32(),Is.EqualTo(8));
             Assert.That(Marshal.OffsetOf<NativeControlState>("Reserved").ToInt32(),Is.EqualTo(12));
-            Assert.That(NativeMethods.Version(),Is.EqualTo(7));
+            Assert.That(NativeMethods.Version(),Is.EqualTo(8));
             var oldConfig=new NativeConfig { Version=2,Size=32,Seed=7,ResidentsPerBuilding=1 };
             var pointer=NativeMethods.Create(in oldConfig);
             if(pointer!=IntPtr.Zero) NativeMethods.Destroy(pointer);
@@ -75,7 +75,7 @@ namespace WorldSim.Tests.EditMode
             var b=new byte[24+2*32];
             void U32(int o,uint v){ Array.Copy(BitConverter.GetBytes(v),0,b,o,4); }
             void F32(int o,float v){ Array.Copy(BitConverter.GetBytes(v),0,b,o,4); }
-            U32(0,7);U32(4,24);Array.Copy(BitConverter.GetBytes(7UL),0,b,8,8);U32(16,2);U32(20,32);
+            U32(0,8);U32(4,24);Array.Copy(BitConverter.GetBytes(7UL),0,b,8,8);U32(16,2);U32(20,32);
             U32(24,1);U32(32,1);F32(36,1);F32(40,2);F32(44,3);F32(48,5);F32(52,8); // building
             U32(56,2);U32(64,2);F32(68,4);F32(72,6);F32(76,0);F32(80,heading);F32(84,0); // resident, heading east towards north (default north)
             return b;

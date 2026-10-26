@@ -42,6 +42,8 @@ namespace WorldSim.Bridge
         internal static extern uint Sky(SliceHandle handle,ref CalendarSky sky);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_inspect")]
         internal static extern uint Inspect(SliceHandle handle,ulong id,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_consequences")]
+        internal static extern uint Consequences(SliceHandle handle,ulong root,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_last_error")]
         internal static extern UIntPtr Error(IntPtr handle,byte[] bytes,UIntPtr capacity);
     }
@@ -192,6 +194,25 @@ namespace WorldSim.Bridge
                 if(record.Tick!=sky.Tick||record.Time!=sky.SimTimeMicroseconds||record.StateHash!=sky.StateHash||record.Dataset!=sky.SiteDatasetVersion||record.Scale!=sky.ScaleTag)
                     throw new InvalidOperationException("Incoherent inspection/sky pair.");
                 record.Sky=sky;return record;
+            }
+        }
+        /// <summary>Apply (root zero) or refresh a bounded consequence group under one native gate.</summary>
+        public unsafe SliceIllnessSample Illness(ulong id,ulong root=0,uint severity=5,ulong durationMicroseconds=7200000000)
+        {
+            lock(gate)
+            {
+                RequireLive();
+                if(root==0) {var op=Operation(5);op.A=id;op.B=severity;op.C=durationMicroseconds;Apply(in op);}
+                var record=Inspect(id);
+                if(record.Kind!=1) throw new ArgumentException("Illness requires a resident.");
+                if(root==0) foreach(var e in record.Events) if(e.Tag==13) {root=e.Id;break;}
+                if(root==0) throw new InvalidOperationException("Missing illness intervention root.");
+                Check(NativeSliceMethods.Consequences(handle,root,(IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(inspectionBytes),(UIntPtr)inspectionBytes.Length,out var written));
+                ulong size=written.ToUInt64();if(size>8192) throw new InvalidOperationException("Oversized consequences.");
+                var consequences=ConsequencesDecoder.Decode(inspectionBytes,(int)size,Geometry,root);
+                if(consequences.Subject!=id||consequences.Tick!=record.Tick||consequences.Time!=record.Time||consequences.StateHash!=record.StateHash||consequences.Dataset!=record.Dataset)
+                    throw new InvalidOperationException("Incoherent inspection/consequences pair.");
+                return new SliceIllnessSample {Inspection=record,Consequences=consequences};
             }
         }
         public void Dispose()

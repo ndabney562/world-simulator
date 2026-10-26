@@ -8,6 +8,9 @@ use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
+#[path = "slice/illness.rs"]
+pub mod illness;
+
 #[path = "slice_inspect.rs"]
 pub mod inspect;
 #[path = "slice_render.rs"]
@@ -46,6 +49,8 @@ impl SliceConfig {
 pub enum SliceError {
     /// Cannot generate the reviewed source/population.
     Population(PopulationError),
+    /// Semantic illness rejection; replay may continue with later operations.
+    Rejected(illness::Rejection),
     /// Required schedule destination is missing.
     Destination(InvalidPopulation),
     /// Behavior/route/detail validation or planning failure.
@@ -70,6 +75,15 @@ impl std::error::Error for SliceError {}
 /// Structured Rust-side operations; no new wire/debug-file format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
+    /// Finite single-resident illness at the current committed boundary.
+    Afflict {
+        /// Existing living resident.
+        resident: EntityId,
+        /// Integer severity,1 through10.
+        severity: u32,
+        /// Grid-aligned duration, one tick through24hours.
+        duration_us: u64,
+    },
     /// Explicit physical steps, independent of scale. Large calls preserve a committed prefix on failure.
     Steps(u64),
     /// Serialized scale change, retaining pending sub-step host time.
@@ -137,6 +151,7 @@ pub struct SliceSimulation {
     config: SliceConfig,
     population: PopulatedSlice,
     vitals: ws_world::slice::vitals::Vitals,
+    illness: illness::Illness,
     schedules: Schedules,
     behavior: Behavior,
     lod: Controller,
@@ -213,6 +228,7 @@ impl SliceSimulation {
             config,
             population,
             vitals,
+            illness: illness::Illness::default(),
             schedules,
             behavior,
             lod,
@@ -291,7 +307,7 @@ impl SliceSimulation {
     /// Canonical state/configuration in explicit integer words. Host pacing,
     /// factual/operation histories, capacities and derived boundary cache are separate.
     pub fn state_hash(&self) -> u64 {
-        ws_rng::hash(
+        let vitals = ws_rng::hash(
             0,
             Purpose::new("ws-sim/slice-state/v2").value(),
             &[
@@ -299,6 +315,14 @@ impl SliceSimulation {
                 u64::from(ws_world::slice::vitals::VERSION),
                 self.vitals.state_hash(),
             ],
+        );
+        if !self.illness.has_episodes() {
+            return vitals;
+        }
+        ws_rng::hash(
+            0,
+            Purpose::new("ws-sim/slice-state/v3").value(),
+            &[vitals, u64::from(illness::VERSION), self.illness.hash()],
         )
     }
     fn legacy_state_hash(&self) -> u64 {
@@ -355,6 +379,19 @@ impl SliceSimulation {
             error: None,
         };
         match operation {
+            Operation::Afflict {
+                resident,
+                severity,
+                duration_us,
+            } => {
+                self.operation_hash.write_words(&[
+                    7,
+                    resident.raw(),
+                    u64::from(severity),
+                    duration_us,
+                ]);
+                report.error = self.afflict(resident, severity, duration_us).err();
+            }
             Operation::CameraInterest(camera) => {
                 self.operation_hash.write_words(&[
                     6,
@@ -425,9 +462,12 @@ impl SliceSimulation {
                 ]);
             }
         }
-        let stop = report.error.map(|_| self.checkpoint());
+        let stop = report
+            .error
+            .filter(|e| !matches!(e, SliceError::Rejected(_)))
+            .map(|_| self.checkpoint());
         if let Some(error) = report.error {
-            let at = stop.unwrap();
+            let at = self.checkpoint();
             self.operation_hash.write_words(&[
                 4,
                 error_tag(error),
@@ -481,7 +521,12 @@ impl SliceSimulation {
             .map_err(|_| ReplayError::Simulation(SliceError::Resource))?;
         let mut stopped = false;
         for (index, record) in records.iter().enumerate() {
-            if record.report.error.is_some() && index + 1 != records.len() {
+            if record
+                .report
+                .error
+                .is_some_and(|e| !matches!(e, SliceError::Rejected(_)))
+                && index + 1 != records.len()
+            {
                 return Err(ReplayError::Record(index));
             }
             if matches!(
@@ -500,6 +545,21 @@ impl SliceSimulation {
                         if report.error.is_some() {
                             return Err(ReplayError::Record(index));
                         }
+                    }
+                    Operation::Afflict {
+                        resident,
+                        severity,
+                        duration_us,
+                    } if record.report.committed == 0 => {
+                        world
+                            .afflict_preflight(resident, severity, duration_us)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world.operation_hash.write_words(&[
+                            7,
+                            resident.raw(),
+                            u64::from(severity),
+                            duration_us,
+                        ]);
                     }
                     Operation::HostElapsed(elapsed) => {
                         let mut target = world.clock.clone();
@@ -544,7 +604,9 @@ impl SliceSimulation {
                 {
                     return Err(ReplayError::Record(index));
                 }
-                stopped = report.error.is_some();
+                stopped = report
+                    .error
+                    .is_some_and(|e| !matches!(e, SliceError::Rejected(_)));
             }
             saved.push(*record);
         }
@@ -558,6 +620,25 @@ impl SliceSimulation {
         if self.fail_tick == Some(clock.steps()) {
             return Err(SliceError::History(EventError::Resource));
         }
+        let minute = self
+            .behavior
+            .next_decision()
+            .is_some_and(|t| t <= clock.now());
+        let schedule_due = self.next_change.is_some_and(|t| t <= clock.now());
+        let mut previous = Vec::new();
+        if schedule_due {
+            previous
+                .try_reserve(self.schedules.profiles().len())
+                .map_err(|_| SliceError::History(EventError::Resource))?;
+            for p in self.schedules.profiles() {
+                previous.push((
+                    p.resident,
+                    self.behavior
+                        .common(p.resident, self.clock.now())
+                        .map(|s| s.logical.activity),
+                ));
+            }
+        }
         let mut behavior = self
             .behavior
             .prepare(clock.now())
@@ -566,6 +647,14 @@ impl SliceSimulation {
         if self.fail_behavior_tick == Some(clock.steps()) {
             return Err(SliceError::Behavior(BehaviorError::Resource));
         }
+        let mut illness_plan = self.illness.prepare_tick(
+            &mut behavior,
+            &self.population,
+            &self.schedules,
+            &self.vitals,
+            minute,
+            schedule_due,
+        )?;
         let lod = self
             .lod
             .prepare(&mut behavior, clock.scale().multiplier())
@@ -578,12 +667,29 @@ impl SliceSimulation {
         if self.fail_after_behavior_tick == Some(clock.steps()) {
             return Err(SliceError::History(EventError::Resource));
         }
-        let schedule_due = self.next_change.is_some_and(|t| t <= clock.now());
         let (mut facts, next) = if schedule_due {
-            let facts = self
+            let mut facts = self
                 .schedules
                 .facts_at(clock.now())
                 .map_err(SliceError::History)?;
+            facts.retain(|c| {
+                let Payload::ScheduleChanged {
+                    resident,
+                    previous: old,
+                    next,
+                    ..
+                } = c.payload
+                else {
+                    return true;
+                };
+                previous
+                    .iter()
+                    .find(|(id, _)| *id == resident)
+                    .is_some_and(|(_, a)| *a == Ok(old))
+                    && behavior
+                        .common(resident)
+                        .is_ok_and(|s| s.logical.activity == next)
+            });
             let next = self.schedules.next_change(clock.now());
             (facts, next)
         } else {
@@ -597,12 +703,22 @@ impl SliceSimulation {
                 .enumerate()
                 .map(|(i, c)| c.fact(clock.now(), i as u64)),
         );
+        facts
+            .try_reserve(illness_plan.facts.len())
+            .map_err(|_| SliceError::History(EventError::Resource))?;
+        facts.append(&mut illness_plan.facts);
+        facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        let updates = self.illness.stage_index(
+            &facts,
+            self.events.counters().map_err(SliceError::History)?.0,
+        )?;
         self.events
             .prepare(clock.steps(), &facts)
             .map_err(SliceError::History)?
             .commit();
         behavior.commit();
         lod.commit();
+        self.illness.commit(illness_plan, updates, &mut self.vitals);
         self.next_change = next;
         self.clock = clock;
         Ok(())
@@ -616,6 +732,7 @@ fn lod_error(error: LodError) -> SliceError {
 }
 fn error_tag(error: SliceError) -> u64 {
     match error {
+        SliceError::Rejected(e) => 100 + e as u64,
         SliceError::Population(_) => 1,
         SliceError::Destination(_) => 2,
         SliceError::Grid => 3,

@@ -8,6 +8,21 @@ namespace WorldSim.Rendering
     {
         static readonly string[] Activities={"Sleep","Commute","Work","School","Errands","Home"};
         static readonly string[] Employment={"Not employed","Student","Employed","Retired"};
+        public static string Consequences(SliceIllnessSample sample)
+        {
+            var text=new System.Text.StringBuilder("Illness consequences\nHealth: ");text.Append(sample.Inspection.Health).Append("/100\n");
+            for(int i=0;i<sample.Consequences.Events.Length;i++) {
+                var e=sample.Consequences.Events[i];string name=e.Tag==13?(e.E==0?"Already affected (no change)":"Curse applied"):e.Tag==5?"Illness began":e.Tag==6?"Returned home":e.Tag==10?(e.C==2?"Missed work":"Missed school"):e.Tag==11?"Neighbour check-in":e.Tag==12?"Recovered":"Unknown";
+                text.Append(name);
+                foreach(var cause in sample.Consequences.Causes[i]) {
+                    text.Append(cause.Confidence==0?(cause.Relation==3?" · Direct contribution":" · Direct"):" · Contributing");
+                    string parent="Illness";foreach(var prior in sample.Consequences.Events) if(prior.Id==cause.Parent&&prior.Tag==13) parent="Curse";
+                    text.Append(" ← ").Append(parent);
+                }
+                text.Append('\n');
+            }
+            return text.ToString();
+        }
         public static string Format(SliceInspection r)
         {
             if(r.Kind==1)

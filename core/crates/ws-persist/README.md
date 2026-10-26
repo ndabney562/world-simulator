@@ -56,3 +56,5 @@ Entity IDs and cell IDs are stored with their sign bit flipped, so SQLite's sign
 | 5,000 | 17.6 ms | 16.0 ms | 975 KB | 1,972 |
 
 A 5,000-agent save is two to three frames of the 8 ms simulation budget, so autosave on device will need the background write that 14-persistence §15.3 describes (copy canonical state at a tick boundary, write on another thread). That is out of scope here and is measured on device in TP-011. Load time is not on the frame path.
+
+ADR0034 tags10–13 are explicitly rejected by legacy toy save writing, alongside other slice-only payloads. Existing save formats/fixtures remain unchanged; real-slice episode/routine persistence belongs to #75.

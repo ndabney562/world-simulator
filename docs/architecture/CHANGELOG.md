@@ -211,3 +211,7 @@ Implements merged ADR0033 with a retained independent core vitals column, stable
 ## 2026-10-21 — Accepted VS-010 illness
 
 ADR0034 (#101) accepts real-slice finite fever state/behavior/provenance, bounded produced-consequence query and ABI8/schema3. Preserves old healthy/toy paths, goldens and fixtures; no mortality, new dependency/source, save format or device/stage claim.
+
+## 2026-10-21 — Implement VS-010 illness
+
+#74 implements accepted ADR0034: finite health effects, continuous return/rest/rejoin routines, missed duty, actual L1 same-building neighbour check-ins and recovery, explicit bounded causal groups, replayable semantic rejection and ABI8/schema3 inspector action/readout. Existing five person fields, healthy/toy hashes, fixtures, nightly tests and hosted checks remain. Saves and device/stage acceptance remain separate.

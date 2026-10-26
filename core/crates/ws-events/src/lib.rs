@@ -291,6 +291,46 @@ pub enum Payload {
         /// Residents actually changed to L1 under this governing node.
         promoted: u32,
     },
+    /// Actual duty interruption or missed scheduled duty caused by an episode.
+    MissedDuty {
+        /// Affected resident.
+        resident: EntityId,
+        /// Registered duty destination.
+        destination: EntityId,
+        /// Work or School only.
+        activity: Activity,
+    },
+    /// Actual L1 same-building social check-in.
+    NeighbourCheckIn {
+        /// Visiting resident.
+        visitor: EntityId,
+        /// Ill resident.
+        patient: EntityId,
+        /// Shared home building.
+        home: EntityId,
+        /// Intended visit duration; later interventions may interrupt.
+        intended_duration_us: u64,
+    },
+    /// Finite episode recovery.
+    Recovered {
+        /// Recovered resident.
+        resident: EntityId,
+        /// Authoritative restored health.
+        health: u32,
+    },
+    /// Real-slice intervention root, including accepted duplicate no-ops.
+    SliceIllnessApplied {
+        /// Target resident.
+        resident: EntityId,
+        /// Normalized operation-record index.
+        sequence: u64,
+        /// Severity 1 through 10.
+        severity: u32,
+        /// Requested duration, integer microseconds.
+        duration_us: u64,
+        /// Zero for duplicate, one for a new episode.
+        affected: u32,
+    },
     /// An ill resident arrived at its home.
     ReturnedHome {
         /// The resident.
@@ -303,6 +343,10 @@ impl Payload {
     /// Hierarchical event taxonomy name.
     pub fn name(self) -> &'static str {
         match self {
+            Self::MissedDuty { .. } => "life.missed_duty",
+            Self::NeighbourCheckIn { .. } => "social.neighbour_check_in",
+            Self::Recovered { .. } => "life.recovered",
+            Self::SliceIllnessApplied { .. } => "intervention.slice_illness_applied",
             Self::WorldCreated { .. } => "sim.world_created",
             Self::CommandApplied { .. } => "sim.command_applied",
             Self::LodChanged { .. } => "sim.lod_changed",
@@ -318,6 +362,10 @@ impl Payload {
     /// Stable initial payload tag (schema version is separate).
     pub fn tag(self) -> u32 {
         match self {
+            Self::MissedDuty { .. } => 10,
+            Self::NeighbourCheckIn { .. } => 11,
+            Self::Recovered { .. } => 12,
+            Self::SliceIllnessApplied { .. } => 13,
             Self::WorldCreated { .. } => 0,
             Self::CommandApplied { .. } => 1,
             Self::LodChanged { .. } => 2,
@@ -333,6 +381,10 @@ impl Payload {
     /// Initial quantized importance, without floating relevance calculation.
     pub fn importance(self) -> u16 {
         match self {
+            Self::MissedDuty { .. } | Self::NeighbourCheckIn { .. } | Self::Recovered { .. } => {
+                8192
+            }
+            Self::SliceIllnessApplied { .. } => 32768,
             Self::WorldCreated { .. } => 65535,
             Self::CommandApplied { .. } => 0,
             Self::LodChanged { .. } => 16384,
@@ -450,6 +502,36 @@ impl Event {
             Origin::Command(n) => sink(&[1, n]),
         }
         match self.record.payload {
+            Payload::MissedDuty {
+                resident,
+                destination,
+                activity,
+            } => sink(&[resident.raw(), destination.raw(), activity as u64]),
+            Payload::NeighbourCheckIn {
+                visitor,
+                patient,
+                home,
+                intended_duration_us,
+            } => sink(&[
+                visitor.raw(),
+                patient.raw(),
+                home.raw(),
+                intended_duration_us,
+            ]),
+            Payload::Recovered { resident, health } => sink(&[resident.raw(), u64::from(health)]),
+            Payload::SliceIllnessApplied {
+                resident,
+                sequence,
+                severity,
+                duration_us,
+                affected,
+            } => sink(&[
+                resident.raw(),
+                sequence,
+                u64::from(severity),
+                duration_us,
+                u64::from(affected),
+            ]),
             Payload::WorldCreated {
                 seed,
                 dataset,
@@ -702,6 +784,111 @@ impl EventStore {
             }
             let known = |id: EntityId| self.known.binary_search(&id).is_ok();
             match c.payload {
+                Payload::SliceIllnessApplied {
+                    resident,
+                    sequence,
+                    severity,
+                    duration_us,
+                    affected,
+                } => {
+                    if !known(resident) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.system != 10
+                        || c.lod != 0
+                        || c.origin != Origin::Command(sequence)
+                        || !(1..=10).contains(&severity)
+                        || !(100_000..=86_400_000_000).contains(&duration_us)
+                        || duration_us % 100_000 != 0
+                        || affected > 1
+                        || !c.actors.iter().copied().eq([Actor {
+                            id: resident,
+                            role: Role::Subject,
+                        }])
+                        || !c.causes.is_empty()
+                        || !c.related.is_empty()
+                        || c.location.is_some()
+                    {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::MissedDuty {
+                    resident,
+                    destination,
+                    activity,
+                } => {
+                    if !known(resident) || !known(destination) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.system != 80
+                        || !matches!(c.lod, 1 | 2)
+                        || c.origin != Origin::System(80)
+                        || !matches!(activity, Activity::Work | Activity::School)
+                        || !c.actors.iter().copied().eq([
+                            Actor {
+                                id: resident,
+                                role: Role::Subject,
+                            },
+                            Actor {
+                                id: destination,
+                                role: Role::Object,
+                            },
+                        ])
+                        || !slice_cause(c, Relation::CausedBy, Confidence::Direct)
+                    {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::NeighbourCheckIn {
+                    visitor,
+                    patient,
+                    home,
+                    intended_duration_us,
+                } => {
+                    if !known(visitor) || !known(patient) || !known(home) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.system != 81
+                        || c.lod != 1
+                        || c.origin != Origin::System(81)
+                        || visitor == patient
+                        || intended_duration_us != 300_000_000
+                        || !c.actors.iter().copied().eq([
+                            Actor {
+                                id: visitor,
+                                role: Role::Subject,
+                            },
+                            Actor {
+                                id: patient,
+                                role: Role::Object,
+                            },
+                            Actor {
+                                id: home,
+                                role: Role::Object,
+                            },
+                        ])
+                        || !slice_cause(c, Relation::ContributedTo, Confidence::Contributing)
+                    {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::Recovered { resident, health } => {
+                    if !known(resident) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.system != 82
+                        || !matches!(c.lod, 1 | 2)
+                        || c.origin != Origin::System(82)
+                        || health != 100
+                        || !c.actors.iter().copied().eq([Actor {
+                            id: resident,
+                            role: Role::Subject,
+                        }])
+                        || !slice_cause(c, Relation::CausedBy, Confidence::Direct)
+                    {
+                        return Err(EventError::Order);
+                    }
+                }
                 Payload::LodChanged {
                     building, from, to, ..
                 } => {
@@ -1053,7 +1240,11 @@ impl EventStore {
                 None => break,
             }
         }
-        matches!(at.record.payload, Payload::InterventionApplied { .. }).then_some(at)
+        matches!(
+            at.record.payload,
+            Payload::InterventionApplied { .. } | Payload::SliceIllnessApplied { .. }
+        )
+        .then_some(at)
     }
     /// Reconstructs counters/indices from committed records (not a save codec).
     pub fn from_records(known: Vec<EntityId>, records: &[Event]) -> Result<Self, EventError> {
@@ -1075,6 +1266,14 @@ impl EventStore {
         }
         Ok(store)
     }
+}
+fn slice_cause(c: &Candidate, relation: Relation, confidence: Confidence) -> bool {
+    c.causes.len() == 1
+        && c.causes
+            .iter()
+            .all(|v| v.relation == relation && v.confidence == confidence)
+        && c.related.is_empty()
+        && c.location.is_none()
 }
 /// Query result; IDs are visited deterministically, never silently complete on cutoff.
 #[derive(Debug, PartialEq, Eq)]

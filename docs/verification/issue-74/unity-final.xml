@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="4" result="Passed" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.7840078">
+  <test-suite type="TestSuite" id="1000" name="World Simulator" fullname="World Simulator" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.784008" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1086" name="WorldSim.Tests.EditMode.dll" fullname="/Users/noahdabney/.codex/.chatgpt-projects/g-p-6ad24ebdfa708191b16f3c23ce0edb2a/world-simulator-74/apps/unity/Library/ScriptAssemblies/WorldSim.Tests.EditMode.dll" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.753342" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="50842" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1087" name="WorldSim" fullname="WorldSim" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.750746" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1088" name="Tests" fullname="WorldSim.Tests" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.748713" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1089" name="EditMode" fullname="WorldSim.Tests.EditMode" runstate="Runnable" testcasecount="68" result="Passed" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.746500" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1047" name="InspectionTests" fullname="WorldSim.Tests.EditMode.InspectionTests" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" testcasecount="10" result="Passed" start-time="2026-10-21 20:26:01Z" end-time="2026-10-21 20:27:20Z" duration="78.743220" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1048" name="ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies" fullname="WorldSim.Tests.EditMode.InspectionTests.ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies" methodname="ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="819447253" result="Passed" start-time="2026-10-21 20:25:59Z" end-time="2026-10-21 20:25:59Z" duration="0.050141" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1049" name="ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction" fullname="WorldSim.Tests.EditMode.InspectionTests.ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction" methodname="ActualNativeL1NeighbourVisitHasContributingProvenanceAndHeldSocialAction" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="1307506470" result="Passed" start-time="2026-10-21 20:25:59Z" end-time="2026-10-21 20:25:59Z" duration="0.003724" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1050" name="ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication" fullname="WorldSim.Tests.EditMode.InspectionTests.ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication" methodname="ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="1651186847" result="Passed" start-time="2026-10-21 20:25:59Z" end-time="2026-10-21 20:25:59Z" duration="0.012771" asserts="0">
+                <properties />
+              </test-case>
+              <test-case id="1056" name="RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" fullname="WorldSim.Tests.EditMode.InspectionTests.RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" methodname="RealSceneTapsInspectBuildingAndResidentAndNeverPollTheSelection" classname="WorldSim.Tests.EditMode.InspectionTests" runstate="Runnable" seed="1489335917" result="Passed" start-time="2026-10-21 20:25:59Z" end-time="2026-10-21 20:27:20Z" duration="81.032368" asserts="0">
+                <properties>
+                  <property name="_JOINTYPE" value="UnityCombinatorial" />
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Ignoring depth surface load action as it is memoryless
+Ignoring depth surface store action as it is memoryless
+Saving results to: /Users/noahdabney/Library/Application Support/World Simulator/World Simulator/TestResults.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

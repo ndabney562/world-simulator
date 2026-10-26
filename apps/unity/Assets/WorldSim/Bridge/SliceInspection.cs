@@ -19,7 +19,8 @@ namespace WorldSim.Bridge
     public sealed class SliceInspection
     {
         public ulong Id,Tick,StateHash,Dataset,Home,Household,Workplace,Bin,Bbl,From,To;
-        public long Time,ScheduleEpoch;
+        public long Time,ScheduleEpoch,IllnessEnd;
+        public uint OverrideKind;public bool IllnessActive;public ulong OverrideRoot,OwnRoot;
         public uint Kind,Scale,Age,Role,Sex,Health,Life,Detail,Activity,Action,Location,FromExit,ToExit,HeightMm,Units;
         public int Jitter;
         public bool MoreEvents;
@@ -44,14 +45,24 @@ namespace WorldSim.Bridge
             return Utf8.GetString(bytes);
         }
         static bool Endpoint(SliceGeometry g,ulong id,uint exit)=>id!=0&&(exit==uint.MaxValue?g.IsFeatured(id):exit<=1&&!g.IsFeatured(id));
+        internal static void ValidateIllnessEvent(InspectionEvent e,uint kind,ulong id,SliceGeometry geometry)
+        {
+            if(e.Tag==5) Require(kind==1&&e.A==id&&e.B==0&&e.C>=1&&e.C<=10&&e.D==0&&e.E==0);
+            else if(e.Tag==6) Require(e.A!=0&&geometry.IsFeatured(e.B)&&e.C==0&&e.D==0&&e.E==0&&(kind==1?e.A==id:e.B==id));
+            else if(e.Tag==10) Require(e.A!=0&&e.B!=0&&(e.C==2||e.C==3)&&e.D==0&&e.E==0&&(kind==1?e.A==id:e.B==id));
+            else if(e.Tag==11) Require(e.A!=0&&e.B!=0&&e.A!=e.B&&geometry.IsFeatured(e.C)&&e.D==300000000&&e.E==0&&(kind==1?e.A==id||e.B==id:e.C==id));
+            else if(e.Tag==12) Require(kind==1&&e.A==id&&e.B==100&&e.C==0&&e.D==0&&e.E==0);
+            else if(e.Tag==13) Require(kind==1&&e.A==id&&e.C>=1&&e.C<=10&&e.D>=100000&&e.D<=86400000000&&e.D%100000==0&&e.E<=1);
+            else throw new ArgumentException("Unsupported inspection event vocabulary.");
+        }
         /// <summary>Validate a whole bounded record before returning a new published value.</summary>
         public static SliceInspection Decode(NativeArray<byte> b,int length,SliceGeometry geometry,ulong expectedId)
         {
             Require(b.IsCreated&&length>=96&&length<=8192&&length<=b.Length&&geometry!=null&&expectedId!=0);
-            NativeWorld.RequireVersion(U32(b,0));Require(U32(b,4)==96&&U32(b,48)==2&&U32(b,56)==length);
+            NativeWorld.RequireVersion(U32(b,0));Require(U32(b,4)==96&&U32(b,48)==3&&U32(b,56)==length);
             uint kind=U32(b,52),identity=U32(b,64),state=U32(b,68),rows=U32(b,72),events=U32(b,76);
             Require((kind==1||kind==2)&&U64(b,40)==expectedId&&U64(b,32)==SliceGeometry.DatasetVersion&&
-                U32(b,60)<=1&&identity>=8&&identity<=1024&&state==(kind==1?80:48)&&rows<=32&&events<=16&&
+                U32(b,60)<=1&&identity>=8&&identity<=1024&&state==(kind==1?112:48)&&rows<=32&&events<=16&&
                 U32(b,80)==48&&U32(b,84)==80&&Scale(U32(b,88))&&U32(b,92)==0&&
                 96UL+identity+state+rows*48UL+events*80UL==(ulong)length&&
                 (kind==1?!geometry.IsFeatured(expectedId):geometry.IsFeatured(expectedId)));
@@ -79,6 +90,12 @@ namespace WorldSim.Bridge
                 for(int i=0;i<4;i++) {r.Deficits[i]=U32(b,stateAt+16+i*4);Require(r.Deficits[i]<=100000);}
                 r.From=U64(b,stateAt+32);r.To=U64(b,stateAt+40);r.FromExit=U32(b,stateAt+48);r.ToExit=U32(b,stateAt+52);
                 r.Health=U32(b,stateAt+56);r.Life=U32(b,stateAt+60);
+                r.OverrideKind=U32(b,stateAt+80);r.IllnessActive=U32(b,stateAt+84)==1;r.OverrideRoot=U64(b,stateAt+88);r.OwnRoot=U64(b,stateAt+96);r.IllnessEnd=unchecked((long)U64(b,stateAt+104));
+                Require(r.OverrideKind<=2&&U32(b,stateAt+84)<=1&&(r.OverrideKind==0)==(r.OverrideRoot==0)&&
+                    (r.IllnessActive?r.Life==0&&r.Health>=1&&r.Health<100&&r.OwnRoot!=0&&r.IllnessEnd>r.Time&&r.OverrideKind==1&&r.OverrideRoot==r.OwnRoot:r.IllnessEnd==0)&&
+                    (r.OverrideKind==0||r.Activity==1||r.Activity==5&&r.Location==0&&r.From==r.Home)&&
+                    (r.OverrideKind!=1||r.Activity==1&&r.Action==5||r.Activity==5&&r.Action==1)&&
+                    (r.OverrideKind!=2||r.Activity==5&&r.Action==3&&r.Health==100&&r.Life==0));
                 r.ScheduleEpoch=unchecked((long)U64(b,stateAt+64));r.Jitter=unchecked((int)U32(b,stateAt+72));
                 Require(r.Detail>=1&&r.Detail<=2&&r.Activity<=5&&r.Action<=6&&r.Location<=2&&r.Health<=100&&r.Life<=1&&(r.Life==0?r.Health>=1:r.Health==0)&&
                     r.Jitter>=-15&&r.Jitter<=15&&U32(b,stateAt+76)==1&&Endpoint(geometry,r.From,r.FromExit)&&Endpoint(geometry,r.To,r.ToExit)&&
@@ -124,9 +141,18 @@ namespace WorldSim.Bridge
                 decimal within=delta%dayUs;if(within<0) within+=dayUs;uint minute=(uint)(within/60000000m);
                 InspectionSchedule current=default;
                 foreach(var row in r.Schedule) if(row.Table==table&&row.Minute<=minute) current=row;
+                if(r.OverrideKind==0) {
                 Require(r.Activity==current.Activity);
                 if(current.OriginKind==0) Require(r.Location==(current.DestinationKind==0?0u:1u)&&r.To==current.Destination&&r.ToExit==current.DestinationExit);
                 else Require(r.Location==2&&r.From==current.Origin&&r.FromExit==current.OriginExit&&r.To==current.Destination&&r.ToExit==current.DestinationExit);
+                } else if(r.Location==2) {
+                    bool baselineLeg=false,knownFrom=false;
+                    foreach(var row in r.Schedule) {
+                        if(row.Destination==r.From&&row.DestinationExit==r.FromExit||row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit) knownFrom=true;
+                        if(row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit&&row.Destination==r.To&&row.DestinationExit==r.ToExit) baselineLeg=true;
+                    }
+                    Require(r.OverrideKind==1&&r.Action==5&&(r.To==r.Home&&r.ToExit==uint.MaxValue&&knownFrom||baselineLeg));
+                }
             }
             r.Events=new InspectionEvent[(int)events];
             for(int i=0;i<r.Events.Length;i++,at+=80)
@@ -138,10 +164,65 @@ namespace WorldSim.Bridge
                 for(int j=0;j<i;j++) Require(r.Events[j].Id!=e.Id);
                 if(e.Tag==7) Require(e.A!=0&&e.B!=0&&e.C<=5&&e.D<=5&&e.C!=e.D&&e.E==0&&(kind==1?e.A==r.Id:e.B==r.Id));
                 else if(e.Tag==9) Require(kind==2&&e.A==r.Id&&e.B>=1&&e.B<=3&&e.C>=1&&e.C<=3&&e.D<=30&&e.E<=30&&(e.B!=e.C||e.D!=0||e.E!=0));
-                else throw new ArgumentException("Unsupported inspection event vocabulary.");
+                else ValidateIllnessEvent(e,kind,r.Id,geometry);
                 r.Events[i]=e;
             }
             Require(at==length&&(!r.MoreEvents||events==16));return r;
         }
     }
+    public struct ConsequenceCause {public ulong Parent;public uint Relation,Confidence;}
+    public sealed class SliceConsequences
+    {
+        public ulong Tick,StateHash,Dataset,Root,Subject;public long Time,Applied,End;public uint Severity;
+        public InspectionEvent[] Events=Array.Empty<InspectionEvent>();
+        public ConsequenceCause[][] Causes=Array.Empty<ConsequenceCause[]>();
+    }
+    public sealed class SliceIllnessSample {public SliceInspection Inspection;public SliceConsequences Consequences;}
+    public static class ConsequencesDecoder
+    {
+        static void Require(bool valid) {if(!valid) throw new ArgumentException("Invalid native consequences record.");}
+        public static SliceConsequences Decode(NativeArray<byte> b,int length,SliceGeometry geometry,ulong expectedRoot)
+        {
+            Require(b.IsCreated&&length>=96&&length<=8192&&length<=b.Length&&geometry!=null&&expectedRoot!=0);
+            NativeWorld.RequireVersion(SliceDecoder.U32(b,0));
+            uint count=SliceDecoder.U32(b,60);
+            Require(SliceDecoder.U32(b,4)==96&&SliceDecoder.U32(b,56)==count&&count>=1&&count<=16&&SliceDecoder.U32(b,64)==128&&
+                SliceDecoder.U32(b,68)==0&&SliceDecoder.U32(b,72)==1&&length==96+count*128&&SliceDecoder.U64(b,40)==expectedRoot&&
+                SliceDecoder.U64(b,32)==SliceGeometry.DatasetVersion);
+            var r=new SliceConsequences {Tick=SliceDecoder.U64(b,8),Time=unchecked((long)SliceDecoder.U64(b,16)),StateHash=SliceDecoder.U64(b,24),Dataset=SliceDecoder.U64(b,32),
+                Root=expectedRoot,Subject=SliceDecoder.U64(b,48),Severity=SliceDecoder.U32(b,76),Applied=unchecked((long)SliceDecoder.U64(b,80)),End=unchecked((long)SliceDecoder.U64(b,88)),
+                Events=new InspectionEvent[count],Causes=new ConsequenceCause[count][]};
+            Require(r.Subject!=0&&!geometry.IsFeatured(r.Subject)&&r.Severity>=1&&r.Severity<=10&&r.Applied<=r.Time);
+            for(int i=0,at=96;i<count;i++,at+=128)
+            {
+                var e=new InspectionEvent {Id=SliceDecoder.U64(b,at),Time=unchecked((long)SliceDecoder.U64(b,at+8)),Tick=SliceDecoder.U64(b,at+16),Ordinal=SliceDecoder.U64(b,at+24),Tag=SliceDecoder.U32(b,at+32),
+                    A=SliceDecoder.U64(b,at+40),B=SliceDecoder.U64(b,at+48),C=SliceDecoder.U64(b,at+56),D=SliceDecoder.U64(b,at+64),E=SliceDecoder.U64(b,at+72)};
+                Require(e.Id!=0&&e.Ordinal!=0&&e.Time>=r.Applied&&e.Time<=r.Time&&e.Tick<=r.Tick&&SliceDecoder.U32(b,at+36)==1&&
+                    (i==0?e.Id==r.Root:e.Id>r.Events[i-1].Id)&&SliceDecoder.U32(b,at+84)==0&&SliceDecoder.U64(b,at+120)==0);
+                InspectionDecoder.ValidateIllnessEvent(e,1,r.Subject,geometry);
+                uint causes=SliceDecoder.U32(b,at+80);Require(causes<=2);r.Causes[i]=new ConsequenceCause[causes];
+                if(i==0) Require(e.Tag==13&&e.Time==r.Applied&&e.C==r.Severity&&causes==0&&
+                    (e.E==0?r.End==0&&count==1:count>=2&&(decimal)r.End-r.Applied==e.D));
+                else Require(e.Tag!=13&&causes==1);
+                if(e.Tag==5) Require(i==1&&e.Time==r.Applied&&e.C==r.Severity);
+                if(e.Tag==11) Require(e.B==r.Subject&&e.Time<r.End);
+                if(e.Tag==12) Require(e.Time==r.End);
+                int priorMisses=0;for(int k=0;k<i;k++) {if(r.Events[k].Tag==10) priorMisses++;Require(e.Tag==10||e.Tag!=r.Events[k].Tag);}
+                if(e.Tag==10) Require(priorMisses<2);
+                for(int j=0;j<2;j++)
+                {
+                    int offset=at+88+j*16;var c=new ConsequenceCause {Parent=SliceDecoder.U64(b,offset),Relation=SliceDecoder.U32(b,offset+8),Confidence=SliceDecoder.U32(b,offset+12)};
+                    if(j>=causes) {Require(c.Parent==0&&c.Relation==0&&c.Confidence==0);continue;}
+                    int parent=-1;for(int k=0;k<i;k++) if(r.Events[k].Id==c.Parent) parent=k;
+                    Require(parent>=0&&r.Events[parent].Time<=e.Time&&c.Relation<=3&&c.Confidence<=3);
+                    Require(e.Tag==5?parent==0&&c.Relation==0&&c.Confidence==0:r.Events[parent].Tag==5&&
+                        (e.Tag==11?c.Relation==3&&c.Confidence==1:e.Tag==6?c.Relation==3&&c.Confidence==0:c.Relation==0&&c.Confidence==0));
+                    r.Causes[i][j]=c;
+                }
+                r.Events[i]=e;
+            }
+            return r;
+        }
+    }
+
 }
