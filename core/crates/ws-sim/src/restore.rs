@@ -135,9 +135,18 @@ impl World {
             .ids()
             .iter()
             .chain(toy.residents().ids())
+            .chain(toy.tombstones().ids())
             .copied()
             .collect();
         let events = EventStore::from_records(known, &events).map_err(RestoreError::History)?;
+        for (_, t) in toy.tombstones().iter() {
+            if t.deleted_tick > clock.steps() {
+                return Err(RestoreError::Journal("a tombstone is from a future tick"));
+            }
+            if t.root_event != 0 && events.get(ws_events::EventId(t.root_event)).is_none() {
+                return Err(RestoreError::History(EventError::Cause));
+            }
+        }
         if next_sequence == 0 {
             return Err(RestoreError::Journal("the next sequence is zero"));
         }
@@ -174,6 +183,22 @@ impl World {
                 return Err(RestoreError::Journal(
                     "a scheduled intervention is inconsistent",
                 ));
+            }
+            match i.target {
+                crate::commands::InterventionTarget::Entity(id) => {
+                    if !toy.residents().contains(id) {
+                        return Err(RestoreError::Journal(
+                            "a scheduled intervention targets a missing or tombstoned resident",
+                        ));
+                    }
+                }
+                crate::commands::InterventionTarget::ResidentsOf(id) => {
+                    if !toy.buildings().contains(id) {
+                        return Err(RestoreError::Journal(
+                            "a scheduled intervention targets a missing or tombstoned building",
+                        ));
+                    }
+                }
             }
         }
         Ok(Self {

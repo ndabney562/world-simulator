@@ -60,6 +60,25 @@ pub enum LoadError {
         /// The newest version this build reads.
         supported: u32,
     },
+    /// The save's pinned baseline dataset or content digest is not available
+    /// in the local baseline registry (ADR 0025 §3).
+    MissingBaseline {
+        /// Dataset identifier recorded in the save.
+        dataset_id: u32,
+        /// Dataset version recorded in the save.
+        dataset_version: u64,
+        /// Expected 32-byte content SHA-256 recorded in the save.
+        sha256: [u8; 32],
+    },
+    /// The save's baseline declares a generator, rules, or identity-policy
+    /// version (or collision overrides) that this build does not support
+    /// (ADR 0025 §1, §3).
+    UnsupportedBaseline {
+        /// Which baseline field is unsupported.
+        field: &'static str,
+        /// The version or count recorded in the save.
+        version: u64,
+    },
     /// A table or the header is missing, or a record does not decode.
     Corrupt {
         /// Where.
@@ -93,6 +112,23 @@ impl fmt::Display for LoadError {
                 f,
                 "save format version {found} is not supported (this build reads up to {supported})"
             ),
+            Self::MissingBaseline {
+                dataset_id,
+                dataset_version,
+                sha256,
+            } => {
+                write!(
+                    f,
+                    "missing baseline dataset {dataset_id} version {dataset_version} (sha256 "
+                )?;
+                for b in sha256 {
+                    write!(f, "{b:02x}")?;
+                }
+                f.write_str(")")
+            }
+            Self::UnsupportedBaseline { field, version } => {
+                write!(f, "unsupported baseline {field} version {version}")
+            }
             Self::Corrupt { table, reason } => write!(f, "corrupt save ({table}): {reason}"),
             Self::Toy(e) => write!(f, "the save's entities do not fit together: {e}"),
             Self::Invalid(e) => write!(f, "the save is not a valid world: {e}"),

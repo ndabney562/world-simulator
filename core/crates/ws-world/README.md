@@ -7,10 +7,10 @@ The world model. As of TP-006 (#7) it holds the Technical Prototype **toy world*
 | Module | Provides |
 |---|---|
 | `slice` | `SliceWorld`, fixed-point source geometry, four detailed buildings and the 58-footprint context baseline (VS-002) |
-| `dataset` | `TOY_BUILDINGS` (constant, `TOY_DATASET_VERSION = 1`); `Dataset` and `BuildingSite` |
-| `ids` | Procedural IDs and generator decisions: `building_id`, `resident_id`, `resident_count`, `residents`, `next_target`; the crate's `Purpose` labels |
+| `dataset` | `TOY_BUILDINGS` (constant, `TOY_DATASET_ID = 1`, `TOY_DATASET_VERSION = 1`), generator/policy version constants, `Dataset` (`canonical_bytes`, `content_sha256`), `BuildingSite`, and FIPS 180-4 `sha256` |
+| `ids` | Procedural IDs and generator decisions: `building_id`, `resident_id`, `resident_count`, `residents`, `next_target`; the crate's `Purpose` labels (including `PURPOSE_STRUCTURAL_DIGEST`) |
 | `lod` | Simulation LOD (ADR 0017): `Lod`, `Background`, `Activity`, `Origin`; `ToyWorld::set_lod` (the transition transaction), `tick` (reconcile, L1 movement, L2 drain), `advance_background`, `check_lod_invariants`, `conservation_summary`; `LodError`, `LodViolation`, `TransitionReport` |
-| crate root | `ToyWorld`: generation, insertion, the movement system `step`, `state_hash`; components `Building`, `Resident`, `Walk`; `WalkParams`, `WorldError` |
+| crate root | `ToyWorld`: generation, insertion, structural delta operations (`override_building`, `override_resident`, `promote_notable`, `tombstone_resident`, `tombstone_building`, `spawn_building`, `spawn_resident`), the movement system `step`, `state_hash`, `structural_digest`; components `Building`, `Resident`, `Walk`, `BaselineAddress`, `Tombstone`; `WalkParams`, `WorldError` |
 
 ## Owned state
 
@@ -45,7 +45,7 @@ Domain plans expose actual `ArrivalFact`s (L1 completed boundary, L2 scheduled a
 
 ## Saving
 
-`ToyWorld::to_parts` returns the canonical rows (`ToyParts`, ascending ID order) and `ToyWorld::from_parts` rebuilds a world from rows in any order, deriving the L2 event queue and the unreconciled-residency set. It rejects repeated IDs and residents whose home is missing; the caller runs `check_lod_invariants` for the rest (`World::from_parts` does). The file format is in `ws-persist`.
+`ToyWorld::to_parts` returns the canonical rows (`ToyParts`, ascending ID order) and `ToyWorld::from_parts` rebuilds a world from rows in any order, deriving the L2 event queue and the unreconciled-residency set. It rejects repeated IDs, residents whose home is missing, invalid notables or tombstones, and out-of-range spawned counters; the caller runs `check_lod_invariants` for the rest (`World::from_parts` does). `ToyWorld::structural_digest` hashes the canonical structural baseline (`seed`, `dataset_version`, `buildings`, `residents`) and `state_hash` appends optional tags for `notables` (tag 8), `tombstones` (tag 9), and `next_spawned_id` (tag 10) only when non-empty/non-zero so unchanged worlds preserve their exact format-1/2 state hashes ([ADR 0025](../../../docs/adr/0025-baseline-plus-deltas-saves.md)). The file format is in `ws-persist`.
 
 ## Performance
 
