@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags, params};
 use ws_ecs::{EntityId, Namespace};
-use ws_events::{EventId, Payload};
+use ws_events::{Event, EventId, Payload};
 use ws_math::SurfacePos;
+use ws_sim::slice::{SliceParts, SliceSimulation};
 use ws_sim::{World, WorldParts};
 use ws_world::{
     BUILDING_GENERATOR_VERSION, BaselineAddress, Building, IDENTITY_POLICY_FAIL_ON_COLLISION,
@@ -177,6 +178,169 @@ CREATE TABLE event_links (
 ) WITHOUT ROWID;
 ";
 
+const SCHEMA_V4_TOY: &str = "
+CREATE TABLE header (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    format_version INTEGER NOT NULL,
+    build TEXT NOT NULL,
+    seed INTEGER NOT NULL,
+    dataset_version INTEGER NOT NULL,
+    generator_version INTEGER NOT NULL,
+    rules_version INTEGER NOT NULL,
+    sim_time_us INTEGER NOT NULL,
+    tick INTEGER NOT NULL,
+    walk_speed_bits INTEGER NOT NULL,
+    walk_wait_steps INTEGER NOT NULL,
+    population_min INTEGER NOT NULL,
+    population_max INTEGER NOT NULL,
+    state_hash INTEGER NOT NULL,
+    journal_digest INTEGER NOT NULL,
+    events_digest INTEGER NOT NULL,
+    effect_vocabulary INTEGER NOT NULL,
+    model_kind INTEGER NOT NULL
+);
+CREATE TABLE baseline (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+CREATE TABLE clock (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+CREATE TABLE structural_overrides (
+    cell INTEGER NOT NULL,
+    id INTEGER NOT NULL,
+    component_tag INTEGER NOT NULL,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    PRIMARY KEY (cell, id, component_tag)
+) WITHOUT ROWID;
+CREATE TABLE tombstones (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE notables (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE spawned (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE node_lod (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE l1_state (
+    cell INTEGER NOT NULL, id INTEGER NOT NULL, schema INTEGER NOT NULL, data BLOB NOT NULL,
+    PRIMARY KEY (cell, id)
+) WITHOUT ROWID;
+CREATE TABLE l2_state (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE illness (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE scheduled (
+    sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE journal (
+    sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE event_links (
+    event_id INTEGER NOT NULL, kind INTEGER NOT NULL, idx INTEGER NOT NULL,
+    target INTEGER NOT NULL, relation INTEGER NOT NULL, confidence INTEGER NOT NULL,
+    PRIMARY KEY (event_id, kind, idx)
+) WITHOUT ROWID;
+";
+
+/// Tables in format 4 for the real slice (ADR 0036 §2).
+const TABLES_V4_SLICE: [&str; 10] = [
+    "header",
+    "slice_config",
+    "clock",
+    "slice_vitals",
+    "slice_illness",
+    "slice_behavior",
+    "slice_lod",
+    "events",
+    "event_links",
+    "slice_operations",
+];
+
+const SCHEMA_V4_SLICE: &str = "
+CREATE TABLE header (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    format_version INTEGER NOT NULL,
+    build TEXT NOT NULL,
+    seed INTEGER NOT NULL,
+    dataset_version INTEGER NOT NULL,
+    generator_version INTEGER NOT NULL,
+    rules_version INTEGER NOT NULL,
+    sim_time_us INTEGER NOT NULL,
+    tick INTEGER NOT NULL,
+    walk_speed_bits INTEGER NOT NULL,
+    walk_wait_steps INTEGER NOT NULL,
+    population_min INTEGER NOT NULL,
+    population_max INTEGER NOT NULL,
+    state_hash INTEGER NOT NULL,
+    journal_digest INTEGER NOT NULL,
+    events_digest INTEGER NOT NULL,
+    effect_vocabulary INTEGER NOT NULL,
+    model_kind INTEGER NOT NULL
+);
+CREATE TABLE slice_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+CREATE TABLE clock (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+CREATE TABLE slice_vitals (
+    resident_id INTEGER PRIMARY KEY,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE slice_illness (
+    resident_id INTEGER PRIMARY KEY,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE slice_behavior (
+    resident_id INTEGER PRIMARY KEY,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE slice_lod (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE event_links (
+    event_id INTEGER NOT NULL,
+    kind INTEGER NOT NULL,
+    idx INTEGER NOT NULL,
+    target INTEGER NOT NULL,
+    relation INTEGER NOT NULL,
+    confidence INTEGER NOT NULL,
+    PRIMARY KEY (event_id, kind, idx)
+) WITHOUT ROWID;
+CREATE TABLE slice_operations (
+    idx INTEGER PRIMARY KEY,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+) WITHOUT ROWID;
+";
+
 /// A `u64` as a SQLite integer that sorts like the `u64`: the sign bit is
 /// flipped, so entity IDs and Hilbert cell IDs (which use the top bits)
 /// keep their order in primary keys and range scans.
@@ -255,11 +419,20 @@ pub fn save_with_registry(
     path: &Path,
     registry: &BaselineRegistry,
 ) -> Result<(), SaveError> {
+    save_with_registry_version(world, path, registry, FORMAT_VERSION)
+}
+
+fn save_with_registry_version(
+    world: &World,
+    path: &Path,
+    registry: &BaselineRegistry,
+    format_version: u32,
+) -> Result<(), SaveError> {
     if world.has_pending_commands() {
         return Err(SaveError::PendingCommands);
     }
     let parts = world.to_parts();
-    let header = header_of(world, &parts)?;
+    let header = header_of(world, &parts, format_version)?;
     if parts.events.iter().any(|e| e.record.payload.tag() >= 7) {
         return Err(SaveError::Unsaveable(
             "slice payload requires a slice save format",
@@ -276,7 +449,7 @@ pub fn save_with_registry(
 
     let tmp = sibling(path, ".saving");
     let _ = fs::remove_file(&tmp);
-    let written = write_file_v3(&tmp, &header, &parts, &links, &deltas);
+    let written = write_file_toy(&tmp, &header, &parts, &links, &deltas);
     if let Err(e) = written {
         let _ = fs::remove_file(&tmp);
         return Err(e);
@@ -289,6 +462,74 @@ pub fn save_with_registry(
         return Err(e.into());
     }
     Ok(())
+}
+
+/// Saves `sim` to `path` as a format-4 slice save, replacing any file there atomically.
+///
+/// # Errors
+///
+/// Returns [`SaveError`] on SQLite, I/O or unsaveable state.
+pub fn save_slice(sim: &SliceSimulation, path: &Path) -> Result<(), SaveError> {
+    let parts = sim.to_parts();
+    save_slice_parts(
+        parts,
+        sim.state_hash(),
+        sim.operation_digest(),
+        sim.events().digest(),
+        path,
+    )
+}
+
+/// Writes `parts` to `path` as a format-4 slice save, replacing any file there atomically.
+///
+/// # Errors
+///
+/// Returns [`SaveError`] on SQLite, I/O or unsaveable state.
+pub fn save_slice_parts(
+    parts: SliceParts,
+    state_hash: u64,
+    op_digest: u64,
+    events_digest: u64,
+    path: &Path,
+) -> Result<(), SaveError> {
+    let header = header_of_slice(&parts, state_hash, op_digest, events_digest)?;
+    let links = parts
+        .events
+        .iter()
+        .map(|e| {
+            codec::event_links(e).ok_or(SaveError::Unsaveable("an event has an unresolved cause"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let tmp = sibling(path, ".saving");
+    let _ = fs::remove_file(&tmp);
+    let written = write_slice_file(&tmp, &header, &parts, &links);
+    if let Err(e) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    let moved = fs::File::open(&tmp)
+        .and_then(|f| f.sync_all())
+        .and_then(|()| fs::rename(&tmp, path));
+    if let Err(e) = moved {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Spawns a background thread to write `parts` to `path` as a format-4 slice save.
+pub fn save_slice_background(
+    parts: SliceParts,
+    state_hash: u64,
+    op_digest: u64,
+    events_digest: u64,
+    path: &Path,
+) -> std::thread::JoinHandle<Result<(), SaveError>> {
+    let path_buf = path.to_path_buf();
+    std::thread::spawn(move || {
+        save_slice_parts(parts, state_hash, op_digest, events_digest, &path_buf)
+    })
 }
 
 fn classify_deltas(
@@ -485,7 +726,7 @@ fn sibling(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn header_of(world: &World, parts: &WorldParts) -> Result<Header, SaveError> {
+fn header_of(world: &World, parts: &WorldParts, format_version: u32) -> Result<Header, SaveError> {
     let Some(first) = parts.events.first() else {
         return Err(SaveError::Unsaveable("the world has no creation event"));
     };
@@ -503,7 +744,7 @@ fn header_of(world: &World, parts: &WorldParts) -> Result<Header, SaveError> {
     };
     let walk = parts.toy.walk_params();
     Ok(Header {
-        format_version: FORMAT_VERSION,
+        format_version,
         build: build_id(),
         seed: parts.seed,
         dataset_version: parts.toy.dataset_version(),
@@ -519,10 +760,11 @@ fn header_of(world: &World, parts: &WorldParts) -> Result<Header, SaveError> {
         journal_digest: world.journal_digest(),
         events_digest: world.events().digest(),
         effect_vocabulary: ws_sim::commands::EFFECT_VOCABULARY_VERSION,
+        model_kind: crate::header::MODEL_KIND_TOY,
     })
 }
 
-fn write_file_v3(
+fn write_file_toy(
     path: &Path,
     h: &Header,
     parts: &WorldParts,
@@ -542,30 +784,56 @@ fn write_file_v3(
     conn.pragma_update(None, "journal_mode", "OFF")?;
     conn.pragma_update(None, "synchronous", "OFF")?;
     conn.pragma_update(None, "application_id", APPLICATION_ID)?;
-    conn.pragma_update(None, "user_version", FORMAT_VERSION)?;
+    conn.pragma_update(None, "user_version", h.format_version)?;
     let tx = conn.transaction()?;
-    tx.execute_batch(SCHEMA_V3)?;
-    tx.execute(
-        "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        params![
-            h.format_version,
-            h.build,
-            word(h.seed),
-            word(h.dataset_version),
-            h.generator_version,
-            h.rules_version,
-            h.sim_time_us,
-            word(h.tick),
-            word(h.walk_speed_bits),
-            h.walk_wait_steps,
-            h.population_min,
-            h.population_max,
-            word(h.state_hash),
-            word(h.journal_digest),
-            word(h.events_digest),
-            h.effect_vocabulary,
-        ],
-    )?;
+    if h.format_version == 3 {
+        tx.execute_batch(SCHEMA_V3)?;
+        tx.execute(
+            "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                h.format_version,
+                h.build,
+                word(h.seed),
+                word(h.dataset_version),
+                h.generator_version,
+                h.rules_version,
+                h.sim_time_us,
+                word(h.tick),
+                word(h.walk_speed_bits),
+                h.walk_wait_steps,
+                h.population_min,
+                h.population_max,
+                word(h.state_hash),
+                word(h.journal_digest),
+                word(h.events_digest),
+                h.effect_vocabulary,
+            ],
+        )?;
+    } else {
+        tx.execute_batch(SCHEMA_V4_TOY)?;
+        tx.execute(
+            "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                h.format_version,
+                h.build,
+                word(h.seed),
+                word(h.dataset_version),
+                h.generator_version,
+                h.rules_version,
+                h.sim_time_us,
+                word(h.tick),
+                word(h.walk_speed_bits),
+                h.walk_wait_steps,
+                h.population_min,
+                h.population_max,
+                word(h.state_hash),
+                word(h.journal_digest),
+                word(h.events_digest),
+                h.effect_vocabulary,
+                h.model_kind,
+            ],
+        )?;
+    }
     tx.execute(
         "INSERT INTO baseline VALUES (1, ?, ?)",
         params![RECORD_SCHEMA, codec::put_baseline(&deltas.baseline)],
@@ -690,6 +958,163 @@ fn write_file_v3(
     Ok(())
 }
 
+fn header_of_slice(
+    parts: &SliceParts,
+    state_hash: u64,
+    op_digest: u64,
+    events_digest: u64,
+) -> Result<Header, SaveError> {
+    Ok(Header {
+        format_version: FORMAT_VERSION,
+        build: build_id(),
+        seed: parts.config.seed,
+        dataset_version: ws_world::slice::DATASET_VERSION,
+        generator_version: ws_world::slice::GENERATOR_VERSION,
+        rules_version: ws_life::RULES_VERSION,
+        sim_time_us: parts.clock.now().as_micros_since_epoch(),
+        tick: parts.clock.steps(),
+        walk_speed_bits: 0,
+        walk_wait_steps: 0,
+        population_min: parts.vitals.len() as u32,
+        population_max: parts.vitals.len() as u32,
+        state_hash,
+        journal_digest: op_digest,
+        events_digest,
+        effect_vocabulary: ws_sim::commands::EFFECT_VOCABULARY_VERSION,
+        model_kind: crate::header::MODEL_KIND_SLICE,
+    })
+}
+
+fn write_slice_file(
+    path: &Path,
+    h: &Header,
+    parts: &SliceParts,
+    links: &[Vec<Link>],
+) -> Result<(), SaveError> {
+    let mut conn = Connection::open(path)?;
+    conn.pragma_update(None, "journal_mode", "OFF")?;
+    conn.pragma_update(None, "synchronous", "OFF")?;
+    conn.pragma_update(None, "application_id", APPLICATION_ID)?;
+    conn.pragma_update(None, "user_version", FORMAT_VERSION)?;
+    let tx = conn.transaction()?;
+    tx.execute_batch(SCHEMA_V4_SLICE)?;
+    tx.execute(
+        "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            h.format_version,
+            h.build,
+            word(h.seed),
+            word(h.dataset_version),
+            h.generator_version,
+            h.rules_version,
+            h.sim_time_us,
+            word(h.tick),
+            word(h.walk_speed_bits),
+            h.walk_wait_steps,
+            h.population_min,
+            h.population_max,
+            word(h.state_hash),
+            word(h.journal_digest),
+            word(h.events_digest),
+            h.effect_vocabulary,
+            h.model_kind,
+        ],
+    )?;
+    tx.execute(
+        "INSERT INTO slice_config VALUES (1, ?, ?)",
+        params![RECORD_SCHEMA, codec::put_slice_config(&parts.config)],
+    )?;
+    tx.execute(
+        "INSERT INTO clock VALUES (1, ?, ?)",
+        params![
+            CLOCK_SCHEMA_V3,
+            codec::put_clock_v3(&parts.clock, 0, 0, 0, (parts.events.len() as u64) + 1,)
+        ],
+    )?;
+    {
+        let mut st =
+            tx.prepare("INSERT INTO slice_vitals (resident_id, schema, data) VALUES (?, ?, ?)")?;
+        for (id, v) in &parts.vitals {
+            st.execute(params![
+                key(id.raw()),
+                RECORD_SCHEMA,
+                codec::put_slice_vital(v),
+            ])?;
+        }
+    }
+    {
+        let mut st =
+            tx.prepare("INSERT INTO slice_illness (resident_id, schema, data) VALUES (?, ?, ?)")?;
+        for ep in &parts.episodes {
+            st.execute(params![
+                key(ep.resident.raw()),
+                RECORD_SCHEMA,
+                codec::put_slice_episode(ep),
+            ])?;
+        }
+    }
+    {
+        let mut st =
+            tx.prepare("INSERT INTO slice_behavior (resident_id, schema, data) VALUES (?, ?, ?)")?;
+        for st_snap in &parts.behavior_states {
+            st.execute(params![
+                key(st_snap.id.raw()),
+                RECORD_SCHEMA,
+                codec::put_slice_resident_state(st_snap),
+            ])?;
+        }
+    }
+    tx.execute(
+        "INSERT INTO slice_lod VALUES (1, ?, ?)",
+        params![
+            RECORD_SCHEMA,
+            codec::put_slice_lod(parts.camera, &parts.nodes),
+        ],
+    )?;
+    {
+        let mut st = tx.prepare("INSERT INTO events VALUES (?, ?, ?)")?;
+        let mut lt = tx.prepare("INSERT INTO event_links VALUES (?, ?, ?, ?, ?, ?)")?;
+        for (e, ls) in parts.events.iter().zip(links.iter()) {
+            st.execute(params![
+                key(e.id.0),
+                RECORD_SCHEMA,
+                codec::put_event(e).map_err(|e| SaveError::Unsaveable(e.0))?,
+            ])?;
+            let (mut cause_idx, mut related_idx) = (0_i64, 0_i64);
+            for l in ls {
+                let idx = if l.kind == 0 {
+                    &mut cause_idx
+                } else {
+                    &mut related_idx
+                };
+                lt.execute(params![
+                    key(e.id.0),
+                    l.kind,
+                    *idx,
+                    key(l.target.0),
+                    l.relation,
+                    l.confidence,
+                ])?;
+                *idx += 1;
+            }
+        }
+    }
+    {
+        let mut st =
+            tx.prepare("INSERT INTO slice_operations (idx, schema, data) VALUES (?, ?, ?)")?;
+        for (i, op) in parts.operations.iter().enumerate() {
+            st.execute(params![
+                i as i64,
+                RECORD_SCHEMA,
+                codec::put_operation_record(op),
+            ])?;
+        }
+    }
+    tx.commit()?;
+    conn.close().map_err(|(_, e)| e)?;
+    Ok(())
+}
+
 /// Opens a save read-only and checks that it is one this build can read.
 fn open(path: &Path) -> Result<Connection, LoadError> {
     if !path.is_file() {
@@ -719,6 +1144,18 @@ fn open(path: &Path) -> Result<Connection, LoadError> {
         1 => Box::new(TABLES_V1.iter()),
         2 => Box::new(TABLES_V1.iter().chain(TABLES_V2.iter())),
         3 => Box::new(TABLES_V3.iter()),
+        4 => {
+            let is_slice: bool = conn.query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'slice_config')",
+                [],
+                |r| r.get(0),
+            )?;
+            if is_slice {
+                Box::new(TABLES_V4_SLICE.iter())
+            } else {
+                Box::new(TABLES_V3.iter())
+            }
+        }
         _ => unreachable!(),
     };
     for table in required {
@@ -802,6 +1239,13 @@ fn header_row(conn: &Connection) -> Result<Header, LoadError> {
                 } else {
                     0
                 },
+                model_kind: if r.as_ref().column_count() > 17 {
+                    r.get(17)?
+                } else if unword(r.get(4)?) == ws_world::slice::DATASET_VERSION {
+                    crate::header::MODEL_KIND_SLICE
+                } else {
+                    crate::header::MODEL_KIND_TOY
+                },
             })
         })
         .map_err(|e| match e {
@@ -870,11 +1314,234 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
 pub fn load_with_registry(path: &Path, registry: &BaselineRegistry) -> Result<World, LoadError> {
     let conn = open(path)?;
     let header = header_row(&conn)?;
-    if header.format_version == 3 {
+    if header.is_slice() {
+        return Err(bad(
+            "header",
+            "save file is a slice simulation; use load_slice",
+        ));
+    }
+    if header.format_version == 3 || header.format_version == 4 {
         load_v3(&conn, &header, registry)
     } else {
         load_v1_v2(&conn, &header)
     }
+}
+
+/// Loads the raw parts and header of a format-4 slice save.
+///
+/// # Errors
+///
+/// Returns [`LoadError`] if the file cannot be opened, is not a valid format-4
+/// slice save, has missing tables, or contains undecodable records.
+pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> {
+    let conn = open(path)?;
+    let header = header_row(&conn)?;
+    if !header.is_slice() && header.format_version != 4 {
+        return Err(bad("header", "save file is not a slice simulation"));
+    }
+    if header.format_version != 4 {
+        return Err(LoadError::UnsupportedVersion {
+            found: header.format_version,
+            supported: FORMAT_VERSION,
+        });
+    }
+
+    let (cdata, cschema): (Vec<u8>, u32) = conn
+        .query_row(
+            "SELECT data, schema FROM slice_config WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => bad("slice_config", "no slice_config row"),
+            e => LoadError::Sqlite(e),
+        })?;
+    if cschema != RECORD_SCHEMA {
+        return Err(bad("slice_config", "unsupported record schema version"));
+    }
+    let config = codec::get_slice_config(&cdata).map_err(|e| corrupt("slice_config", e))?;
+
+    let (kdata, kschema): (Vec<u8>, u32) = conn
+        .query_row("SELECT data, schema FROM clock WHERE id = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => bad("clock", "no clock row"),
+            e => LoadError::Sqlite(e),
+        })?;
+    if kschema != CLOCK_SCHEMA_V3 {
+        return Err(bad("clock", "unsupported record schema version"));
+    }
+    let clock = codec::get_clock_v3(&kdata).map_err(|e| corrupt("clock", e))?;
+
+    let mut vitals = Vec::new();
+    for (id, _, data) in rows(
+        &conn,
+        "slice_vitals",
+        "SELECT resident_id, 0, schema, data FROM slice_vitals ORDER BY resident_id",
+    )? {
+        let ent = entity("slice_vitals", id)?;
+        let v = codec::get_slice_vital(&data).map_err(|e| corrupt("slice_vitals", e))?;
+        vitals.push((ent, v));
+    }
+
+    let mut episodes = Vec::new();
+    for (id, _, data) in rows(
+        &conn,
+        "slice_illness",
+        "SELECT resident_id, 0, schema, data FROM slice_illness ORDER BY resident_id",
+    )? {
+        let ent = entity("slice_illness", id)?;
+        let ep = codec::get_slice_episode(&data).map_err(|e| corrupt("slice_illness", e))?;
+        if ep.resident != ent {
+            return Err(bad(
+                "slice_illness",
+                "key resident ID differs from episode resident",
+            ));
+        }
+        episodes.push(ep);
+    }
+
+    let mut behavior_states = Vec::new();
+    for (id, _, data) in rows(
+        &conn,
+        "slice_behavior",
+        "SELECT resident_id, 0, schema, data FROM slice_behavior ORDER BY resident_id",
+    )? {
+        let ent = entity("slice_behavior", id)?;
+        let st_snap =
+            codec::get_slice_resident_state(&data).map_err(|e| corrupt("slice_behavior", e))?;
+        if st_snap.id != ent {
+            return Err(bad(
+                "slice_behavior",
+                "key resident ID differs from state resident",
+            ));
+        }
+        behavior_states.push(st_snap);
+    }
+
+    let (lod_data, lod_schema): (Vec<u8>, u32) = conn
+        .query_row("SELECT data, schema FROM slice_lod WHERE id = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => bad("slice_lod", "no slice_lod row"),
+            e => LoadError::Sqlite(e),
+        })?;
+    if lod_schema != RECORD_SCHEMA {
+        return Err(bad("slice_lod", "unsupported record schema version"));
+    }
+    let (camera, nodes) = codec::get_slice_lod(&lod_data).map_err(|e| corrupt("slice_lod", e))?;
+
+    let events = load_events(&conn)?;
+
+    if clock.next_event_id != (events.len() as u64) + 1 {
+        return Err(bad("clock", "next_event_id disagrees with events"));
+    }
+
+    let mut operations = Vec::new();
+    for (idx, _, data) in rows(
+        &conn,
+        "slice_operations",
+        "SELECT idx, 0, schema, data FROM slice_operations ORDER BY idx",
+    )? {
+        if idx != operations.len() as i64 {
+            return Err(bad("slice_operations", "operation indices not contiguous"));
+        }
+        let op = codec::get_operation_record(&data).map_err(|e| corrupt("slice_operations", e))?;
+        operations.push(op);
+    }
+
+    let parts = SliceParts {
+        config,
+        clock: clock.clock,
+        vitals,
+        episodes,
+        behavior_states,
+        camera,
+        nodes,
+        events,
+        operations,
+    };
+    Ok((header, parts))
+}
+
+/// Loads a [`SliceSimulation`] from a format-4 save file.
+///
+/// # Errors
+///
+/// Returns [`LoadError`] if the save is corrupt, invalid, or fails state-hash
+/// or events/journal digest verification against the header.
+pub fn load_slice(path: &Path) -> Result<SliceSimulation, LoadError> {
+    let (header, parts) = load_slice_parts(path)?;
+    let sim = SliceSimulation::from_parts(parts)?;
+    if sim.state_hash() != header.state_hash {
+        return Err(LoadError::HashMismatch {
+            what: "state",
+            stored: header.state_hash,
+            computed: sim.state_hash(),
+        });
+    }
+    if sim.operation_digest() != header.journal_digest {
+        return Err(LoadError::HashMismatch {
+            what: "journal",
+            stored: header.journal_digest,
+            computed: sim.operation_digest(),
+        });
+    }
+    if sim.events().digest() != header.events_digest {
+        return Err(LoadError::HashMismatch {
+            what: "events",
+            stored: header.events_digest,
+            computed: sim.events().digest(),
+        });
+    }
+    Ok(sim)
+}
+
+fn load_events(conn: &Connection) -> Result<Vec<Event>, LoadError> {
+    let mut links: BTreeMap<u64, Vec<Link>> = BTreeMap::new();
+    {
+        let mut st = conn.prepare(
+            "SELECT event_id, kind, target, relation, confidence FROM event_links \
+             ORDER BY event_id, kind, idx",
+        )?;
+        let mapped = st.query_map([], |r| {
+            Ok((
+                unkey(r.get(0)?),
+                r.get::<_, u8>(1)?,
+                unkey(r.get(2)?),
+                r.get::<_, u8>(3)?,
+                r.get::<_, u8>(4)?,
+            ))
+        })?;
+        for row in mapped {
+            let (event, kind, target, relation, confidence) = row?;
+            links.entry(event).or_default().push(Link {
+                kind,
+                target: EventId(target),
+                relation,
+                confidence,
+            });
+        }
+    }
+    let mut events = Vec::new();
+    for (id, _, data) in rows(
+        conn,
+        "events",
+        "SELECT id, 0, schema, data FROM events ORDER BY id",
+    )? {
+        let own = links.remove(&unkey(id)).unwrap_or_default();
+        let e = codec::get_event(&data, &own).map_err(|e| corrupt("events", e))?;
+        if key(e.id.0) != id {
+            return Err(bad("events", "key ID differs from the record's"));
+        }
+        events.push(e);
+    }
+    if !links.is_empty() {
+        return Err(bad("event_links", "links for an event that does not exist"));
+    }
+    Ok(events)
 }
 
 fn load_v1_v2(conn: &Connection, header: &Header) -> Result<World, LoadError> {
@@ -1401,47 +2068,7 @@ fn read_runtime_and_finish(
         }
     }
 
-    let mut links: BTreeMap<u64, Vec<Link>> = BTreeMap::new();
-    {
-        let mut st = conn.prepare(
-            "SELECT event_id, kind, target, relation, confidence FROM event_links \
-             ORDER BY event_id, kind, idx",
-        )?;
-        let mapped = st.query_map([], |r| {
-            Ok((
-                unkey(r.get(0)?),
-                r.get::<_, u8>(1)?,
-                unkey(r.get(2)?),
-                r.get::<_, u8>(3)?,
-                r.get::<_, u8>(4)?,
-            ))
-        })?;
-        for row in mapped {
-            let (event, kind, target, relation, confidence) = row?;
-            links.entry(event).or_default().push(Link {
-                kind,
-                target: EventId(target),
-                relation,
-                confidence,
-            });
-        }
-    }
-    let mut events = Vec::new();
-    for (id, _, data) in rows(
-        conn,
-        "events",
-        "SELECT id, 0, schema, data FROM events ORDER BY id",
-    )? {
-        let own = links.remove(&unkey(id)).unwrap_or_default();
-        let e = codec::get_event(&data, &own).map_err(|e| corrupt("events", e))?;
-        if key(e.id.0) != id {
-            return Err(bad("events", "key ID differs from the record's"));
-        }
-        events.push(e);
-    }
-    if !links.is_empty() {
-        return Err(bad("event_links", "links for an event that does not exist"));
-    }
+    let events = load_events(conn)?;
     if let Some(next_event_id) = expected_next_event_id
         && next_event_id != (events.len() as u64) + 1
     {
@@ -1542,7 +2169,7 @@ pub fn migrate_to_v3_with_registry(
     // can alias its save/staging files. Verify before replacing the destination.
     let temporary = MigrationDirectory::create(dest)?;
     let candidate = temporary.0.join("state.wssave");
-    save_with_registry(&world, &candidate, registry).map_err(|e| match e {
+    save_with_registry_version(&world, &candidate, registry, 3).map_err(|e| match e {
         SaveError::Io(io) => LoadError::Io(io),
         SaveError::Sqlite(sql) => LoadError::Sqlite(sql),
         SaveError::PendingCommands => bad("header", "pending commands"),

@@ -176,5 +176,122 @@ namespace WorldSim.Tests.EditMode
             Assert.Throws<InvalidOperationException>(()=>clock.Advance(1000009998,false,out _));
             Assert.Throws<ArgumentOutOfRangeException>(()=>new SliceHostClock(0,0));
         }
+        [Test]
+        public void SliceSaveAndLoadRoundTripReproducesStateHashAndContinuesIdentically()
+        {
+            string path=Path.Combine(Path.GetTempPath(),"unity_slice_rt_"+Guid.NewGuid().ToString("N")+".wssave");
+            try
+            {
+                var frameA=new SliceFrame();
+                var frameB=new SliceFrame();
+                using(var worldA=new NativeSlice(71449,Start))
+                {
+                    worldA.SetCamera(Vector3.zero,500);
+                    worldA.Steps(50);
+                    worldA.Fill(frameA,out _);
+                    ulong targetId=frameA.Residents[0].Id;
+                    var sampleA=worldA.Illness(targetId);
+                    worldA.Steps(20);
+                    worldA.Fill(frameA,out _);
+
+                    worldA.Save(path);
+                    Assert.That(File.Exists(path),Is.True);
+
+                    using(var worldB=NativeSlice.Load(path))
+                    {
+                        Assert.That(worldB.Population,Is.EqualTo(worldA.Population));
+                        worldB.Fill(frameB,out _);
+                        Assert.That(frameB.Tick,Is.EqualTo(frameA.Tick));
+                        Assert.That(frameB.SimTimeMicroseconds,Is.EqualTo(frameA.SimTimeMicroseconds));
+                        Assert.That(frameB.StateHash,Is.EqualTo(frameA.StateHash));
+                        Assert.That(frameB.Sky.StateHash,Is.EqualTo(frameA.Sky.StateHash));
+                        for(int i=0;i<worldA.Population;i++)
+                        {
+                            Assert.That(frameB.Residents[i].Id,Is.EqualTo(frameA.Residents[i].Id));
+                            Assert.That(frameB.Residents[i].Location,Is.EqualTo(frameA.Residents[i].Location));
+                            Assert.That(Vector3.Distance(frameB.Residents[i].Foot,frameA.Residents[i].Foot),Is.LessThan(0.0002f));
+                        }
+
+                        var sampleB=worldB.Illness(targetId,sampleA.Consequences.Root);
+                        Assert.That(sampleB.Consequences.Root,Is.EqualTo(sampleA.Consequences.Root));
+                        Assert.That(sampleB.Consequences.ConsequenceCount,Is.EqualTo(sampleA.Consequences.ConsequenceCount));
+
+                        worldA.Steps(30);
+                        worldB.Steps(30);
+                        worldA.Fill(frameA,out _);
+                        worldB.Fill(frameB,out _);
+                        Assert.That(frameB.StateHash,Is.EqualTo(frameA.StateHash));
+                        Assert.That(frameB.Tick,Is.EqualTo(frameA.Tick));
+                    }
+                }
+            }
+            finally
+            {
+                if(File.Exists(path)) File.Delete(path);
+            }
+        }
+        [Test]
+        public void SliceBackgroundSaveRunsAndReportsStatus()
+        {
+            string path=Path.Combine(Path.GetTempPath(),"unity_slice_bg_"+Guid.NewGuid().ToString("N")+".wssave");
+            try
+            {
+                using(var world=new NativeSlice(71449,Start))
+                {
+                    world.Steps(25);
+                    world.SaveBackground(path);
+                    uint status=world.SaveStatus();
+                    int polls=0;
+                    while(status==NativeSlice.SaveInProgress&&polls++<100)
+                    {
+                        System.Threading.Thread.Sleep(5);
+                        status=world.SaveStatus();
+                    }
+                    Assert.That(status,Is.Zero);
+                    Assert.That(File.Exists(path),Is.True);
+
+                    using(var loaded=NativeSlice.Load(path))
+                    {
+                        var frame=new SliceFrame();
+                        loaded.Fill(frame,out _);
+                        Assert.That(frame.Tick,Is.EqualTo(25));
+                        Assert.That(loaded.Population,Is.EqualTo(30));
+                    }
+                }
+            }
+            finally
+            {
+                if(File.Exists(path)) File.Delete(path);
+            }
+        }
+        [Test]
+        public void SliceHostSaveAndLoadIntegration()
+        {
+            string path=Path.Combine(Path.GetTempPath(),"unity_host_rt_"+Guid.NewGuid().ToString("N")+".wssave");
+            try
+            {
+                var frameA=new SliceFrame();
+                var frameB=new SliceFrame();
+                using(var hostA=new SliceHost(71449,Start))
+                {
+                    hostA.SetScale(1);
+                    System.Threading.Thread.Sleep(50);
+                    hostA.Fill(frameA,out _);
+                    hostA.Save(path);
+                    Assert.That(File.Exists(path),Is.True);
+
+                    using(var hostB=SliceHost.Load(path))
+                    {
+                        Assert.That(hostB.Population,Is.EqualTo(hostA.Population));
+                        hostB.Fill(frameB,out _);
+                        Assert.That(frameB.Population,Is.EqualTo(frameA.Population));
+                    }
+                }
+            }
+            finally
+            {
+                if(File.Exists(path)) File.Delete(path);
+            }
+        }
     }
 }

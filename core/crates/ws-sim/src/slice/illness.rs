@@ -23,19 +23,31 @@ pub enum Rejection {
     /// Episode deadline outside SimTime.
     Deadline,
 }
+/// Canonical persistent illness episode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Episode {
-    resident: EntityId,
-    root: EventId,
-    illness: EventId,
-    severity: u32,
-    start: SimTime,
-    end: SimTime,
-    return_at: Option<i128>,
-    recovered: bool,
-    returned: bool,
-    missed: u8,
-    visited: bool,
+pub struct Episode {
+    /// Afflicted resident entity identity.
+    pub resident: EntityId,
+    /// Root intervention event that produced this episode.
+    pub root: EventId,
+    /// Initial LifeIllness event ID.
+    pub illness: EventId,
+    /// Severity level, 1 through 10.
+    pub severity: u32,
+    /// Episode start time.
+    pub start: SimTime,
+    /// Episode scheduled end time.
+    pub end: SimTime,
+    /// Absolute microseconds when the resident returns home, if scheduled.
+    pub return_at: Option<i128>,
+    /// Whether health has recovered.
+    pub recovered: bool,
+    /// Whether the resident has returned home.
+    pub returned: bool,
+    /// Count of duties missed.
+    pub missed: u8,
+    /// Whether a neighbour visited during this episode.
+    pub visited: bool,
 }
 /// Fixed-size index row. Derived solely from committed typed history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +104,15 @@ pub struct State {
     pub end: Option<SimTime>,
 }
 impl Illness {
+    pub(super) fn episodes(&self) -> &[Episode] {
+        &self.episodes
+    }
+    pub(super) fn from_episodes(episodes: Vec<Episode>) -> Self {
+        Self {
+            episodes,
+            groups: Vec::new(),
+        }
+    }
     fn episode(&self, id: EntityId) -> Option<&Episode> {
         self.episodes
             .binary_search_by_key(&id, |e| e.resident)

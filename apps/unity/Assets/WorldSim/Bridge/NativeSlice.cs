@@ -44,6 +44,14 @@ namespace WorldSim.Bridge
         internal static extern uint Inspect(SliceHandle handle,ulong id,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_consequences")]
         internal static extern uint Consequences(SliceHandle handle,ulong root,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save")]
+        internal static extern uint Save(SliceHandle handle,byte[] path);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save_background")]
+        internal static extern uint SaveBackground(SliceHandle handle,byte[] path);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save_status")]
+        internal static extern uint SaveStatus(SliceHandle handle);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_load")]
+        internal static extern IntPtr Load(byte[] path);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_last_error")]
         internal static extern UIntPtr Error(IntPtr handle,byte[] bytes,UIntPtr capacity);
     }
@@ -71,12 +79,33 @@ namespace WorldSim.Bridge
         bool rosterCaptured;
         public SliceGeometry Geometry { get; private set; }
         public int Population { get; private set; }
+        public const uint SaveInProgress = 8;
+        static byte[] Utf8Path(string path)
+        {
+            if(string.IsNullOrEmpty(path)) throw new ArgumentException("Save/load path cannot be empty.", nameof(path));
+            return System.Text.Encoding.UTF8.GetBytes(path + "\0");
+        }
         public NativeSlice(ulong seed,long startMicroseconds)
         {
             NativeWorld.RequireVersion(NativeMethods.Version()); // Before any new symbol call.
             var config=new NativeSliceConfig {Version=NativeWorld.AbiVersion,Size=32,Seed=seed,Start=startMicroseconds};
             IntPtr pointer=NativeSliceMethods.Create(in config);
             if(pointer==IntPtr.Zero) throw new InvalidOperationException(ReadError(IntPtr.Zero));
+            Initialize(pointer);
+        }
+        NativeSlice(IntPtr pointer)
+        {
+            Initialize(pointer);
+        }
+        public static NativeSlice Load(string path)
+        {
+            NativeWorld.RequireVersion(NativeMethods.Version());
+            IntPtr pointer=NativeSliceMethods.Load(Utf8Path(path));
+            if(pointer==IntPtr.Zero) throw new InvalidOperationException(ReadError(IntPtr.Zero));
+            return new NativeSlice(pointer);
+        }
+        void Initialize(IntPtr pointer)
+        {
             handle=new SliceHandle(pointer);
             try
             {
@@ -213,6 +242,30 @@ namespace WorldSim.Bridge
                 if(consequences.Subject!=id||consequences.Tick!=record.Tick||consequences.Time!=record.Time||consequences.StateHash!=record.StateHash||consequences.Dataset!=record.Dataset)
                     throw new InvalidOperationException("Incoherent inspection/consequences pair.");
                 return new SliceIllnessSample {Inspection=record,Consequences=consequences};
+            }
+        }
+        public void Save(string path)
+        {
+            lock(gate)
+            {
+                RequireLive();
+                Check(NativeSliceMethods.Save(handle,Utf8Path(path)));
+            }
+        }
+        public void SaveBackground(string path)
+        {
+            lock(gate)
+            {
+                RequireLive();
+                Check(NativeSliceMethods.SaveBackground(handle,Utf8Path(path)));
+            }
+        }
+        public uint SaveStatus()
+        {
+            lock(gate)
+            {
+                RequireLive();
+                return NativeSliceMethods.SaveStatus(handle);
             }
         }
         public void Dispose()

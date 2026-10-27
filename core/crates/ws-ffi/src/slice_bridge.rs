@@ -49,6 +49,8 @@ pub struct WsSliceHandle {
     geometry_bytes: Vec<u8>,
     error: Diagnostic,
     poisoned: bool,
+    save_task: Option<std::thread::JoinHandle<Result<(), ws_persist::SaveError>>>,
+    save_status: WsStatus,
     #[cfg(test)]
     panic_before_output: bool,
 }
@@ -254,6 +256,8 @@ pub unsafe extern "C" fn ws_slice_create(config: *const WsSliceConfig) -> *mut W
             geometry_bytes,
             error: Diagnostic::new(),
             poisoned: false,
+            save_task: None,
+            save_status: OK,
             #[cfg(test)]
             panic_before_output: false,
         })))
@@ -283,7 +287,11 @@ pub unsafe extern "C" fn ws_slice_destroy(handle: *mut WsSliceHandle) {
     }
     if catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: caller transfers the original unique allocation back once.
-        drop(unsafe { Box::from_raw(handle) });
+        let mut b = unsafe { Box::from_raw(handle) };
+        if let Some(task) = b.save_task.take() {
+            let _ = task.join();
+        }
+        drop(b);
     }))
     .is_err()
     {
@@ -502,6 +510,184 @@ pub unsafe extern "C" fn ws_slice_get_calendar_sky(
             output.write(value);
             Ok(())
         })
+    }
+}
+/// Saves the real slice synchronously to a format-4 save file.
+/// # Safety
+/// Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_save(
+    handle: *mut WsSliceHandle,
+    path_utf8: *const std::ffi::c_char,
+) -> WsStatus {
+    if path_utf8.is_null() {
+        thread_error("save path is null");
+        return INVALID_ARGUMENT;
+    }
+    // SAFETY: caller guarantees null-terminated C string.
+    let c_str = unsafe { std::ffi::CStr::from_ptr(path_utf8) };
+    let Ok(path_str) = c_str.to_str() else {
+        thread_error("save path is not valid utf-8");
+        return INVALID_ARGUMENT;
+    };
+    let path = std::path::Path::new(path_str);
+    // SAFETY: caller guarantees handle ownership.
+    unsafe {
+        operate_slice(handle, |h| {
+            if let Some(task) = h.save_task.take() {
+                let _ = task.join();
+            }
+            ws_persist::save_slice(&h.world, path).map_err(|e| {
+                h.error.set(&format!("save failed: {e}"));
+                (STEP_FAILED, "save failed")
+            })?;
+            h.save_status = OK;
+            Ok(())
+        })
+    }
+}
+/// Spawns a background thread saving the real slice to a format-4 save file.
+/// # Safety
+/// Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_save_background(
+    handle: *mut WsSliceHandle,
+    path_utf8: *const std::ffi::c_char,
+) -> WsStatus {
+    if path_utf8.is_null() {
+        thread_error("save path is null");
+        return INVALID_ARGUMENT;
+    }
+    // SAFETY: caller guarantees null-terminated C string.
+    let c_str = unsafe { std::ffi::CStr::from_ptr(path_utf8) };
+    let Ok(path_str) = c_str.to_str() else {
+        thread_error("save path is not valid utf-8");
+        return INVALID_ARGUMENT;
+    };
+    let path = std::path::Path::new(path_str);
+    // SAFETY: caller guarantees handle ownership.
+    unsafe {
+        operate_slice(handle, |h| {
+            if let Some(task) = h.save_task.take() {
+                if !task.is_finished() {
+                    h.save_task = Some(task);
+                    return Err((SAVE_IN_PROGRESS, "a background save is already in progress"));
+                }
+                match task.join() {
+                    Ok(Ok(())) => h.save_status = OK,
+                    Ok(Err(e)) => {
+                        h.save_status = STEP_FAILED;
+                        h.error.set(&format!("prior save failed: {e}"));
+                    }
+                    Err(_) => {
+                        h.save_status = PANIC;
+                        h.error.set("prior save thread panicked");
+                    }
+                }
+            }
+            let parts = h.world.to_parts();
+            let state_hash = h.world.state_hash();
+            let op_digest = h.world.operation_digest();
+            let events_digest = h.world.events().digest();
+            let task = ws_persist::save_slice_background(
+                parts,
+                state_hash,
+                op_digest,
+                events_digest,
+                path,
+            );
+            h.save_task = Some(task);
+            h.save_status = SAVE_IN_PROGRESS;
+            Ok(())
+        })
+    }
+}
+/// Queries the status of the current or most recent save operation.
+/// Returns OK (0) if idle/completed, SAVE_IN_PROGRESS (8) if running,
+/// or an error status on failure.
+/// # Safety
+/// Non-null handle is live/exclusive.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_save_status(handle: *mut WsSliceHandle) -> WsStatus {
+    if handle.is_null() {
+        thread_error("slice handle is null");
+        return INVALID_ARGUMENT;
+    }
+    // SAFETY: caller supplies live opaque handle.
+    let h = unsafe { &mut *handle };
+    if h.poisoned {
+        return POISONED;
+    }
+    if h.save_task.as_ref().is_some_and(|task| !task.is_finished()) {
+        return SAVE_IN_PROGRESS;
+    }
+    if let Some(task) = h.save_task.take() {
+        match task.join() {
+            Ok(Ok(())) => {
+                h.save_status = OK;
+            }
+            Ok(Err(e)) => {
+                h.save_status = STEP_FAILED;
+                h.error.set(&format!("save failed: {e}"));
+            }
+            Err(_) => {
+                h.save_status = PANIC;
+                h.error.set("save thread panicked");
+            }
+        }
+    }
+    h.save_status
+}
+/// Loads a real slice from a format-4 save file. Returns null on failure.
+/// # Safety
+/// Non-null path is null-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_load(path_utf8: *const std::ffi::c_char) -> *mut WsSliceHandle {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if path_utf8.is_null() {
+            return Err("load path is null");
+        }
+        // SAFETY: caller guarantees null-terminated C string.
+        let c_str = unsafe { std::ffi::CStr::from_ptr(path_utf8) };
+        let Ok(path_str) = c_str.to_str() else {
+            return Err("load path is not valid utf-8");
+        };
+        let path = std::path::Path::new(path_str);
+        let world = ws_persist::load_slice(path).map_err(|_| "load slice failed")?;
+        if world.population().residents().len() > MAX_POPULATION
+            || world.population().world().buildings().len() != SUMMARY_COUNT
+        {
+            return Err("unsupported slice cohort");
+        }
+        let geometry = world
+            .render_geometry()
+            .map_err(|_| "slice source geometry construction failed")?;
+        let geometry_bytes = encode_geometry(&geometry)?;
+        Ok(Box::into_raw(Box::new(WsSliceHandle {
+            world,
+            geometry,
+            geometry_bytes,
+            error: Diagnostic::new(),
+            poisoned: false,
+            save_task: None,
+            save_status: OK,
+            #[cfg(test)]
+            panic_before_output: false,
+        })))
+    }));
+    match result {
+        Ok(Ok(h)) => {
+            thread_error("");
+            h
+        }
+        Ok(Err(message)) => {
+            thread_error(message);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            thread_error("panic during slice load");
+            std::ptr::null_mut()
+        }
     }
 }
 /// Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.

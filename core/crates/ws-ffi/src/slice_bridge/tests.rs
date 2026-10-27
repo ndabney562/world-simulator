@@ -745,3 +745,110 @@ fn consequence_unwind_poison_and_null_outputs_preserve_all_bytes() {
         ws_slice_destroy(h);
     }
 }
+
+#[test]
+fn slice_ffi_save_and_load_round_trip() {
+    unsafe {
+        let dir = std::env::temp_dir().join(format!("ws-ffi-slice-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("save.wssave");
+        let path_c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+
+        // Step 15 ticks
+        assert_eq!(ws_slice_apply(h, &op(1, 15)), OK);
+
+        // Afflict resident
+        let id = (*h).world.population().residents().ids()[0];
+        let mut command = op(5, 0);
+        command.words = [id.raw(), 4, 15_000_000, 0, 0, 0];
+        assert_eq!(ws_slice_apply(h, &command), OK);
+
+        // Step 15 more ticks
+        assert_eq!(ws_slice_apply(h, &op(1, 15)), OK);
+
+        let orig_hash = (*h).world.state_hash();
+
+        // Null argument checks
+        assert_eq!(ws_slice_save(null_mut(), path_c.as_ptr()), INVALID_ARGUMENT);
+        assert_eq!(ws_slice_save(h, null()), INVALID_ARGUMENT);
+
+        // Synchronous save
+        assert_eq!(ws_slice_save(h, path_c.as_ptr()), OK);
+        assert_eq!(ws_slice_save_status(h), OK);
+        assert!(path.is_file());
+
+        // Null path load
+        assert!(ws_slice_load(null()).is_null());
+
+        // Missing file load
+        let missing_c = std::ffi::CString::new("/nonexistent/file.wssave").unwrap();
+        assert!(ws_slice_load(missing_c.as_ptr()).is_null());
+
+        // Successful load
+        let loaded_h = ws_slice_load(path_c.as_ptr());
+        assert!(!loaded_h.is_null());
+        assert_eq!((*loaded_h).world.state_hash(), orig_hash);
+
+        // Step both handles and compare hashes
+        for _ in 0..20 {
+            assert_eq!(ws_slice_apply(h, &op(1, 1)), OK);
+            assert_eq!(ws_slice_apply(loaded_h, &op(1, 1)), OK);
+            assert_eq!((*loaded_h).world.state_hash(), (*h).world.state_hash());
+        }
+
+        ws_slice_destroy(h);
+        ws_slice_destroy(loaded_h);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+fn slice_ffi_background_save_and_status() {
+    unsafe {
+        let dir = std::env::temp_dir().join(format!("ws-ffi-slice-bg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bg.wssave");
+        let path_c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        assert_eq!(ws_slice_apply(h, &op(1, 20)), OK);
+        let orig_hash = (*h).world.state_hash();
+
+        assert_eq!(
+            ws_slice_save_background(null_mut(), path_c.as_ptr()),
+            INVALID_ARGUMENT
+        );
+        assert_eq!(ws_slice_save_background(h, null()), INVALID_ARGUMENT);
+
+        // Launch background save
+        assert_eq!(ws_slice_save_background(h, path_c.as_ptr()), OK);
+
+        // Poll status until OK
+        loop {
+            let status = ws_slice_save_status(h);
+            if status == OK {
+                break;
+            }
+            assert_eq!(status, SAVE_IN_PROGRESS);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        // Verify status remains OK
+        assert_eq!(ws_slice_save_status(h), OK);
+
+        // Load and verify
+        let loaded = ws_slice_load(path_c.as_ptr());
+        assert!(!loaded.is_null());
+        assert_eq!((*loaded).world.state_hash(), orig_hash);
+
+        ws_slice_destroy(h);
+        ws_slice_destroy(loaded);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

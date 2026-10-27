@@ -765,6 +765,7 @@ name = "ws-ffi"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "ws-persist",
  "ws-sim",
 ]
 
@@ -795,6 +796,7 @@ dependencies = [
  "rusqlite",
  "ws-ecs",
  "ws-events",
+ "ws-life",
  "ws-math",
  "ws-sim",
  "ws-time",

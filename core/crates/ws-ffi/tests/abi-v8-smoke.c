@@ -159,6 +159,14 @@ int main(void) {
     assert(ws_slice_apply(slice,&input)==OK);
     assert(ws_slice_inspect(slice,person,inspection,sizeof inspection,&written)==OK);
     assert(inspection[state_at+56]==100&&inspection[state_at+60]==0&&inspection[state_at+84]==0);
+    assert(ws_slice_save(NULL, "/tmp/test.wssave") == INVALID_ARGUMENT);
+    assert(ws_slice_save(slice, NULL) == INVALID_ARGUMENT);
+    assert(ws_slice_save(slice, "/tmp/abi8-slice-test.wssave") == OK);
+    assert(ws_slice_save_status(slice) == OK);
+    WsSliceHandle *loaded_slice = ws_slice_load("/tmp/abi8-slice-test.wssave");
+    assert(loaded_slice != NULL);
+    assert(ws_slice_get_calendar_sky(loaded_slice, &slice_sky) == OK);
+    ws_slice_destroy(loaded_slice);
     ws_slice_destroy(slice);
     ws_slice_destroy(NULL);
     return 0;

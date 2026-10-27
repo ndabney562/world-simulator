@@ -60,4 +60,17 @@ Load time depends on the area around the camera, not on world size.
 
 ## Accepted baseline-plus-deltas contract
 
-[ADR 0025](../adr/0025-baseline-plus-deltas-saves.md), implemented in [#53](https://github.com/ndabney562/world-simulator/issues/53), defines version-pinned baseline identity (`baseline`), typed canonical structural deltas (`structural_overrides`, `notables`, `tombstones`, `spawned`), per-node LOD persistence (`node_lod`), direct runtime-state restoration, and explicit atomic migration (`migrate_to_v3`) in save format 3 (`tests/saves/toy-v3.wssave`). Format-1 (`toy-v1.wssave`) and format-2 (`toy-v2.wssave`) readers remain active and tested. Whole-slice runtime persistence, background writing, and Unity save UI integration remain VS-011 (#75).
+[ADR 0025](../adr/0025-baseline-plus-deltas-saves.md), implemented in [#53](https://github.com/ndabney562/world-simulator/issues/53), defines version-pinned baseline identity (`baseline`), typed canonical structural deltas (`structural_overrides`, `notables`, `tombstones`, `spawned`), per-node LOD persistence (`node_lod`), direct runtime-state restoration, and explicit atomic migration (`migrate_to_v3`) in save format 3 (`tests/saves/toy-v3.wssave`). Format-1 (`toy-v1.wssave`) and format-2 (`toy-v2.wssave`) readers remain active and tested.
+
+## Accepted slice persistence contract
+
+[ADR 0036](../adr/0036-slice-persistence.md), implemented in [#75](https://github.com/ndabney562/world-simulator/issues/75), defines whole-slice runtime persistence in save format 4 (`tests/saves/slice-v4.wssave`), satisfying Vertical Slice exit criterion 3. It stores:
+- `slice_config`: seed, epoch, and start parameters.
+- `slice_vitals`: canonical resident vitals across all 30 residents.
+- `slice_behavior`: per-resident anchor, routine progress, need deficits, and activity state.
+- `slice_lod`: active camera interest and per-resident LOD modes with transition times.
+- `slice_events`: append-only structured events log with causal links and confidence classes.
+- `slice_episodes`: active and resolved illness episodes.
+- `slice_operations`: causal interventions and user commands.
+
+Background writing runs on a separate worker thread using a copy-on-write simulation clone, leaving the main frame cadence unhitched. Unity integration provides HUD Save and Load controls with asynchronous completion status. Format 1, 2, and 3 fixtures remain backward-compatible and continuously tested.

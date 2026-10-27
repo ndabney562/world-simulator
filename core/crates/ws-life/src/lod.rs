@@ -58,6 +58,17 @@ pub enum Mode {
     /// Aggregate representation over retained coarse identities.
     L3 = 3,
 }
+impl Mode {
+    /// Decode a mode tag (1 = L1, 2 = L2, 3 = L3).
+    pub const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            1 => Some(Self::L1),
+            2 => Some(Self::L2),
+            3 => Some(Self::L3),
+            _ => None,
+        }
+    }
+}
 /// Typed validation/planning failure, before canonical publication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LodError {
@@ -326,6 +337,66 @@ impl Controller {
         };
         controller.summary(behavior, start)?;
         Ok(controller)
+    }
+    /// Restores controller directly from saved camera interest and node modes.
+    ///
+    /// # Errors
+    /// Invalid node count, unknown building or portal calculation failure.
+    pub fn from_saved_parts(
+        population: &PopulatedSlice,
+        behavior: &Behavior,
+        epoch: SimTime,
+        camera: Option<CameraInterest>,
+        saved_nodes: &[(EntityId, Mode, SimTime)],
+    ) -> Result<Self, LodError> {
+        if saved_nodes.len() != NODE_COUNT
+            || population.world().buildings().len() != NODE_COUNT
+            || epoch != behavior.schedule_epoch()
+        {
+            return Err(LodError::Population);
+        }
+        if let Some(c) = camera {
+            c.validate()?;
+        }
+        let first = population.world().buildings().ids()[0];
+        let mut nodes = [Node {
+            building: first,
+            point: Point { east: 0, north: 0 },
+            mode: Mode::L2,
+            changed_at: SimTime::EPOCH,
+        }; NODE_COUNT];
+        for (i, &(id, mode, changed_at)) in saved_nodes.iter().enumerate() {
+            if id != population.world().buildings().ids()[i] {
+                return Err(LodError::Population);
+            }
+            nodes[i] = Node {
+                building: id,
+                point: behavior
+                    .navigation()
+                    .position(Place::Building(id), Place::Building(id), 0)
+                    .map_err(BehaviorError::Navigation)?,
+                mode,
+                changed_at,
+            };
+        }
+        let mut homes = Vec::new();
+        homes
+            .try_reserve(population.residents().len())
+            .map_err(|_| LodError::Resource)?;
+        for (id, r) in population.residents().iter() {
+            index(&nodes, r.home)?;
+            homes.push((id, r.home));
+        }
+        if !homes.iter().map(|v| v.0).eq(behavior.residents()) {
+            return Err(LodError::Population);
+        }
+        Ok(Self {
+            epoch,
+            camera,
+            nodes,
+            homes,
+            observations: Vec::new(),
+        })
     }
     /// Latest accepted input; absence leaves manual headless detail exercisable.
     pub const fn camera(&self) -> Option<CameraInterest> {

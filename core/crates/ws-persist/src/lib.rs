@@ -24,9 +24,11 @@ mod store;
 pub use codec::{COMPONENT_BUILDING, COMPONENT_RESIDENT};
 pub use error::{LoadError, SaveError};
 pub use header::{
-    BaselineRecord, BaselineRegistry, FORMAT_VERSION, Header, PURPOSE_BASELINE_DIGEST,
+    BaselineRecord, BaselineRegistry, FORMAT_VERSION, Header, MODEL_KIND_SLICE, MODEL_KIND_TOY,
+    PURPOSE_BASELINE_DIGEST,
 };
 pub use store::{
-    load, load_with_registry, migrate_to_v3, migrate_to_v3_with_registry, read_baseline,
-    read_header, save, save_with_registry,
+    load, load_slice, load_slice_parts, load_with_registry, migrate_to_v3,
+    migrate_to_v3_with_registry, read_baseline, read_header, save, save_slice,
+    save_slice_background, save_slice_parts, save_with_registry,
 };

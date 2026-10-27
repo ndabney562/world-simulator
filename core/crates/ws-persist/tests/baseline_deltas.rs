@@ -89,7 +89,7 @@ fn unchanged_baseline_writes_zero_structural_delta_rows() {
 
     let h = read_header(&path).unwrap();
     assert_eq!(h.format_version, FORMAT_VERSION);
-    assert_eq!(FORMAT_VERSION, 3);
+    assert_eq!(FORMAT_VERSION, 4);
 
     let base = read_baseline(&path).unwrap();
     let ds = Dataset::toy().unwrap();

@@ -60,6 +60,11 @@
 #define POISONED 7
 
 /**
+ * A background save operation is still in progress.
+ */
+#define SAVE_IN_PROGRESS 8
+
+/**
  * Opaque C handle. Never construct, dereference or copy its storage in a caller.
  */
 typedef struct WsHandle WsHandle;
@@ -531,6 +536,36 @@ WsStatus ws_slice_fill_snapshot(WsSliceHandle *handle,
  * from the handle. Serialize across dynamic fill and this query before pairing.
  */
 WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output);
+
+/**
+ * Saves the real slice synchronously to a format-4 save file.
+ * # Safety
+ * Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
+ */
+WsStatus ws_slice_save(WsSliceHandle *handle, const char *path_utf8);
+
+/**
+ * Spawns a background thread saving the real slice to a format-4 save file.
+ * # Safety
+ * Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
+ */
+WsStatus ws_slice_save_background(WsSliceHandle *handle, const char *path_utf8);
+
+/**
+ * Queries the status of the current or most recent save operation.
+ * Returns OK (0) if idle/completed, SAVE_IN_PROGRESS (8) if running,
+ * or an error status on failure.
+ * # Safety
+ * Non-null handle is live/exclusive.
+ */
+WsStatus ws_slice_save_status(WsSliceHandle *handle);
+
+/**
+ * Loads a real slice from a format-4 save file. Returns null on failure.
+ * # Safety
+ * Non-null path is null-terminated UTF-8.
+ */
+WsSliceHandle *ws_slice_load(const char *path_utf8);
 
 /**
  * Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.

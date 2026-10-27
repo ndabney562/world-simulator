@@ -429,12 +429,24 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
     }
     let mode = &args[0];
     let mut opts = std::collections::BTreeMap::new();
-    for pair in args[1..].chunks(2) {
-        require(pair.len() == 2, "option needs a value")?;
+    let mut is_slice = false;
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--slice" {
+            is_slice = true;
+            i += 1;
+            continue;
+        }
+        require(i + 1 < args.len(), "option needs a value")?;
         require(
-            opts.insert(pair[0].as_str(), pair[1].as_str()).is_none(),
+            opts.insert(args[i].as_str(), args[i + 1].as_str())
+                .is_none(),
             "duplicate option",
         )?;
+        i += 2;
+    }
+    if opts.get("--model") == Some(&"slice") {
+        is_slice = true;
     }
     require(
         opts.keys().all(|k| match mode.as_str() {
@@ -446,6 +458,7 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
                     "--hash-every",
                     "--script",
                     "--batch",
+                    "--model",
                 ]
                 .contains(k)
                     || (mode == "save" && *k == "--out")
@@ -487,6 +500,9 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
     let ticks: u64 = opts.get("--ticks").ok_or("run requires --ticks")?.parse()?;
     let every: u64 = opts.get("--hash-every").unwrap_or(&"1").parse()?;
     require(every > 0, "hash interval must be positive")?;
+    if is_slice {
+        return run_slice(seed, ticks, every, opts.get("--script").copied(), out);
+    }
     let writer: Box<dyn Write> = if let Some(path) = opts.get("--journal") {
         Box::new(std::io::BufWriter::new(std::fs::File::create_new(path)?))
     } else {
@@ -617,13 +633,135 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
     }
     Ok(())
 }
+fn run_slice(
+    seed: u64,
+    ticks: u64,
+    every: u64,
+    script_path: Option<&str>,
+    out: Option<&str>,
+) -> Result<()> {
+    let config =
+        ws_sim::slice::SliceConfig::calendar_aligned_v1(seed, SimTime::EPOCH).or_else(|_| {
+            ws_sim::slice::SliceConfig::calendar_aligned_v1(
+                seed,
+                SimTime::from_micros_since_epoch(1_000_000_000),
+            )
+        })?;
+    let mut sim = ws_sim::slice::SliceSimulation::new(config)?;
+
+    if let Some(path) = script_path {
+        let text = std::fs::read_to_string(path)?;
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            match parts.as_slice() {
+                ["step", n] => {
+                    let count: u64 = n.parse()?;
+                    sim.apply(ws_sim::slice::Operation::Steps(count))?;
+                }
+                ["afflict", who, severity, rest @ ..] => {
+                    let resident = if *who == "first" {
+                        sim.population().residents().ids()[0]
+                    } else {
+                        EntityId::from_raw(who.parse()?)?
+                    };
+                    let sev: u32 = severity.parse()?;
+                    let duration_us = if rest.is_empty() {
+                        10_000_000
+                    } else {
+                        rest[0].parse()?
+                    };
+                    sim.apply(ws_sim::slice::Operation::Afflict {
+                        resident,
+                        severity: sev,
+                        duration_us,
+                    })?;
+                }
+                ["camera", east, north, radius] => {
+                    sim.apply(ws_sim::slice::Operation::CameraInterest(
+                        ws_sim::slice::CameraInterest {
+                            center: ws_sim::slice::Point {
+                                east: east.parse()?,
+                                north: north.parse()?,
+                            },
+                            radius_mm: radius.parse()?,
+                        },
+                    ))?;
+                }
+                _ => return Err(format!("invalid script line: {line}").into()),
+            }
+        }
+    }
+
+    while sim.clock().steps() < ticks {
+        sim.step()?;
+        if sim.clock().steps().is_multiple_of(every) {
+            println!(
+                "tick={} state={:016x}",
+                sim.clock().steps(),
+                sim.state_hash()
+            );
+        }
+    }
+
+    println!(
+        "complete tick={} state={:016x} journal={} events={}",
+        sim.clock().steps(),
+        sim.state_hash(),
+        sim.operation_digest(),
+        sim.events().records().len()
+    );
+
+    if let Some(out) = out {
+        ws_persist::save_slice(&sim, std::path::Path::new(out))?;
+        println!(
+            "saved {out} tick={} state={:016x}",
+            sim.clock().steps(),
+            sim.state_hash()
+        );
+    }
+    Ok(())
+}
+
 /// `load`: restores a save, then optionally continues it for `--ticks` more.
 fn load_and_continue(opts: &std::collections::BTreeMap<&str, &str>) -> Result<()> {
-    let path = opts.get("--file").ok_or("load requires --file")?;
+    let path = std::path::Path::new(opts.get("--file").ok_or("load requires --file")?);
     let more: u64 = opts.get("--ticks").unwrap_or(&"0").parse()?;
     let every: u64 = opts.get("--hash-every").unwrap_or(&"1").parse()?;
     require(every > 0, "hash interval must be positive")?;
-    let mut w = ws_persist::load(std::path::Path::new(path))?;
+
+    let header = ws_persist::read_header(path)?;
+    if header.is_slice() {
+        let mut sim = ws_persist::load_slice(path)?;
+        println!(
+            "loaded tick={} state={:016x} journal={} events={}",
+            sim.clock().steps(),
+            sim.state_hash(),
+            sim.operation_digest(),
+            sim.events().records().len()
+        );
+        let end = sim
+            .clock()
+            .steps()
+            .checked_add(more)
+            .ok_or("tick budget overflows")?;
+        while sim.clock().steps() < end {
+            sim.step()?;
+            if sim.clock().steps().is_multiple_of(every) {
+                println!(
+                    "tick={} state={:016x}",
+                    sim.clock().steps(),
+                    sim.state_hash()
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let mut w = ws_persist::load(path)?;
     println!(
         "loaded tick={} state={:016x} journal={} events={}",
         w.tick(),

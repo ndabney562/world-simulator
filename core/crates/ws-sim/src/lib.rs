@@ -31,6 +31,7 @@ use core::fmt;
 pub use clock::{Clock, InvalidClock, TimeScale};
 pub use environment::CalendarSky;
 pub use restore::{RestoreError, WorldParts};
+pub use slice::{SliceParts, SliceRestoreError};
 pub use ws_ecs::EntityId;
 pub use ws_time::{CivilError, SimTime, TimeOverflow, UtcDateTime};
 use ws_world::WalkParams;
