@@ -58,3 +58,11 @@ All checks from [`docs/process/ci.md`](../../process/ci.md) were executed locall
 - `cargo build --manifest-path core/Cargo.toml --workspace --all-targets --locked`
 - `cargo test --manifest-path core/Cargo.toml --workspace --locked`
 - `python3 scripts/check_core_deps.py`
+
+## Independent review corrections (2026-10-27)
+
+Review of published head `b98765fa13b2ab9e3dcd5ff09eb31153d91d95e2` found a source-deleting migration staging collision and unbounded baseline regeneration. A compiled external reproduction migrated `out.wssave.saving` to `out.wssave` successfully while deleting the source. Migration now owns a fresh sibling directory, rejects filesystem aliases, verifies the candidate before publication, and preserves the source and existing destination on failure. Regressions cover the former staging collision, parent/symlink aliases, failed publication and temporary cleanup.
+
+The format-3 reader and writer now share a1,000,000-total-baseline-entity workload limit. Before generating entities, they compute the exact deterministic population count using one bounded count draw per building and checked addition. The reader compares this result to the saved manifest before allocating the baseline. Regressions reject `u32::MAX` population bounds, a count just above the limit, and a forged manifest. This is an implementation resource limit, not a new save schema or changed generator; legacy1/2 readers and fixtures remain unchanged.
+
+Correction verification: all46 persistence tests passed with2 existing measurement ignored; the focused baseline/delta suite passed18 tests including5 new regressions. Workspace format/all-target clippy with warnings denied, docs/static Unity/dependency checks and all61 Python script tests pass. Final published-head independent review and all five hosted checks remain merge requirements.

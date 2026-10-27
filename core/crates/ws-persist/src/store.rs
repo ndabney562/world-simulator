@@ -31,6 +31,40 @@ const RECORD_SCHEMA: u32 = 1;
 /// `next_event_id`, ADR 0025 §2–3).
 const CLOCK_SCHEMA_V3: u32 = 2;
 
+/// Format-3 implementation workload limit, checked before baseline generation.
+/// Shared by reader and writer so every newly written save can be loaded.
+const MAX_BASELINE_ENTITIES: u32 = 1_000_000;
+
+fn baseline_counts(
+    seed: u64,
+    dataset: &ws_world::Dataset,
+    population: Population,
+) -> Result<(u32, u32), &'static str> {
+    if population.min_per_building > population.max_per_building {
+        return Err("invalid population bounds");
+    }
+    let buildings =
+        u32::try_from(dataset.sites.len()).map_err(|_| "baseline exceeds entity limit")?;
+    if buildings > MAX_BASELINE_ENTITIES {
+        return Err("baseline exceeds entity limit");
+    }
+    let mut residents = 0_u32;
+    for index in 0..buildings {
+        residents = residents
+            .checked_add(ws_world::ids::resident_count(
+                seed,
+                dataset.version,
+                index,
+                population,
+            ))
+            .ok_or("baseline exceeds entity limit")?;
+        if residents > MAX_BASELINE_ENTITIES - buildings {
+            return Err("baseline exceeds entity limit");
+        }
+    }
+    Ok((buildings, residents))
+}
+
 /// Tables in format 1 (ADR 0020).
 const TABLES_V1: [&str; 9] = [
     "header",
@@ -282,6 +316,7 @@ fn classify_deltas(
         min_per_building: header.population_min,
         max_per_building: header.population_max,
     };
+    baseline_counts(header.seed, dataset, population).map_err(SaveError::Unsaveable)?;
     let base_world = ToyWorld::generate(header.seed, dataset, population, parts.toy.walk_params())
         .map_err(|_| SaveError::Unsaveable("baseline generation failed"))?;
 
@@ -956,16 +991,17 @@ fn load_v3(
         speed_m_s: f64::from_bits(header.walk_speed_bits),
         wait_steps: header.walk_wait_steps,
     };
-    let base_world = ToyWorld::generate(
-        header.seed,
-        dataset,
-        Population {
-            min_per_building: baseline.population_min,
-            max_per_building: baseline.population_max,
-        },
-        walk,
-    )
-    .map_err(LoadError::Toy)?;
+    let population = Population {
+        min_per_building: baseline.population_min,
+        max_per_building: baseline.population_max,
+    };
+    let counts = baseline_counts(header.seed, dataset, population)
+        .map_err(|reason| bad("baseline", reason))?;
+    if counts != (baseline.building_count, baseline.resident_count) {
+        return Err(bad("baseline", "regenerated baseline manifest mismatch"));
+    }
+    let base_world =
+        ToyWorld::generate(header.seed, dataset, population, walk).map_err(LoadError::Toy)?;
 
     if base_world.buildings().len() != baseline.building_count as usize
         || base_world.residents().len() != baseline.resident_count as usize
@@ -1472,7 +1508,7 @@ pub fn migrate_to_v3_with_registry(
     dest: &Path,
     registry: &BaselineRegistry,
 ) -> Result<Header, LoadError> {
-    if source == dest {
+    if source == dest || (dest.exists() && fs::canonicalize(source)? == fs::canonicalize(dest)?) {
         return Err(bad(
             "header",
             "migration destination must differ from source",
@@ -1502,19 +1538,58 @@ pub fn migrate_to_v3_with_registry(
         });
     }
     let world = load_with_registry(source, registry)?;
-    save_with_registry(&world, dest, registry).map_err(|e| match e {
+    // Own a fresh sibling directory: neither the source nor a prior destination
+    // can alias its save/staging files. Verify before replacing the destination.
+    let temporary = MigrationDirectory::create(dest)?;
+    let candidate = temporary.0.join("state.wssave");
+    save_with_registry(&world, &candidate, registry).map_err(|e| match e {
         SaveError::Io(io) => LoadError::Io(io),
         SaveError::Sqlite(sql) => LoadError::Sqlite(sql),
         SaveError::PendingCommands => bad("header", "pending commands"),
         SaveError::Unsaveable(why) => bad("baseline", why),
     })?;
-    let verify = load_with_registry(dest, registry)?;
+    let verify = load_with_registry(&candidate, registry)?;
     if verify != world || verify.checkpoint() != world.checkpoint() {
-        let _ = fs::remove_file(dest);
         return Err(bad(
             "header",
             "migrated save failed round-trip verification",
         ));
     }
-    read_header(dest)
+    let header = read_header(&candidate)?;
+    fs::rename(&candidate, dest)?;
+    Ok(header)
+}
+
+struct MigrationDirectory(PathBuf);
+
+impl MigrationDirectory {
+    fn create(dest: &Path) -> Result<Self, std::io::Error> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        for _ in 0..100 {
+            let suffix = format!(
+                ".migration-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            );
+            let path = sibling(dest, &suffix);
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self(path)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "cannot reserve migration directory",
+        ))
+    }
+}
+
+impl Drop for MigrationDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.0.join("state.wssave.saving"));
+        let _ = fs::remove_file(self.0.join("state.wssave"));
+        let _ = fs::remove_dir(&self.0);
+    }
 }

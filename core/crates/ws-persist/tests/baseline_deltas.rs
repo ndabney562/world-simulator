@@ -600,6 +600,100 @@ fn format_1_and_2_saves_migrate_atomically_to_format_3() {
     assert!(!dir.path("keep.wssave.saving").exists());
 }
 
+#[test]
+fn migration_preserves_source_when_it_matches_the_old_staging_name() {
+    let dir = Scratch::new("migration-staging-alias");
+    let source = dir.path("target.wssave.saving");
+    let target = dir.path("target.wssave");
+    std::fs::copy(fixture("toy-v2.wssave"), &source).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    migrate_to_v3(&source, &target).unwrap();
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert_eq!(load(&source).unwrap(), load(&target).unwrap());
+    assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 2);
+}
+
+#[test]
+fn migration_rejects_parent_path_alias_without_rewriting_source() {
+    let dir = Scratch::new("migration-parent-alias");
+    std::fs::create_dir(dir.path("child")).unwrap();
+    let source = dir.path("source.wssave");
+    let target = dir.path("child/../source.wssave");
+    std::fs::copy(fixture("toy-v2.wssave"), &source).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    assert!(migrate_to_v3(&source, &target).is_err());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn migration_rejects_symlink_alias_without_rewriting_source() {
+    let dir = Scratch::new("migration-symlink-alias");
+    let source = dir.path("source.wssave");
+    let target = dir.path("alias.wssave");
+    std::fs::copy(fixture("toy-v2.wssave"), &source).unwrap();
+    std::os::unix::fs::symlink(&source, &target).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    assert!(migrate_to_v3(&source, &target).is_err());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert!(target.is_symlink());
+}
+
+#[test]
+fn migration_publication_failure_preserves_source_and_destination() {
+    let dir = Scratch::new("migration-publish-failure");
+    let source = dir.path("source.wssave");
+    let target = dir.path("target.wssave");
+    std::fs::copy(fixture("toy-v2.wssave"), &source).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    std::fs::create_dir(&target).unwrap();
+    std::fs::write(target.join("keep"), b"existing destination").unwrap();
+    assert!(migrate_to_v3(&source, &target).is_err());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert_eq!(
+        std::fs::read(target.join("keep")).unwrap(),
+        b"existing destination"
+    );
+    assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 2);
+}
+
+#[test]
+fn oversized_or_inconsistent_baseline_is_rejected_before_regeneration() {
+    let dir = Scratch::new("baseline-preflight");
+    let path = dir.path("oversized.wssave");
+    for population in [Some(u32::MAX), Some(200_001), None] {
+        save(&world(109), &path).unwrap();
+        let mut baseline = read_baseline(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        let mut bytes: Vec<u8> = conn
+            .query_row("SELECT data FROM baseline WHERE id=1", [], |r| r.get(0))
+            .unwrap();
+        let reason = if let Some(count) = population {
+            baseline.population_min = count;
+            baseline.population_max = count;
+            bytes[68..72].copy_from_slice(&count.to_le_bytes());
+            bytes[72..76].copy_from_slice(&count.to_le_bytes());
+            conn.execute(
+                "UPDATE header SET population_min=?1, population_max=?1",
+                [count],
+            )
+            .unwrap();
+            "baseline exceeds entity limit"
+        } else {
+            baseline.resident_count += 1;
+            bytes[100..104].copy_from_slice(&baseline.resident_count.to_le_bytes());
+            "regenerated baseline manifest mismatch"
+        };
+        bytes[112..120].copy_from_slice(&baseline.compute_digest().to_le_bytes());
+        conn.execute("UPDATE baseline SET data=? WHERE id=1", [&bytes])
+            .unwrap();
+        drop(conn);
+        assert!(
+            matches!(load(&path), Err(LoadError::Corrupt {table: "baseline", reason: r}) if r==reason)
+        );
+    }
+}
+
 /// `tests/saves/toy-v3.wssave` is the committed format-3 fixture (ADR 0025).
 #[test]
 fn the_format_3_fixture_loads() {
