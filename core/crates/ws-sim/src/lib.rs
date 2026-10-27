@@ -33,13 +33,15 @@ pub use environment::CalendarSky;
 pub use restore::{RestoreError, WorldParts};
 pub use ws_ecs::EntityId;
 pub use ws_time::{CivilError, SimTime, TimeOverflow, UtcDateTime};
+use ws_world::WalkParams;
 pub use ws_world::environment::{
     LEAP_SECOND_TABLE_VERSION, NY_POLICY_VERSION, SITE_DATASET_VERSION, SOLAR_VERSION,
 };
-use ws_world::{Dataset, WalkParams};
 pub use ws_world::{
-    Illness, IllnessKind, Lod, LodError, LodViolation, Population, RenderInstance, RenderKind,
-    TOY_DATASET_VERSION, ToyWorld, TransitionReport, WorldError,
+    BUILDING_GENERATOR_VERSION, BaselineAddress, Building, Dataset,
+    IDENTITY_POLICY_FAIL_ON_COLLISION, Illness, IllnessKind, Lod, LodError, LodViolation,
+    Population, RESIDENT_GENERATOR_VERSION, RenderInstance, RenderKind, Resident, ResidentAddress,
+    TOY_DATASET_ID, TOY_DATASET_VERSION, Tombstone, ToyWorld, TransitionReport, WorldError, sha256,
 };
 
 /// Parameters a [`World`] is created from.
@@ -351,6 +353,117 @@ impl World {
     /// ascending ID order (ADR 0022). Read-only.
     pub fn render_instances(&self, f: impl FnMut(RenderInstance)) {
         self.toy.render_instances(f);
+    }
+
+    /// Replaces the [`Building`] component of an existing building `id`
+    /// (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if the replacement is invalid.
+    pub fn override_building(
+        &mut self,
+        id: EntityId,
+        building: Building,
+    ) -> Result<(), WorldError> {
+        self.toy.override_building(id, building)
+    }
+
+    /// Replaces the [`Resident`] component of an existing resident `id`
+    /// (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if the replacement is invalid.
+    pub fn override_resident(
+        &mut self,
+        id: EntityId,
+        resident: Resident,
+    ) -> Result<(), WorldError> {
+        self.toy.override_resident(id, resident)
+    }
+
+    /// Promotes a live procedural entity `id` to a notable record
+    /// (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if `id` is not a live procedural entity.
+    pub fn promote_notable(&mut self, id: EntityId) -> Result<(), WorldError> {
+        self.toy.promote_notable(id)
+    }
+
+    /// Tombstones a live procedural resident `id`, removing its live
+    /// components and recording its deletion at the current tick
+    /// (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if `id` is not a live procedural resident, `root_event`
+    /// does not exist in history, or a scheduled intervention targets `id`.
+    pub fn tombstone_resident(&mut self, id: EntityId, root_event: u64) -> Result<(), WorldError> {
+        if root_event != 0 && self.events.get(ws_events::EventId(root_event)).is_none() {
+            return Err(WorldError::UnknownResident(id));
+        }
+        if self
+            .scheduled
+            .values()
+            .any(|i| i.target == commands::InterventionTarget::Entity(id))
+        {
+            return Err(WorldError::UnknownResident(id));
+        }
+        self.toy.tombstone_resident(id, self.tick(), root_event)
+    }
+
+    /// Tombstones a live procedural building `id` that has no live resident
+    /// references or scheduled interventions (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if `id` is not a live procedural building, `root_event`
+    /// does not exist in history, a live resident still references `id`, or a
+    /// scheduled intervention targets `id`.
+    pub fn tombstone_building(&mut self, id: EntityId, root_event: u64) -> Result<(), WorldError> {
+        if root_event != 0 && self.events.get(ws_events::EventId(root_event)).is_none() {
+            return Err(WorldError::UnknownBuilding(id));
+        }
+        if self
+            .scheduled
+            .values()
+            .any(|i| i.target == commands::InterventionTarget::ResidentsOf(id))
+        {
+            return Err(WorldError::UnknownBuilding(id));
+        }
+        self.toy.tombstone_building(id, self.tick(), root_event)
+    }
+
+    /// Allocates and inserts a non-baseline building in the spawned namespace
+    /// (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if the building or level is invalid or the counter is
+    /// exhausted.
+    pub fn spawn_building(
+        &mut self,
+        building: Building,
+        level: Lod,
+    ) -> Result<EntityId, WorldError> {
+        let id = self.toy.spawn_building(building, level)?;
+        self.events.register_actor(id);
+        Ok(id)
+    }
+
+    /// Allocates and inserts a non-baseline resident in the spawned namespace
+    /// waiting at `home` at L1 (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError`] if `home` is not a building or the counter is exhausted.
+    pub fn spawn_resident(&mut self, home: EntityId) -> Result<EntityId, WorldError> {
+        let id = self.toy.spawn_resident(home)?;
+        self.events.register_actor(id);
+        Ok(id)
     }
 }
 

@@ -1309,9 +1309,18 @@ impl ToyWorld {
     }
 
     fn check_identity(&self, v: &mut Vec<LodViolation>) {
+        for (id, b) in self.buildings.iter() {
+            if id.namespace() == Namespace::Spawned && id.payload() >= self.next_spawned_id {
+                v.push(LodViolation::IdentityMismatch(id));
+            }
+            if b.pos.occupied_cell() != Ok(b.pos.cell()) {
+                v.push(LodViolation::NotInOwnCell(id));
+            }
+        }
         for (id, r) in self.residents.iter() {
-            if id.namespace() == Namespace::Procedural
-                && ids::resident_id(self.seed, self.dataset_version, r.address) != id
+            if (id.namespace() == Namespace::Procedural
+                && ids::resident_id(self.seed, self.dataset_version, r.address) != id)
+                || (id.namespace() == Namespace::Spawned && id.payload() >= self.next_spawned_id)
             {
                 v.push(LodViolation::IdentityMismatch(id));
             }
@@ -1320,6 +1329,31 @@ impl ToyWorld {
                     id,
                     building: r.home,
                 });
+            }
+        }
+        for &id in &self.notables {
+            if id.namespace() != Namespace::Procedural
+                || (!self.buildings.contains(id) && !self.residents.contains(id))
+                || self.tombstones.contains(id)
+            {
+                v.push(LodViolation::IdentityMismatch(id));
+            }
+        }
+        for (id, t) in self.tombstones.iter() {
+            let expected = match t.address {
+                crate::BaselineAddress::Building(index) => {
+                    ids::building_id(self.seed, self.dataset_version, index)
+                }
+                crate::BaselineAddress::Resident(addr) => {
+                    ids::resident_id(self.seed, self.dataset_version, addr)
+                }
+            };
+            if id.namespace() != Namespace::Procedural
+                || expected != id
+                || self.buildings.contains(id)
+                || self.residents.contains(id)
+            {
+                v.push(LodViolation::IdentityMismatch(id));
             }
         }
     }

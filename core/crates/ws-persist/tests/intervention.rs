@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ws_persist::{load, read_header, save};
+use ws_persist::{FORMAT_VERSION, load, read_header, save};
 use ws_sim::commands::{
     Action, Command, Effect, Intervention, InterventionTarget, IssuedBy, Timing,
 };
@@ -88,7 +88,7 @@ fn effect_events_and_causal_links_survive_save_and_load() {
 
     let path = dir.0.join("ill.wssave");
     save(&w, &path).unwrap();
-    assert_eq!(read_header(&path).unwrap().format_version, 2);
+    assert_eq!(read_header(&path).unwrap().format_version, FORMAT_VERSION);
     assert_eq!(read_header(&path).unwrap().effect_vocabulary, 1);
     let mut loaded = load(&path).unwrap();
     assert_eq!(loaded, w);

@@ -1,31 +1,38 @@
-//! The SQLite container: schema, writing, and reading (ADR 0020).
+//! The SQLite container: schema, writing, reading, and format-3 migration
+//! (ADR 0020, ADR 0021, ADR 0025).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags, params};
-use ws_ecs::EntityId;
+use ws_ecs::{EntityId, Namespace};
 use ws_events::{EventId, Payload};
+use ws_math::SurfacePos;
 use ws_sim::{World, WorldParts};
-use ws_world::ToyParts;
+use ws_world::{
+    BUILDING_GENERATOR_VERSION, BaselineAddress, Building, IDENTITY_POLICY_FAIL_ON_COLLISION,
+    Population, RESIDENT_GENERATOR_VERSION, Resident, TOY_DATASET_ID, Tombstone, ToyParts,
+    ToyWorld,
+};
 
-use crate::codec::{self, CodecError, Link};
+use crate::codec::{self, COMPONENT_BUILDING, COMPONENT_RESIDENT, CodecError, EntityRecord, Link};
 use crate::error::{LoadError, SaveError};
-use crate::header::{FORMAT_VERSION, Header, build_id};
+use crate::header::{BaselineRecord, BaselineRegistry, FORMAT_VERSION, Header, build_id};
 
 /// `PRAGMA application_id` of a World Simulator save: ASCII "WSAV".
 const APPLICATION_ID: i32 = 0x5753_4156;
 
-/// Schema version of every record kind in format 1. Each row carries its
-/// own, so one kind can move to a new version without the others.
+/// Schema version of every record kind in formats 1–3, except format-3's
+/// extended `clock` row (`CLOCK_SCHEMA_V3`).
 const RECORD_SCHEMA: u32 = 1;
 
-/// Tables added by format 2 (ADR 0021 §7); a format-1 file lacks them and
-/// loads with none of their rows.
-const TABLES_V2: [&str; 2] = ["illness", "scheduled"];
+/// Schema version of the `clock` row in format 3 (adds `next_spawned_id` and
+/// `next_event_id`, ADR 0025 §2–3).
+const CLOCK_SCHEMA_V3: u32 = 2;
 
-const TABLES: [&str; 9] = [
+/// Tables in format 1 (ADR 0020).
+const TABLES_V1: [&str; 9] = [
     "header",
     "clock",
     "buildings",
@@ -37,7 +44,30 @@ const TABLES: [&str; 9] = [
     "event_links",
 ];
 
-const SCHEMA: &str = "
+/// Tables added by format 2 (ADR 0021 §7); a format-1 file lacks them and
+/// loads with none of their rows.
+const TABLES_V2: [&str; 2] = ["illness", "scheduled"];
+
+/// Tables in format 3 (ADR 0025 §2).
+const TABLES_V3: [&str; 15] = [
+    "header",
+    "baseline",
+    "clock",
+    "structural_overrides",
+    "tombstones",
+    "notables",
+    "spawned",
+    "node_lod",
+    "l1_state",
+    "l2_state",
+    "illness",
+    "scheduled",
+    "journal",
+    "events",
+    "event_links",
+];
+
+const SCHEMA_V3: &str = "
 CREATE TABLE header (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     format_version INTEGER NOT NULL,
@@ -57,16 +87,34 @@ CREATE TABLE header (
     events_digest INTEGER NOT NULL,
     effect_vocabulary INTEGER NOT NULL
 );
+CREATE TABLE baseline (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
 CREATE TABLE clock (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     schema INTEGER NOT NULL,
     data BLOB NOT NULL
 );
-CREATE TABLE buildings (
-    cell INTEGER NOT NULL, id INTEGER NOT NULL, schema INTEGER NOT NULL, data BLOB NOT NULL,
-    PRIMARY KEY (cell, id)
+CREATE TABLE structural_overrides (
+    cell INTEGER NOT NULL,
+    id INTEGER NOT NULL,
+    component_tag INTEGER NOT NULL,
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    PRIMARY KEY (cell, id, component_tag)
 ) WITHOUT ROWID;
-CREATE TABLE residents (
+CREATE TABLE tombstones (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE notables (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE spawned (
+    id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE node_lod (
     id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE l1_state (
@@ -76,13 +124,13 @@ CREATE TABLE l1_state (
 CREATE TABLE l2_state (
     id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
 ) WITHOUT ROWID;
-CREATE TABLE journal (
-    sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
-) WITHOUT ROWID;
 CREATE TABLE illness (
     id INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE scheduled (
+    sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE journal (
     sequence INTEGER PRIMARY KEY, schema INTEGER NOT NULL, data BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE TABLE events (
@@ -123,17 +171,56 @@ fn bad(table: &'static str, reason: &'static str) -> LoadError {
     LoadError::Corrupt { table, reason }
 }
 
-/// Writes `world` to `path` as a version-1 save, replacing any file there.
+fn same_pos_bits(a: SurfacePos, b: SurfacePos) -> bool {
+    a.cell() == b.cell()
+        && a.offset()
+            .iter()
+            .zip(b.offset())
+            .all(|(x, y)| x.to_bits() == y.to_bits())
+}
+
+fn same_building_bits(a: &Building, b: &Building) -> bool {
+    a.index == b.index
+        && same_pos_bits(a.pos, b.pos)
+        && a.half_extent_m.to_bits() == b.half_extent_m.to_bits()
+        && a.height_m.to_bits() == b.height_m.to_bits()
+}
+
+struct PreparedDeltas {
+    baseline: BaselineRecord,
+    overrides: Vec<(i64, EntityId, u8, Vec<u8>)>,
+    tombstones: Vec<(EntityId, Tombstone)>,
+    notables: Vec<(EntityId, EntityRecord)>,
+    spawned: Vec<(EntityId, EntityRecord)>,
+}
+
+/// Writes `world` to `path` as a format-3 baseline-plus-deltas save using the
+/// built-in baseline registry, replacing any file there atomically.
 ///
-/// The save is written to a sibling file and moved into place only when
-/// complete, so `path` holds either the previous file or the new save.
+/// The save is written to a sibling `.saving` file and moved into place only
+/// when complete, so `path` holds either the previous file or the new save.
 ///
 /// # Errors
 ///
 /// [`SaveError::PendingCommands`] if commands are queued; the other
-/// variants for file-system or SQLite failures. On error `path` is
-/// untouched.
+/// variants for unsaveable worlds, file-system, or SQLite failures. On error
+/// `path` is untouched.
 pub fn save(world: &World, path: &Path) -> Result<(), SaveError> {
+    let registry = BaselineRegistry::with_builtin();
+    save_with_registry(world, path, &registry)
+}
+
+/// Writes `world` to `path` as a format-3 baseline-plus-deltas save using
+/// `registry` to resolve the pinned baseline dataset.
+///
+/// # Errors
+///
+/// As [`save`].
+pub fn save_with_registry(
+    world: &World,
+    path: &Path,
+    registry: &BaselineRegistry,
+) -> Result<(), SaveError> {
     if world.has_pending_commands() {
         return Err(SaveError::PendingCommands);
     }
@@ -151,10 +238,11 @@ pub fn save(world: &World, path: &Path) -> Result<(), SaveError> {
             codec::event_links(e).ok_or(SaveError::Unsaveable("an event has an unresolved cause"))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let deltas = classify_deltas(&header, &parts, registry)?;
 
     let tmp = sibling(path, ".saving");
     let _ = fs::remove_file(&tmp);
-    let written = write_file(&tmp, &header, &parts, &links);
+    let written = write_file_v3(&tmp, &header, &parts, &links, &deltas);
     if let Err(e) = written {
         let _ = fs::remove_file(&tmp);
         return Err(e);
@@ -167,6 +255,193 @@ pub fn save(world: &World, path: &Path) -> Result<(), SaveError> {
         return Err(e.into());
     }
     Ok(())
+}
+
+fn classify_deltas(
+    header: &Header,
+    parts: &WorldParts,
+    registry: &BaselineRegistry,
+) -> Result<PreparedDeltas, SaveError> {
+    if header.generator_version != BUILDING_GENERATOR_VERSION
+        || header.generator_version != RESIDENT_GENERATOR_VERSION
+        || header.rules_version != 1
+    {
+        return Err(SaveError::Unsaveable(
+            "unsupported baseline generator or rules version",
+        ));
+    }
+    let Some(dataset) = registry.get(TOY_DATASET_ID, header.dataset_version) else {
+        return Err(SaveError::Unsaveable(
+            "baseline dataset is not in the registry",
+        ));
+    };
+    if header.population_min > header.population_max {
+        return Err(SaveError::Unsaveable("invalid population bounds"));
+    }
+    let population = Population {
+        min_per_building: header.population_min,
+        max_per_building: header.population_max,
+    };
+    let base_world = ToyWorld::generate(header.seed, dataset, population, parts.toy.walk_params())
+        .map_err(|_| SaveError::Unsaveable("baseline generation failed"))?;
+
+    let mut baseline = BaselineRecord {
+        seed: header.seed,
+        dataset_id: TOY_DATASET_ID,
+        dataset_version: header.dataset_version,
+        dataset_sha256: dataset.content_sha256(),
+        building_generator_version: BUILDING_GENERATOR_VERSION,
+        resident_generator_version: RESIDENT_GENERATOR_VERSION,
+        rules_version: header.rules_version,
+        identity_policy_version: IDENTITY_POLICY_FAIL_ON_COLLISION,
+        population_min: header.population_min,
+        population_max: header.population_max,
+        walk_speed_bits: header.walk_speed_bits,
+        walk_wait_steps: header.walk_wait_steps,
+        start_time_us: parts.clock.start().as_micros_since_epoch(),
+        building_count: u32::try_from(base_world.buildings().len())
+            .expect("fewer than 2^32 buildings"),
+        resident_count: u32::try_from(base_world.residents().len())
+            .expect("fewer than 2^32 residents"),
+        structural_digest: base_world.structural_digest(),
+        baseline_digest: 0,
+        collision_overrides: Vec::new(),
+    };
+    baseline.baseline_digest = baseline.compute_digest();
+
+    let toy = &parts.toy;
+    for (id, t) in toy.tombstones().iter() {
+        match t.address {
+            BaselineAddress::Building(index) => {
+                let Some(b) = base_world.buildings().get(id) else {
+                    return Err(SaveError::Unsaveable(
+                        "tombstone does not match a baseline building",
+                    ));
+                };
+                if b.index != index {
+                    return Err(SaveError::Unsaveable("tombstone building index mismatch"));
+                }
+            }
+            BaselineAddress::Resident(addr) => {
+                let Some(r) = base_world.residents().get(id) else {
+                    return Err(SaveError::Unsaveable(
+                        "tombstone does not match a baseline resident",
+                    ));
+                };
+                if r.address != addr {
+                    return Err(SaveError::Unsaveable("tombstone resident address mismatch"));
+                }
+            }
+        }
+    }
+    for (id, _) in base_world.buildings().iter() {
+        if !toy.buildings().contains(id) && !toy.tombstones().contains(id) {
+            return Err(SaveError::Unsaveable(
+                "a baseline building is missing without a tombstone",
+            ));
+        }
+    }
+    for (id, _) in base_world.residents().iter() {
+        if !toy.residents().contains(id) && !toy.tombstones().contains(id) {
+            return Err(SaveError::Unsaveable(
+                "a baseline resident is missing without a tombstone",
+            ));
+        }
+    }
+
+    let mut overrides = Vec::new();
+    let mut notables = Vec::new();
+    let mut spawned = Vec::new();
+
+    for (id, b) in toy.buildings().iter() {
+        match id.namespace() {
+            Namespace::Procedural => {
+                let Some(base_b) = base_world.buildings().get(id) else {
+                    return Err(SaveError::Unsaveable(
+                        "a procedural building is not in the baseline",
+                    ));
+                };
+                if b.index != base_b.index {
+                    return Err(SaveError::Unsaveable(
+                        "a procedural building changed its generation index",
+                    ));
+                }
+                if toy.notables().contains(&id) {
+                    notables.push((id, EntityRecord::Building(*b)));
+                } else if !same_building_bits(b, base_b) {
+                    overrides.push((
+                        key(b.pos.cell().raw()),
+                        id,
+                        COMPONENT_BUILDING,
+                        codec::put_building_component(b),
+                    ));
+                }
+            }
+            Namespace::Spawned => {
+                if id.payload() >= toy.next_spawned_id() {
+                    return Err(SaveError::Unsaveable(
+                        "spawned building ID is at or past next_spawned_id",
+                    ));
+                }
+                spawned.push((id, EntityRecord::Building(*b)));
+            }
+        }
+    }
+
+    for (id, r) in toy.residents().iter() {
+        match id.namespace() {
+            Namespace::Procedural => {
+                let Some(base_r) = base_world.residents().get(id) else {
+                    return Err(SaveError::Unsaveable(
+                        "a procedural resident is not in the baseline",
+                    ));
+                };
+                if r.address != base_r.address {
+                    return Err(SaveError::Unsaveable(
+                        "a procedural resident changed its generation address",
+                    ));
+                }
+                if toy.notables().contains(&id) {
+                    notables.push((id, EntityRecord::Resident(*r)));
+                } else if r != base_r {
+                    let home_cell = toy
+                        .buildings()
+                        .get(r.home)
+                        .ok_or(SaveError::Unsaveable("resident home does not exist"))?
+                        .pos
+                        .cell();
+                    overrides.push((
+                        key(home_cell.raw()),
+                        id,
+                        COMPONENT_RESIDENT,
+                        codec::put_resident(r),
+                    ));
+                }
+            }
+            Namespace::Spawned => {
+                if id.payload() >= toy.next_spawned_id() {
+                    return Err(SaveError::Unsaveable(
+                        "spawned resident ID is at or past next_spawned_id",
+                    ));
+                }
+                spawned.push((id, EntityRecord::Resident(*r)));
+            }
+        }
+    }
+
+    notables.sort_unstable_by_key(|(id, _)| *id);
+    spawned.sort_unstable_by_key(|(id, _)| *id);
+    overrides.sort_unstable_by_key(|(cell, id, tag, _)| (*cell, *id, *tag));
+
+    let tombstones = toy.tombstones().iter().map(|(id, t)| (id, *t)).collect();
+
+    Ok(PreparedDeltas {
+        baseline,
+        overrides,
+        tombstones,
+        notables,
+        spawned,
+    })
 }
 
 fn sibling(path: &Path, suffix: &str) -> PathBuf {
@@ -212,12 +487,20 @@ fn header_of(world: &World, parts: &WorldParts) -> Result<Header, SaveError> {
     })
 }
 
-fn write_file(
+fn write_file_v3(
     path: &Path,
     h: &Header,
     parts: &WorldParts,
     links: &[Vec<Link>],
+    deltas: &PreparedDeltas,
 ) -> Result<(), SaveError> {
+    let (next_event_id, _) = parts
+        .events
+        .len()
+        .checked_add(1)
+        .map(|n| (n as u64, 0u64))
+        .ok_or(SaveError::Unsaveable("event counter exhausted"))?;
+
     let mut conn = Connection::open(path)?;
     // The file is new and moved into place only when complete, so no
     // journal is needed for crash safety.
@@ -226,7 +509,7 @@ fn write_file(
     conn.pragma_update(None, "application_id", APPLICATION_ID)?;
     conn.pragma_update(None, "user_version", FORMAT_VERSION)?;
     let tx = conn.transaction()?;
-    tx.execute_batch(SCHEMA)?;
+    tx.execute_batch(SCHEMA_V3)?;
     tx.execute(
         "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
@@ -249,29 +532,58 @@ fn write_file(
         ],
     )?;
     tx.execute(
+        "INSERT INTO baseline VALUES (1, ?, ?)",
+        params![RECORD_SCHEMA, codec::put_baseline(&deltas.baseline)],
+    )?;
+    tx.execute(
         "INSERT INTO clock VALUES (1, ?, ?)",
         params![
-            RECORD_SCHEMA,
-            codec::put_clock(&parts.clock, parts.next_sequence, parts.boundary)
+            CLOCK_SCHEMA_V3,
+            codec::put_clock_v3(
+                &parts.clock,
+                parts.next_sequence,
+                parts.boundary,
+                parts.toy.next_spawned_id(),
+                next_event_id,
+            )
         ],
     )?;
     let toy = parts.toy.to_parts();
     {
-        let mut st = tx.prepare("INSERT INTO buildings VALUES (?, ?, ?, ?)")?;
-        for (id, b, level) in &toy.buildings {
+        let mut st = tx.prepare("INSERT INTO structural_overrides VALUES (?, ?, ?, ?, ?)")?;
+        for (cell, id, tag, data) in &deltas.overrides {
+            st.execute(params![*cell, key(id.raw()), *tag, RECORD_SCHEMA, data])?;
+        }
+        let mut st = tx.prepare("INSERT INTO tombstones VALUES (?, ?, ?)")?;
+        for (id, t) in &deltas.tombstones {
             st.execute(params![
-                key(b.pos.cell().raw()),
                 key(id.raw()),
                 RECORD_SCHEMA,
-                codec::put_building(b, *level)
+                codec::put_tombstone(t)
             ])?;
         }
-        let mut st = tx.prepare("INSERT INTO residents VALUES (?, ?, ?)")?;
-        for (id, r) in &toy.residents {
+        let mut st = tx.prepare("INSERT INTO notables VALUES (?, ?, ?)")?;
+        for (id, rec) in &deltas.notables {
             st.execute(params![
                 key(id.raw()),
                 RECORD_SCHEMA,
-                codec::put_resident(r)
+                codec::put_entity_record(rec)
+            ])?;
+        }
+        let mut st = tx.prepare("INSERT INTO spawned VALUES (?, ?, ?)")?;
+        for (id, rec) in &deltas.spawned {
+            st.execute(params![
+                key(id.raw()),
+                RECORD_SCHEMA,
+                codec::put_entity_record(rec)
+            ])?;
+        }
+        let mut st = tx.prepare("INSERT INTO node_lod VALUES (?, ?, ?)")?;
+        for (id, _, level) in &toy.buildings {
+            st.execute(params![
+                key(id.raw()),
+                RECORD_SCHEMA,
+                codec::put_node_lod(*level)
             ])?;
         }
         let mut st = tx.prepare("INSERT INTO l1_state VALUES (?, ?, ?, ?)")?;
@@ -368,11 +680,12 @@ fn open(path: &Path) -> Result<Connection, LoadError> {
             supported: FORMAT_VERSION,
         });
     }
-    let required = TABLES.iter().chain(if found >= 2 {
-        TABLES_V2.iter()
-    } else {
-        [].iter()
-    });
+    let required: Box<dyn Iterator<Item = &&str>> = match found {
+        1 => Box::new(TABLES_V1.iter()),
+        2 => Box::new(TABLES_V1.iter().chain(TABLES_V2.iter())),
+        3 => Box::new(TABLES_V3.iter()),
+        _ => unreachable!(),
+    };
     for table in required {
         let present: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
@@ -394,6 +707,40 @@ fn open(path: &Path) -> Result<Connection, LoadError> {
 /// [`LoadError::Corrupt`] if there is no valid header.
 pub fn read_header(path: &Path) -> Result<Header, LoadError> {
     header_row(&open(path)?)
+}
+
+/// Reads the pinned [`BaselineRecord`] of a format-3 save.
+///
+/// # Errors
+///
+/// [`LoadError`] if the file is not a format-3 save or its `baseline` row is
+/// missing or corrupt.
+pub fn read_baseline(path: &Path) -> Result<BaselineRecord, LoadError> {
+    let conn = open(path)?;
+    let h = header_row(&conn)?;
+    if h.format_version < 3 {
+        return Err(bad("baseline", "save format predates the baseline table"));
+    }
+    baseline_row(&conn)
+}
+
+fn baseline_row(conn: &Connection) -> Result<BaselineRecord, LoadError> {
+    let (bdata, bschema): (Vec<u8>, u32) = conn
+        .query_row("SELECT data, schema FROM baseline WHERE id = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => bad("baseline", "no baseline row"),
+            e => LoadError::Sqlite(e),
+        })?;
+    if bschema != RECORD_SCHEMA {
+        return Err(bad("baseline", "unsupported record schema version"));
+    }
+    let baseline = codec::get_baseline(&bdata).map_err(|e| corrupt("baseline", e))?;
+    if baseline.baseline_digest != baseline.compute_digest() {
+        return Err(bad("baseline", "baseline digest mismatch"));
+    }
+    Ok(baseline)
 }
 
 fn header_row(conn: &Connection) -> Result<Header, LoadError> {
@@ -465,7 +812,7 @@ fn entity(table: &'static str, k: i64) -> Result<EntityId, LoadError> {
     EntityId::from_raw(unkey(k)).map_err(|_| bad(table, "invalid entity ID"))
 }
 
-/// Loads the world saved at `path`.
+/// Loads the world saved at `path` using the built-in baseline registry.
 ///
 /// Nothing is replayed. The records are decoded, the world is rebuilt and
 /// checked against every invariant a running world keeps, and its state
@@ -475,9 +822,27 @@ fn entity(table: &'static str, k: i64) -> Result<EntityId, LoadError> {
 ///
 /// [`LoadError`]; no partial world is returned.
 pub fn load(path: &Path) -> Result<World, LoadError> {
+    let registry = BaselineRegistry::with_builtin();
+    load_with_registry(path, &registry)
+}
+
+/// Loads the world saved at `path` using `registry` to resolve the pinned
+/// baseline dataset of a format-3 save.
+///
+/// # Errors
+///
+/// [`LoadError`]; no partial world is returned.
+pub fn load_with_registry(path: &Path, registry: &BaselineRegistry) -> Result<World, LoadError> {
     let conn = open(path)?;
     let header = header_row(&conn)?;
+    if header.format_version == 3 {
+        load_v3(&conn, &header, registry)
+    } else {
+        load_v1_v2(&conn, &header)
+    }
+}
 
+fn load_v1_v2(conn: &Connection, header: &Header) -> Result<World, LoadError> {
     let (cdata, cschema): (Vec<u8>, u32) = conn
         .query_row("SELECT data, schema FROM clock WHERE id = 1", [], |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -503,9 +868,12 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
         l1: Vec::new(),
         l2: Vec::new(),
         illness: Vec::new(),
+        notables: BTreeSet::new(),
+        tombstones: Vec::new(),
+        next_spawned_id: 0,
     };
     for (cell, id, data) in rows(
-        &conn,
+        conn,
         "buildings",
         "SELECT cell, id, schema, data FROM buildings ORDER BY cell, id",
     )? {
@@ -516,47 +884,465 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
         toy.buildings.push((entity("buildings", id)?, b, level));
     }
     for (id, _, data) in rows(
-        &conn,
+        conn,
         "residents",
         "SELECT id, 0, schema, data FROM residents ORDER BY id",
     )? {
         let r = codec::get_resident(&data).map_err(|e| corrupt("residents", e))?;
         toy.residents.push((entity("residents", id)?, r));
     }
-    for (cell, id, data) in rows(
-        &conn,
+    read_runtime_and_finish(conn, header, clock, toy, None)
+}
+
+fn load_v3(
+    conn: &Connection,
+    header: &Header,
+    registry: &BaselineRegistry,
+) -> Result<World, LoadError> {
+    let baseline = baseline_row(conn)?;
+    if baseline.building_generator_version != BUILDING_GENERATOR_VERSION {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "building_generator_version",
+            version: u64::from(baseline.building_generator_version),
+        });
+    }
+    if baseline.resident_generator_version != RESIDENT_GENERATOR_VERSION {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "resident_generator_version",
+            version: u64::from(baseline.resident_generator_version),
+        });
+    }
+    if baseline.rules_version != 1 {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "rules_version",
+            version: u64::from(baseline.rules_version),
+        });
+    }
+    if baseline.identity_policy_version != IDENTITY_POLICY_FAIL_ON_COLLISION {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "identity_policy_version",
+            version: u64::from(baseline.identity_policy_version),
+        });
+    }
+    if !baseline.collision_overrides.is_empty() {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "collision_overrides",
+            version: baseline.collision_overrides.len() as u64,
+        });
+    }
+    if baseline.seed != header.seed
+        || baseline.dataset_version != header.dataset_version
+        || baseline.population_min != header.population_min
+        || baseline.population_max != header.population_max
+        || baseline.walk_speed_bits != header.walk_speed_bits
+        || baseline.walk_wait_steps != header.walk_wait_steps
+        || baseline.rules_version != header.rules_version
+        || baseline.building_generator_version != header.generator_version
+        || baseline.resident_generator_version != header.generator_version
+    {
+        return Err(bad("baseline", "baseline disagrees with header"));
+    }
+    if baseline.population_min > baseline.population_max {
+        return Err(bad("baseline", "invalid population bounds"));
+    }
+
+    let dataset = registry.resolve(
+        baseline.dataset_id,
+        baseline.dataset_version,
+        &baseline.dataset_sha256,
+    )?;
+
+    let walk = ws_world::WalkParams {
+        speed_m_s: f64::from_bits(header.walk_speed_bits),
+        wait_steps: header.walk_wait_steps,
+    };
+    let base_world = ToyWorld::generate(
+        header.seed,
+        dataset,
+        Population {
+            min_per_building: baseline.population_min,
+            max_per_building: baseline.population_max,
+        },
+        walk,
+    )
+    .map_err(LoadError::Toy)?;
+
+    if base_world.buildings().len() != baseline.building_count as usize
+        || base_world.residents().len() != baseline.resident_count as usize
+        || base_world.structural_digest() != baseline.structural_digest
+    {
+        return Err(bad("baseline", "regenerated baseline manifest mismatch"));
+    }
+
+    let (cdata, cschema): (Vec<u8>, u32) = conn
+        .query_row("SELECT data, schema FROM clock WHERE id = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => bad("clock", "no clock row"),
+            e => LoadError::Sqlite(e),
+        })?;
+    if cschema != CLOCK_SCHEMA_V3 {
+        return Err(bad("clock", "unsupported record schema version"));
+    }
+    let clock_v3 = codec::get_clock_v3(&cdata).map_err(|e| corrupt("clock", e))?;
+    if clock_v3.clock.start().as_micros_since_epoch() != baseline.start_time_us {
+        return Err(bad("baseline", "start time differs from the clock"));
+    }
+    if clock_v3.next_spawned_id > (1 << 62) {
+        return Err(bad("clock", "next_spawned_id exceeds 62-bit namespace"));
+    }
+
+    let mut buildings_map: BTreeMap<EntityId, Building> = base_world
+        .buildings()
+        .iter()
+        .map(|(id, b)| (id, *b))
+        .collect();
+    let mut residents_map: BTreeMap<EntityId, Resident> = base_world
+        .residents()
+        .iter()
+        .map(|(id, r)| (id, *r))
+        .collect();
+
+    let mut tombstones_map: BTreeMap<EntityId, Tombstone> = BTreeMap::new();
+    for (k, _, data) in rows(
+        conn,
+        "tombstones",
+        "SELECT id, 0, schema, data FROM tombstones ORDER BY id",
+    )? {
+        let id = entity("tombstones", k)?;
+        if id.namespace() != Namespace::Procedural {
+            return Err(bad("tombstones", "tombstone is not a procedural entity"));
+        }
+        let t = codec::get_tombstone(&data).map_err(|e| corrupt("tombstones", e))?;
+        match t.address {
+            BaselineAddress::Building(index) => {
+                let Some(base_b) = buildings_map.remove(&id) else {
+                    return Err(bad("tombstones", "tombstone is not a baseline building"));
+                };
+                if base_b.index != index {
+                    return Err(bad("tombstones", "tombstone building index mismatch"));
+                }
+            }
+            BaselineAddress::Resident(addr) => {
+                let Some(base_r) = residents_map.remove(&id) else {
+                    return Err(bad("tombstones", "tombstone is not a baseline resident"));
+                };
+                if base_r.address != addr {
+                    return Err(bad("tombstones", "tombstone resident address mismatch"));
+                }
+            }
+        }
+        if tombstones_map.insert(id, t).is_some() {
+            return Err(bad("tombstones", "duplicate tombstone ID"));
+        }
+    }
+
+    let mut notables_set: BTreeSet<EntityId> = BTreeSet::new();
+    for (k, _, data) in rows(
+        conn,
+        "notables",
+        "SELECT id, 0, schema, data FROM notables ORDER BY id",
+    )? {
+        let id = entity("notables", k)?;
+        if id.namespace() != Namespace::Procedural || tombstones_map.contains_key(&id) {
+            return Err(bad(
+                "notables",
+                "notable is tombstoned or not in the procedural namespace",
+            ));
+        }
+        let rec = codec::get_entity_record(&data).map_err(|e| corrupt("notables", e))?;
+        match rec {
+            EntityRecord::Building(b) => {
+                let Some(base_b) = buildings_map.get_mut(&id) else {
+                    return Err(bad("notables", "notable building is not in baseline"));
+                };
+                if b.index != base_b.index {
+                    return Err(bad("notables", "notable building index mismatch"));
+                }
+                *base_b = b;
+            }
+            EntityRecord::Resident(r) => {
+                let Some(base_r) = residents_map.get_mut(&id) else {
+                    return Err(bad("notables", "notable resident is not in baseline"));
+                };
+                if r.address != base_r.address {
+                    return Err(bad("notables", "notable resident address mismatch"));
+                }
+                *base_r = r;
+            }
+        }
+        if !notables_set.insert(id) {
+            return Err(bad("notables", "duplicate notable ID"));
+        }
+    }
+
+    let mut raw_overrides: Vec<(i64, EntityId, u8, Vec<u8>)> = Vec::new();
+    {
+        let mut st = conn.prepare(
+            "SELECT cell, id, component_tag, schema, data FROM structural_overrides \
+             ORDER BY component_tag, id, cell",
+        )?;
+        let mapped = st.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, u8>(2)?,
+                r.get::<_, u32>(3)?,
+                r.get::<_, Vec<u8>>(4)?,
+            ))
+        })?;
+        for row in mapped {
+            let (cell, k, tag, schema, data) = row?;
+            if schema != RECORD_SCHEMA {
+                return Err(bad(
+                    "structural_overrides",
+                    "unsupported record schema version",
+                ));
+            }
+            let id = entity("structural_overrides", k)?;
+            raw_overrides.push((cell, id, tag, data));
+        }
+    }
+    raw_overrides.sort_unstable_by_key(|(cell, id, tag, _)| (*tag, *id, *cell));
+
+    let mut seen_override_keys: BTreeSet<(EntityId, u8)> = BTreeSet::new();
+    let mut resident_override_cells: Vec<(EntityId, i64)> = Vec::new();
+    for (cell, id, tag, data) in raw_overrides {
+        if id.namespace() != Namespace::Procedural {
+            return Err(bad(
+                "structural_overrides",
+                "override targets a non-procedural entity",
+            ));
+        }
+        if tombstones_map.contains_key(&id) {
+            return Err(bad(
+                "structural_overrides",
+                "override targets a tombstoned entity",
+            ));
+        }
+        if notables_set.contains(&id) {
+            return Err(bad(
+                "structural_overrides",
+                "simultaneous notable and structural override",
+            ));
+        }
+        if !seen_override_keys.insert((id, tag)) {
+            return Err(bad(
+                "structural_overrides",
+                "duplicate override for entity and component",
+            ));
+        }
+        match tag {
+            COMPONENT_BUILDING => {
+                let b = codec::get_building_component(&data)
+                    .map_err(|e| corrupt("structural_overrides", e))?;
+                if key(b.pos.cell().raw()) != cell {
+                    return Err(bad(
+                        "structural_overrides",
+                        "key cell differs from the record's cell",
+                    ));
+                }
+                let Some(base_b) = buildings_map.get_mut(&id) else {
+                    return Err(bad(
+                        "structural_overrides",
+                        "building override does not match a baseline building",
+                    ));
+                };
+                if b.index != base_b.index {
+                    return Err(bad(
+                        "structural_overrides",
+                        "building override changes generation index",
+                    ));
+                }
+                if same_building_bits(&b, base_b) {
+                    return Err(bad(
+                        "structural_overrides",
+                        "redundant unchanged building override",
+                    ));
+                }
+                *base_b = b;
+            }
+            COMPONENT_RESIDENT => {
+                let r =
+                    codec::get_resident(&data).map_err(|e| corrupt("structural_overrides", e))?;
+                let Some(base_r) = residents_map.get_mut(&id) else {
+                    return Err(bad(
+                        "structural_overrides",
+                        "resident override does not match a baseline resident",
+                    ));
+                };
+                if r.address != base_r.address {
+                    return Err(bad(
+                        "structural_overrides",
+                        "resident override changes generation address",
+                    ));
+                }
+                if r == *base_r {
+                    return Err(bad(
+                        "structural_overrides",
+                        "redundant unchanged resident override",
+                    ));
+                }
+                *base_r = r;
+                resident_override_cells.push((id, cell));
+            }
+            _ => {
+                return Err(bad(
+                    "structural_overrides",
+                    "unknown structural override component tag",
+                ));
+            }
+        }
+    }
+
+    for (k, _, data) in rows(
+        conn,
+        "spawned",
+        "SELECT id, 0, schema, data FROM spawned ORDER BY id",
+    )? {
+        let id = entity("spawned", k)?;
+        if id.namespace() != Namespace::Spawned {
+            return Err(bad("spawned", "spawned entity is not in spawned namespace"));
+        }
+        if id.payload() >= clock_v3.next_spawned_id {
+            return Err(bad(
+                "spawned",
+                "spawned entity ID is at or past next_spawned_id",
+            ));
+        }
+        let rec = codec::get_entity_record(&data).map_err(|e| corrupt("spawned", e))?;
+        match rec {
+            EntityRecord::Building(b) => {
+                if buildings_map.insert(id, b).is_some() || residents_map.contains_key(&id) {
+                    return Err(bad("spawned", "duplicate spawned entity ID"));
+                }
+            }
+            EntityRecord::Resident(r) => {
+                if buildings_map.contains_key(&id) || residents_map.insert(id, r).is_some() {
+                    return Err(bad("spawned", "duplicate spawned entity ID"));
+                }
+            }
+        }
+    }
+
+    for (id, cell) in resident_override_cells {
+        let home = residents_map[&id].home;
+        let Some(home_b) = buildings_map.get(&home) else {
+            return Err(bad(
+                "structural_overrides",
+                "resident override references unknown home building",
+            ));
+        };
+        if key(home_b.pos.cell().raw()) != cell {
+            return Err(bad(
+                "structural_overrides",
+                "key cell differs from the home building's cell",
+            ));
+        }
+    }
+
+    let mut lod_map: BTreeMap<EntityId, ws_world::Lod> = BTreeMap::new();
+    for (k, _, data) in rows(
+        conn,
+        "node_lod",
+        "SELECT id, 0, schema, data FROM node_lod ORDER BY id",
+    )? {
+        let id = entity("node_lod", k)?;
+        if !buildings_map.contains_key(&id) {
+            return Err(bad("node_lod", "level for unknown or tombstoned building"));
+        }
+        let level = codec::get_node_lod(&data).map_err(|e| corrupt("node_lod", e))?;
+        if lod_map.insert(id, level).is_some() {
+            return Err(bad("node_lod", "duplicate building level"));
+        }
+    }
+    if lod_map.len() != buildings_map.len() {
+        return Err(bad("node_lod", "missing building level"));
+    }
+
+    let buildings: Vec<_> = buildings_map
+        .into_iter()
+        .map(|(id, b)| (id, b, lod_map[&id]))
+        .collect();
+    let residents: Vec<_> = residents_map.into_iter().collect();
+    let tombstones: Vec<_> = tombstones_map.into_iter().collect();
+
+    let toy = ToyParts {
+        seed: header.seed,
+        dataset_version: header.dataset_version,
+        walk,
+        buildings,
+        residents,
+        l1: Vec::new(),
+        l2: Vec::new(),
+        illness: Vec::new(),
+        notables: notables_set,
+        tombstones,
+        next_spawned_id: clock_v3.next_spawned_id,
+    };
+    let clock = codec::ClockRow {
+        clock: clock_v3.clock,
+        next_sequence: clock_v3.next_sequence,
+        boundary: clock_v3.boundary,
+    };
+    read_runtime_and_finish(conn, header, clock, toy, Some(clock_v3.next_event_id))
+}
+
+fn read_runtime_and_finish(
+    conn: &Connection,
+    header: &Header,
+    clock: codec::ClockRow,
+    mut toy: ToyParts,
+    expected_next_event_id: Option<u64>,
+) -> Result<World, LoadError> {
+    let tombstoned: BTreeSet<EntityId> = toy.tombstones.iter().map(|(id, _)| *id).collect();
+    for (cell, k, data) in rows(
+        conn,
         "l1_state",
         "SELECT cell, id, schema, data FROM l1_state ORDER BY cell, id",
     )? {
+        let id = entity("l1_state", k)?;
+        if tombstoned.contains(&id) {
+            return Err(bad("l1_state", "tombstoned entity has L1 state"));
+        }
         let (pos, walk) = codec::get_l1(&data).map_err(|e| corrupt("l1_state", e))?;
         if key(pos.cell().raw()) != cell {
             return Err(bad("l1_state", "key cell differs from the record's cell"));
         }
-        toy.l1.push((entity("l1_state", id)?, pos, walk));
+        toy.l1.push((id, pos, walk));
     }
-    for (id, _, data) in rows(
-        &conn,
+    for (k, _, data) in rows(
+        conn,
         "l2_state",
         "SELECT id, 0, schema, data FROM l2_state ORDER BY id",
     )? {
+        let id = entity("l2_state", k)?;
+        if tombstoned.contains(&id) {
+            return Err(bad("l2_state", "tombstoned entity has L2 state"));
+        }
         let bg = codec::get_l2(&data).map_err(|e| corrupt("l2_state", e))?;
-        toy.l2.push((entity("l2_state", id)?, bg));
+        toy.l2.push((id, bg));
     }
     if header.format_version >= 2 {
-        for (id, _, data) in rows(
-            &conn,
+        for (k, _, data) in rows(
+            conn,
             "illness",
             "SELECT id, 0, schema, data FROM illness ORDER BY id",
         )? {
+            let id = entity("illness", k)?;
+            if tombstoned.contains(&id) {
+                return Err(bad("illness", "tombstoned entity has illness state"));
+            }
             let ill = codec::get_illness(&data).map_err(|e| corrupt("illness", e))?;
-            toy.illness.push((entity("illness", id)?, ill));
+            toy.illness.push((id, ill));
         }
     }
     let toy = ws_world::ToyWorld::from_parts(toy).map_err(LoadError::Toy)?;
 
     let mut journal = Vec::new();
     for (sequence, _, data) in rows(
-        &conn,
+        conn,
         "journal",
         "SELECT sequence, 0, schema, data FROM journal ORDER BY sequence",
     )? {
@@ -570,7 +1356,7 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
     let mut scheduled = Vec::new();
     if header.format_version >= 2 {
         for (sequence, _, data) in rows(
-            &conn,
+            conn,
             "scheduled",
             "SELECT sequence, 0, schema, data FROM scheduled ORDER BY sequence",
         )? {
@@ -606,7 +1392,7 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
     }
     let mut events = Vec::new();
     for (id, _, data) in rows(
-        &conn,
+        conn,
         "events",
         "SELECT id, 0, schema, data FROM events ORDER BY id",
     )? {
@@ -619,6 +1405,11 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
     }
     if !links.is_empty() {
         return Err(bad("event_links", "links for an event that does not exist"));
+    }
+    if let Some(next_event_id) = expected_next_event_id
+        && next_event_id != (events.len() as u64) + 1
+    {
+        return Err(bad("clock", "next_event_id disagrees with events"));
     }
 
     let world = World::from_parts(WorldParts {
@@ -650,4 +1441,80 @@ pub fn load(path: &Path) -> Result<World, LoadError> {
         }
     }
     Ok(world)
+}
+
+/// Explicitly migrates a format-1, format-2, or format-3 save at `source` to a
+/// new format-3 baseline-plus-deltas save at `dest`, using the built-in
+/// baseline registry (ADR 0025 §4).
+///
+/// `source` is never modified. On error, `dest` is untouched.
+///
+/// # Errors
+///
+/// [`LoadError`] if `source == dest`, `source` fails to load, its pinned
+/// baseline cannot be resolved in the registry, or writing `dest` fails.
+pub fn migrate_to_v3(source: &Path, dest: &Path) -> Result<Header, LoadError> {
+    let registry = BaselineRegistry::with_builtin();
+    migrate_to_v3_with_registry(source, dest, &registry)
+}
+
+/// Explicitly migrates a format-1, format-2, or format-3 save at `source` to a
+/// new format-3 baseline-plus-deltas save at `dest` using `registry`
+/// (ADR 0025 §4).
+///
+/// `source` is never modified. On error, `dest` is untouched.
+///
+/// # Errors
+///
+/// As [`migrate_to_v3`].
+pub fn migrate_to_v3_with_registry(
+    source: &Path,
+    dest: &Path,
+    registry: &BaselineRegistry,
+) -> Result<Header, LoadError> {
+    if source == dest {
+        return Err(bad(
+            "header",
+            "migration destination must differ from source",
+        ));
+    }
+    let src_header = read_header(source)?;
+    if src_header.generator_version != BUILDING_GENERATOR_VERSION {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "building_generator_version",
+            version: u64::from(src_header.generator_version),
+        });
+    }
+    if src_header.rules_version != 1 {
+        return Err(LoadError::UnsupportedBaseline {
+            field: "rules_version",
+            version: u64::from(src_header.rules_version),
+        });
+    }
+    if registry
+        .get(TOY_DATASET_ID, src_header.dataset_version)
+        .is_none()
+    {
+        return Err(LoadError::MissingBaseline {
+            dataset_id: TOY_DATASET_ID,
+            dataset_version: src_header.dataset_version,
+            sha256: [0; 32],
+        });
+    }
+    let world = load_with_registry(source, registry)?;
+    save_with_registry(&world, dest, registry).map_err(|e| match e {
+        SaveError::Io(io) => LoadError::Io(io),
+        SaveError::Sqlite(sql) => LoadError::Sqlite(sql),
+        SaveError::PendingCommands => bad("header", "pending commands"),
+        SaveError::Unsaveable(why) => bad("baseline", why),
+    })?;
+    let verify = load_with_registry(dest, registry)?;
+    if verify != world || verify.checkpoint() != world.checkpoint() {
+        let _ = fs::remove_file(dest);
+        return Err(bad(
+            "header",
+            "migrated save failed round-trip verification",
+        ));
+    }
+    read_header(dest)
 }

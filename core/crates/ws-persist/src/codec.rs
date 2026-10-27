@@ -19,10 +19,12 @@ use ws_sim::commands::{
 use ws_sim::{Clock, LodError, LodViolation, SimTime, TimeOverflow, TimeScale};
 use ws_time::{Rate, SimDuration};
 use ws_world::{
-    Activity, Background, Building, Lod, Origin, Quantity, Resident, ResidentAddress,
-    ScheduleProblem, Walk,
+    Activity, Background, BaselineAddress, Building, Lod, Origin, Quantity, Resident,
+    ResidentAddress, ScheduleProblem, Tombstone, Walk,
 };
 use ws_world::{Illness, IllnessKind};
+
+use crate::header::BaselineRecord;
 
 /// Why bytes are not a valid record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +150,7 @@ fn lod_from(v: u8) -> Result<Lod> {
 
 // ---- buildings -----------------------------------------------------------
 
+#[cfg(test)]
 pub(crate) fn put_building(b: &Building, level: Lod) -> Vec<u8> {
     let mut w = Writer::new();
     w.u32(b.index);
@@ -192,6 +195,205 @@ pub(crate) fn get_resident(bytes: &[u8]) -> Result<Resident> {
     };
     r.finish()?;
     Ok(resident)
+}
+
+// ---- format 3 baseline, overrides, notables, tombstones, spawned ---------
+
+/// Component tag for `Building` in `structural_overrides` (ADR 0025 §2).
+pub const COMPONENT_BUILDING: u8 = 1;
+/// Component tag for `Resident` in `structural_overrides` (ADR 0025 §2).
+pub const COMPONENT_RESIDENT: u8 = 2;
+
+/// Complete canonical entity record stored in `notables` or `spawned`
+/// (ADR 0025 §2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum EntityRecord {
+    Building(Building),
+    Resident(Resident),
+}
+
+pub(crate) fn put_building_component(b: &Building) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u32(b.index);
+    w.pos(b.pos);
+    w.f32(b.half_extent_m);
+    w.f32(b.height_m);
+    w.0
+}
+
+pub(crate) fn get_building_component(bytes: &[u8]) -> Result<Building> {
+    let mut r = Reader::new(bytes);
+    let b = Building {
+        index: r.u32()?,
+        pos: r.pos()?,
+        half_extent_m: r.f32()?,
+        height_m: r.f32()?,
+    };
+    r.finish()?;
+    Ok(b)
+}
+
+pub(crate) fn put_node_lod(level: Lod) -> Vec<u8> {
+    vec![level.as_u8()]
+}
+
+pub(crate) fn get_node_lod(bytes: &[u8]) -> Result<Lod> {
+    let mut r = Reader::new(bytes);
+    let level = lod_from(r.u8()?)?;
+    r.finish()?;
+    Ok(level)
+}
+
+pub(crate) fn put_entity_record(rec: &EntityRecord) -> Vec<u8> {
+    let mut w = Writer::new();
+    match rec {
+        EntityRecord::Building(b) => {
+            w.u8(1);
+            w.u32(b.index);
+            w.pos(b.pos);
+            w.f32(b.half_extent_m);
+            w.f32(b.height_m);
+        }
+        EntityRecord::Resident(r) => {
+            w.u8(2);
+            w.u32(r.address.building_index);
+            w.u32(r.address.slot);
+            w.id(r.home);
+        }
+    }
+    w.0
+}
+
+pub(crate) fn get_entity_record(bytes: &[u8]) -> Result<EntityRecord> {
+    let mut r = Reader::new(bytes);
+    let rec = match r.u8()? {
+        1 => EntityRecord::Building(Building {
+            index: r.u32()?,
+            pos: r.pos()?,
+            half_extent_m: r.f32()?,
+            height_m: r.f32()?,
+        }),
+        2 => EntityRecord::Resident(Resident {
+            address: ResidentAddress {
+                building_index: r.u32()?,
+                slot: r.u32()?,
+            },
+            home: r.id()?,
+        }),
+        _ => return Err(CodecError("unknown entity record tag")),
+    };
+    r.finish()?;
+    Ok(rec)
+}
+
+pub(crate) fn put_tombstone(t: &Tombstone) -> Vec<u8> {
+    let mut w = Writer::new();
+    match t.address {
+        BaselineAddress::Building(index) => {
+            w.u8(1);
+            w.u32(index);
+        }
+        BaselineAddress::Resident(addr) => {
+            w.u8(2);
+            w.u32(addr.building_index);
+            w.u32(addr.slot);
+        }
+    }
+    w.u64(t.deleted_tick);
+    w.u64(t.root_event);
+    w.0
+}
+
+pub(crate) fn get_tombstone(bytes: &[u8]) -> Result<Tombstone> {
+    let mut r = Reader::new(bytes);
+    let address = match r.u8()? {
+        1 => BaselineAddress::Building(r.u32()?),
+        2 => BaselineAddress::Resident(ResidentAddress {
+            building_index: r.u32()?,
+            slot: r.u32()?,
+        }),
+        _ => return Err(CodecError("unknown tombstone address tag")),
+    };
+    let deleted_tick = r.u64()?;
+    let root_event = r.u64()?;
+    r.finish()?;
+    Ok(Tombstone {
+        address,
+        deleted_tick,
+        root_event,
+    })
+}
+
+pub(crate) fn put_baseline(b: &BaselineRecord) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u64(b.seed);
+    w.u32(b.dataset_id);
+    w.u64(b.dataset_version);
+    w.0.extend_from_slice(&b.dataset_sha256);
+    w.u32(b.building_generator_version);
+    w.u32(b.resident_generator_version);
+    w.u32(b.rules_version);
+    w.u32(b.identity_policy_version);
+    w.u32(b.population_min);
+    w.u32(b.population_max);
+    w.u64(b.walk_speed_bits);
+    w.u32(b.walk_wait_steps);
+    w.i64(b.start_time_us);
+    w.u32(b.building_count);
+    w.u32(b.resident_count);
+    w.u64(b.structural_digest);
+    w.u64(b.baseline_digest);
+    w.u32(u32::try_from(b.collision_overrides.len()).expect("collision_overrides fits in u32"));
+    w.0.extend_from_slice(&b.collision_overrides);
+    w.0
+}
+
+pub(crate) fn get_baseline(bytes: &[u8]) -> Result<BaselineRecord> {
+    let mut r = Reader::new(bytes);
+    let seed = r.u64()?;
+    let dataset_id = r.u32()?;
+    let dataset_version = r.u64()?;
+    let dataset_sha256 = r.take::<32>()?;
+    let building_generator_version = r.u32()?;
+    let resident_generator_version = r.u32()?;
+    let rules_version = r.u32()?;
+    let identity_policy_version = r.u32()?;
+    let population_min = r.u32()?;
+    let population_max = r.u32()?;
+    let walk_speed_bits = r.u64()?;
+    let walk_wait_steps = r.u32()?;
+    let start_time_us = r.i64()?;
+    let building_count = r.u32()?;
+    let resident_count = r.u32()?;
+    let structural_digest = r.u64()?;
+    let baseline_digest = r.u64()?;
+    let override_len = r.u32()? as usize;
+    if override_len > 65_536 || override_len > r.0.len() {
+        return Err(CodecError("invalid collision override length"));
+    }
+    let collision_overrides = r.0[..override_len].to_vec();
+    r.0 = &r.0[override_len..];
+    r.finish()?;
+    Ok(BaselineRecord {
+        seed,
+        dataset_id,
+        dataset_version,
+        dataset_sha256,
+        building_generator_version,
+        resident_generator_version,
+        rules_version,
+        identity_policy_version,
+        population_min,
+        population_max,
+        walk_speed_bits,
+        walk_wait_steps,
+        start_time_us,
+        building_count,
+        resident_count,
+        structural_digest,
+        baseline_digest,
+        collision_overrides,
+    })
 }
 
 // ---- L1 and L2 state -----------------------------------------------------
@@ -339,6 +541,51 @@ pub(crate) fn get_clock(bytes: &[u8]) -> Result<ClockRow> {
         clock,
         next_sequence,
         boundary,
+    })
+}
+
+/// The clock and counters in format 3 (`clock` schema 2, ADR 0025 §2–3).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ClockRowV3 {
+    pub clock: Clock,
+    pub next_sequence: u64,
+    pub boundary: u64,
+    pub next_spawned_id: u64,
+    pub next_event_id: u64,
+}
+
+pub(crate) fn put_clock_v3(
+    c: &Clock,
+    next_sequence: u64,
+    boundary: u64,
+    next_spawned_id: u64,
+    next_event_id: u64,
+) -> Vec<u8> {
+    let mut w = Writer(put_clock(c, next_sequence, boundary));
+    w.u64(next_spawned_id);
+    w.u64(next_event_id);
+    w.0
+}
+
+pub(crate) fn get_clock_v3(bytes: &[u8]) -> Result<ClockRowV3> {
+    if bytes.len() != 72 {
+        return Err(CodecError(if bytes.len() < 72 {
+            "truncated"
+        } else {
+            "trailing bytes"
+        }));
+    }
+    let base = get_clock(&bytes[..56])?;
+    let mut r = Reader::new(&bytes[56..]);
+    let next_spawned_id = r.u64()?;
+    let next_event_id = r.u64()?;
+    r.finish()?;
+    Ok(ClockRowV3 {
+        clock: base.clock,
+        next_sequence: base.next_sequence,
+        boundary: base.boundary,
+        next_spawned_id,
+        next_event_id,
     })
 }
 
@@ -1389,6 +1636,97 @@ mod tests {
         let flag = 8 + 12 + 12 + 8;
         bytes[flag] = 2;
         assert_eq!(get_l1(&bytes), Err(CodecError("flag is not 0 or 1")));
+    }
+
+    #[test]
+    fn format_3_records_round_trip() {
+        let cell = CellId::from_geodetic_at_level(&BAY_RIDGE, SECTOR_LEVEL).unwrap();
+        let pos = SurfacePos::new(cell, [4.0, 5.0, 6.0]).unwrap();
+        let b = Building {
+            index: 2,
+            pos,
+            half_extent_m: 12.0,
+            height_m: 18.0,
+        };
+        assert_eq!(get_building(&put_building(&b, Lod::L2)), Ok((b, Lod::L2)));
+        assert_eq!(get_building_component(&put_building_component(&b)), Ok(b));
+        assert_eq!(get_node_lod(&put_node_lod(Lod::L1)), Ok(Lod::L1));
+        assert_eq!(get_node_lod(&put_node_lod(Lod::L2)), Ok(Lod::L2));
+
+        let r = Resident {
+            address: ResidentAddress {
+                building_index: 2,
+                slot: 4,
+            },
+            home: id(10),
+        };
+        for rec in [EntityRecord::Building(b), EntityRecord::Resident(r)] {
+            assert_eq!(get_entity_record(&put_entity_record(&rec)), Ok(rec));
+        }
+        assert!(get_entity_record(&[9]).is_err());
+
+        for t in [
+            Tombstone {
+                address: BaselineAddress::Building(3),
+                deleted_tick: 40,
+                root_event: 5,
+            },
+            Tombstone {
+                address: BaselineAddress::Resident(ResidentAddress {
+                    building_index: 1,
+                    slot: 7,
+                }),
+                deleted_tick: 80,
+                root_event: 0,
+            },
+        ] {
+            assert_eq!(get_tombstone(&put_tombstone(&t)), Ok(t));
+        }
+        assert!(get_tombstone(&[9]).is_err());
+
+        let mut base = BaselineRecord {
+            seed: 2026,
+            dataset_id: 1,
+            dataset_version: 1,
+            dataset_sha256: [0x5a; 32],
+            building_generator_version: 1,
+            resident_generator_version: 1,
+            rules_version: 1,
+            identity_policy_version: 1,
+            population_min: 4,
+            population_max: 12,
+            walk_speed_bits: 1.4_f64.to_bits(),
+            walk_wait_steps: 50,
+            start_time_us: 0,
+            building_count: 5,
+            resident_count: 42,
+            structural_digest: 0x1234_5678,
+            baseline_digest: 0,
+            collision_overrides: Vec::new(),
+        };
+        base.baseline_digest = base.compute_digest();
+        assert_eq!(get_baseline(&put_baseline(&base)), Ok(base));
+
+        let clock = Clock::from_parts(
+            SimTime::EPOCH,
+            Rate::new(SimDuration::from_micros(100_000)).unwrap(),
+            5,
+            TimeScale::X10,
+            NonZeroU32::new(16).unwrap(),
+            0,
+        )
+        .unwrap();
+        let row = ClockRowV3 {
+            clock,
+            next_sequence: 3,
+            boundary: 2,
+            next_spawned_id: 7,
+            next_event_id: 11,
+        };
+        assert_eq!(
+            get_clock_v3(&put_clock_v3(&row.clock, 3, 2, 7, 11)),
+            Ok(row)
+        );
     }
 }
 

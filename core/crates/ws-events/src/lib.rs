@@ -710,6 +710,14 @@ impl EventStore {
             ..Self::default()
         }
     }
+    /// Registers a newly spawned actor in canonical ID order if not already known.
+    pub fn register_actor(&mut self, id: EntityId) {
+        if let Err(at) = self.known.binary_search(&id) {
+            self.known.insert(at, id);
+            self.actors.insert(at, Vec::new());
+            self.actor_time.insert(at, Vec::new());
+        }
+    }
     /// Immutable arena in commit/ID order.
     pub fn records(&self) -> &[Event] {
         &self.events

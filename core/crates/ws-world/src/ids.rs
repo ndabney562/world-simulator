@@ -18,14 +18,17 @@ pub const PURPOSE_RESIDENT_COUNT: Purpose = Purpose::new("ws-world/gen/resident-
 pub const PURPOSE_NEXT_TARGET: Purpose = Purpose::new("ws-world/agent/next-target");
 /// Key of the canonical state hash (with key half 0).
 pub const PURPOSE_STATE_HASH: Purpose = Purpose::new("ws-world/state-hash");
+/// Key of the canonical baseline structural digest (ADR 0025 §1).
+pub const PURPOSE_STRUCTURAL_DIGEST: Purpose = Purpose::new("ws-world/structural-digest");
 
 /// Every purpose this crate uses; a test checks they are distinct.
-pub const PURPOSES: [Purpose; 5] = [
+pub const PURPOSES: [Purpose; 6] = [
     PURPOSE_BUILDING_ID,
     PURPOSE_RESIDENT_ID,
     PURPOSE_RESIDENT_COUNT,
     PURPOSE_NEXT_TARGET,
     PURPOSE_STATE_HASH,
+    PURPOSE_STRUCTURAL_DIGEST,
 ];
 
 /// How many residents each building gets: a uniform integer in

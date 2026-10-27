@@ -42,18 +42,46 @@ pub mod slice_render;
 use core::fmt;
 use std::collections::{BTreeMap, BTreeSet};
 
-use ws_ecs::{Column, DuplicateEntity, EntityId, join, join_mut};
+use ws_ecs::{Column, DuplicateEntity, EntityId, Namespace, join, join_mut};
 use ws_math::{CellFrame, CoordError, Ecef, Position, SurfacePos};
+pub use ws_rng;
 use ws_rng::SipHasher24;
 use ws_time::{SimDuration, SimTime};
 
-pub use dataset::{BuildingSite, Dataset, TOY_BUILDINGS, TOY_DATASET_VERSION, ToyBuildingSpec};
+pub use dataset::{
+    BUILDING_GENERATOR_VERSION, BuildingSite, Dataset, IDENTITY_POLICY_FAIL_ON_COLLISION,
+    RESIDENT_GENERATOR_VERSION, TOY_BUILDINGS, TOY_DATASET_ID, TOY_DATASET_VERSION,
+    ToyBuildingSpec, sha256,
+};
 pub use ids::{Population, ResidentAddress};
 pub use illness::{Illness, IllnessKind, SEVERITY_MAX, SEVERITY_MIN};
 pub use lod::{
     Activity, Background, ConservationSummary, Lod, LodError, LodViolation, Origin, Quantity,
     ScheduleProblem, TransitionReport,
 };
+
+/// Generation address of a procedural baseline entity (ADR 0025 §2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BaselineAddress {
+    /// A procedural building at its dataset index.
+    Building(u32),
+    /// A procedural resident at its `(building_index, slot)` address.
+    Resident(ResidentAddress),
+}
+
+/// Explicit deletion record for a baseline entity (ADR 0025 §2).
+///
+/// Suppresses the regenerated live identity while keeping historical event
+/// references valid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tombstone {
+    /// Generation address of the deleted baseline entity.
+    pub address: BaselineAddress,
+    /// Tick at which the entity was tombstoned.
+    pub deleted_tick: u64,
+    /// Causal root event ID (0 if none).
+    pub root_event: u64,
+}
 
 /// A building: where it stands and its box.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -218,6 +246,12 @@ pub struct ToyParts {
     pub l2: Vec<(EntityId, Background)>,
     /// Illnesses (ADR 0021), keyed by resident.
     pub illness: Vec<(EntityId, Illness)>,
+    /// Promoted notable procedural baseline entities (ADR 0025 §2).
+    pub notables: BTreeSet<EntityId>,
+    /// Deleted baseline entities (ADR 0025 §2).
+    pub tombstones: Vec<(EntityId, Tombstone)>,
+    /// Next spawn counter in the spawned namespace (ADR 0025 §2).
+    pub next_spawned_id: u64,
 }
 
 /// The toy world: buildings and residents in `ws-ecs` columns.
@@ -245,6 +279,12 @@ pub struct ToyWorld {
     background: Column<Background>,
     /// Illness of the sick residents, at either level (ADR 0021 §3).
     illness: Column<Illness>,
+    /// Promoted notable procedural baseline entities (ADR 0025 §2).
+    notables: BTreeSet<EntityId>,
+    /// Deleted baseline entities (ADR 0025 §2).
+    tombstones: Column<Tombstone>,
+    /// Next spawn counter in the spawned namespace (ADR 0025 §2).
+    next_spawned_id: u64,
     /// Derived index: each home's residents, ascending. Residents are
     /// never removed, so inserts keep it sorted and it is rebuilt on load.
     by_home: BTreeMap<EntityId, Vec<EntityId>>,
@@ -295,6 +335,9 @@ impl ToyWorld {
             walks: Column::new(),
             background: Column::new(),
             illness: Column::new(),
+            notables: BTreeSet::new(),
+            tombstones: Column::new(),
+            next_spawned_id: 0,
             by_home: BTreeMap::new(),
             queue: BTreeSet::new(),
             unreconciled: BTreeSet::new(),
@@ -361,6 +404,9 @@ impl ToyWorld {
                 .collect(),
             l2: self.background.iter().map(|(id, b)| (id, *b)).collect(),
             illness: self.illness.iter().map(|(id, i)| (id, *i)).collect(),
+            notables: self.notables.clone(),
+            tombstones: self.tombstones.iter().map(|(id, t)| (id, *t)).collect(),
+            next_spawned_id: self.next_spawned_id,
         }
     }
 
@@ -398,6 +444,35 @@ impl ToyWorld {
             ids.sort_unstable();
         }
         world.residents.insert_batch(parts.residents)?;
+        for (id, t) in &parts.tombstones {
+            if world.buildings.contains(*id) || world.residents.contains(*id) {
+                return Err(WorldError::Duplicate(*id));
+            }
+            let expected = match t.address {
+                BaselineAddress::Building(index) => {
+                    ids::building_id(parts.seed, parts.dataset_version, index)
+                }
+                BaselineAddress::Resident(addr) => {
+                    ids::resident_id(parts.seed, parts.dataset_version, addr)
+                }
+            };
+            if id.namespace() != Namespace::Procedural || *id != expected {
+                return Err(LodError::Invariant(LodViolation::IdentityMismatch(*id)).into());
+            }
+        }
+        world.tombstones.insert_batch(parts.tombstones)?;
+        for &id in &parts.notables {
+            if id.namespace() != Namespace::Procedural
+                || (!world.buildings.contains(id) && !world.residents.contains(id))
+            {
+                return Err(LodError::Invariant(LodViolation::IdentityMismatch(id)).into());
+            }
+        }
+        world.notables = parts.notables;
+        if parts.next_spawned_id > (1 << 62) {
+            return Err(LodError::CounterExhausted(EntityId::procedural(0)).into());
+        }
+        world.next_spawned_id = parts.next_spawned_id;
         let mut positions = Vec::with_capacity(parts.l1.len());
         let mut walks = Vec::with_capacity(parts.l1.len());
         for (id, p, w) in parts.l1 {
@@ -912,7 +987,350 @@ impl ToyWorld {
                 ]);
             }
         }
+        if !self.notables.is_empty() {
+            h.write_words(&[8, self.notables.len() as u64]);
+            for id in &self.notables {
+                h.write_u64(id.raw());
+            }
+        }
+        if !self.tombstones.is_empty() {
+            h.write_words(&[9, self.tombstones.len() as u64]);
+            for (id, t) in self.tombstones.iter() {
+                h.write_u64(id.raw());
+                match t.address {
+                    BaselineAddress::Building(index) => h.write_words(&[1, u64::from(index)]),
+                    BaselineAddress::Resident(addr) => {
+                        h.write_words(&[2, u64::from(addr.building_index), u64::from(addr.slot)])
+                    }
+                }
+                h.write_words(&[t.deleted_tick, t.root_event]);
+            }
+        }
+        if self.next_spawned_id != 0 {
+            h.write_words(&[10, self.next_spawned_id]);
+        }
         h.finish()
+    }
+
+    /// Canonical digest of the structural components (`seed`, `dataset_version`,
+    /// `buildings`, and `residents` in ascending ID order) (ADR 0025 §1).
+    #[must_use]
+    pub fn structural_digest(&self) -> u64 {
+        let mut h = SipHasher24::new(0, ids::PURPOSE_STRUCTURAL_DIGEST.value());
+        h.write_words(&[self.seed, self.dataset_version]);
+        h.write_words(&[1, self.buildings.len() as u64]);
+        for (id, b) in self.buildings.iter() {
+            h.write_words(&[id.raw(), u64::from(b.index)]);
+            write_pos(&mut h, b.pos);
+            h.write_words(&[
+                u64::from(b.half_extent_m.to_bits()),
+                u64::from(b.height_m.to_bits()),
+            ]);
+        }
+        h.write_words(&[2, self.residents.len() as u64]);
+        for (id, r) in self.residents.iter() {
+            h.write_words(&[
+                id.raw(),
+                u64::from(r.address.building_index),
+                u64::from(r.address.slot),
+                r.home.raw(),
+            ]);
+        }
+        h.finish()
+    }
+
+    /// Promoted notable procedural baseline entities (ADR 0025 §2).
+    #[must_use]
+    pub const fn notables(&self) -> &BTreeSet<EntityId> {
+        &self.notables
+    }
+
+    /// Tombstoned baseline entities, by ID (ADR 0025 §2).
+    #[must_use]
+    pub const fn tombstones(&self) -> &Column<Tombstone> {
+        &self.tombstones
+    }
+
+    /// Next spawn counter in the spawned namespace (ADR 0025 §2).
+    #[must_use]
+    pub const fn next_spawned_id(&self) -> u64 {
+        self.next_spawned_id
+    }
+
+    /// Replaces the [`Building`] component of an existing building `id`.
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownBuilding`] if `id` is not a building,
+    /// [`WorldError::Lod`] with [`LodViolation::IdentityMismatch`] if
+    /// `building.index` differs from the existing building's generation
+    /// index, [`WorldError::Lod`] with [`LodViolation::NotInOwnCell`] if
+    /// `building.pos` is outside its own cell, or [`WorldError::Lod`] with
+    /// [`LodViolation::NotAtCentre`] if an arrived L1 resident at `id` would
+    /// no longer stand at `building.pos`.
+    pub fn override_building(
+        &mut self,
+        id: EntityId,
+        building: Building,
+    ) -> Result<(), WorldError> {
+        let Some(existing) = self.buildings.get(id).copied() else {
+            return Err(WorldError::UnknownBuilding(id));
+        };
+        if building.index != existing.index {
+            return Err(LodError::Invariant(LodViolation::IdentityMismatch(id)).into());
+        }
+        if building.pos.occupied_cell() != Ok(building.pos.cell()) {
+            return Err(LodError::Invariant(LodViolation::NotInOwnCell(id)).into());
+        }
+        if !building.half_extent_m.is_finite()
+            || building.half_extent_m <= 0.0
+            || !building.height_m.is_finite()
+            || building.height_m <= 0.0
+        {
+            return Err(CoordError::NonFinite.into());
+        }
+        if !lod::same_bits(existing.pos, building.pos) {
+            for (r_id, walk, pos) in join(&self.walks, &self.positions) {
+                if walk.arrived && walk.target == id && !lod::same_bits(*pos, building.pos) {
+                    return Err(LodError::Invariant(LodViolation::NotAtCentre(r_id)).into());
+                }
+            }
+        }
+        *self.buildings.get_mut(id).expect("checked above") = building;
+        Ok(())
+    }
+
+    /// Replaces the [`Resident`] identity component of an existing resident `id`.
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownResident`] if `id` is not a resident,
+    /// [`WorldError::UnknownBuilding`] if `resident.home` is not a live
+    /// building, or [`WorldError::Lod`] with [`LodViolation::IdentityMismatch`]
+    /// if `id` is procedural and `resident.address` does not derive `id`.
+    pub fn override_resident(
+        &mut self,
+        id: EntityId,
+        resident: Resident,
+    ) -> Result<(), WorldError> {
+        let Some(existing) = self.residents.get(id).copied() else {
+            return Err(WorldError::UnknownResident(id));
+        };
+        if !self.buildings.contains(resident.home) {
+            return Err(WorldError::UnknownBuilding(resident.home));
+        }
+        if id.namespace() == Namespace::Procedural
+            && ids::resident_id(self.seed, self.dataset_version, resident.address) != id
+        {
+            return Err(LodError::Invariant(LodViolation::IdentityMismatch(id)).into());
+        }
+        if existing.home != resident.home {
+            if let Some(list) = self.by_home.get_mut(&existing.home)
+                && let Ok(at) = list.binary_search(&id)
+            {
+                list.remove(at);
+            }
+            self.index_home(id, resident.home);
+        }
+        *self.residents.get_mut(id).expect("checked above") = resident;
+        Ok(())
+    }
+
+    /// Promotes a live procedural entity `id` to a notable record (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::Lod`] with [`LodViolation::IdentityMismatch`] if `id` is
+    /// not in [`Namespace::Procedural`] or is not a live building or resident.
+    pub fn promote_notable(&mut self, id: EntityId) -> Result<(), WorldError> {
+        if id.namespace() != Namespace::Procedural
+            || (!self.buildings.contains(id) && !self.residents.contains(id))
+            || self.tombstones.contains(id)
+        {
+            return Err(LodError::Invariant(LodViolation::IdentityMismatch(id)).into());
+        }
+        self.notables.insert(id);
+        Ok(())
+    }
+
+    /// Tombstones a live procedural resident `id`, removing its live components
+    /// and recording its deletion (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownResident`] if `id` is not a live resident, or
+    /// [`WorldError::Lod`] with [`LodViolation::IdentityMismatch`] if `id` is
+    /// not procedural.
+    pub fn tombstone_resident(
+        &mut self,
+        id: EntityId,
+        deleted_tick: u64,
+        root_event: u64,
+    ) -> Result<(), WorldError> {
+        let Some(r) = self.residents.get(id).copied() else {
+            return Err(WorldError::UnknownResident(id));
+        };
+        if id.namespace() != Namespace::Procedural
+            || ids::resident_id(self.seed, self.dataset_version, r.address) != id
+        {
+            return Err(LodError::Invariant(LodViolation::IdentityMismatch(id)).into());
+        }
+        self.tombstones.insert(
+            id,
+            Tombstone {
+                address: BaselineAddress::Resident(r.address),
+                deleted_tick,
+                root_event,
+            },
+        )?;
+        self.residents.remove(id);
+        if let Some(list) = self.by_home.get_mut(&r.home)
+            && let Ok(at) = list.binary_search(&id)
+        {
+            list.remove(at);
+        }
+        self.positions.remove(id);
+        self.walks.remove(id);
+        if let Some(bg) = self.background.remove(id) {
+            self.queue.remove(&(bg.next_event(), id));
+        }
+        self.unreconciled.remove(&id);
+        self.illness.remove(id);
+        self.notables.remove(&id);
+        Ok(())
+    }
+
+    /// Tombstones a live procedural building `id` that has no live resident
+    /// references (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownBuilding`] if `id` is not a live building,
+    /// [`WorldError::Lod`] with [`LodViolation::IdentityMismatch`] if `id` is
+    /// not procedural, or [`WorldError::Lod`] with
+    /// [`LodViolation::UnknownBuilding`] if any live resident still references
+    /// `id` as home, target, governing building, or walking origin.
+    pub fn tombstone_building(
+        &mut self,
+        id: EntityId,
+        deleted_tick: u64,
+        root_event: u64,
+    ) -> Result<(), WorldError> {
+        let Some(b) = self.buildings.get(id).copied() else {
+            return Err(WorldError::UnknownBuilding(id));
+        };
+        if id.namespace() != Namespace::Procedural
+            || ids::building_id(self.seed, self.dataset_version, b.index) != id
+        {
+            return Err(LodError::Invariant(LodViolation::IdentityMismatch(id)).into());
+        }
+        for (r_id, r) in self.residents.iter() {
+            if r.home == id {
+                return Err(LodError::Invariant(LodViolation::UnknownBuilding {
+                    id: r_id,
+                    building: id,
+                })
+                .into());
+            }
+        }
+        for (r_id, w) in self.walks.iter() {
+            if w.target == id {
+                return Err(LodError::Invariant(LodViolation::UnknownBuilding {
+                    id: r_id,
+                    building: id,
+                })
+                .into());
+            }
+        }
+        for (r_id, bg) in self.background.iter() {
+            let refs_origin = matches!(
+                bg.activity,
+                Activity::Walking {
+                    origin: Origin::Building(ob),
+                    ..
+                } if ob == id
+            );
+            if bg.governing() == id || refs_origin {
+                return Err(LodError::Invariant(LodViolation::UnknownBuilding {
+                    id: r_id,
+                    building: id,
+                })
+                .into());
+            }
+        }
+        self.tombstones.insert(
+            id,
+            Tombstone {
+                address: BaselineAddress::Building(b.index),
+                deleted_tick,
+                root_event,
+            },
+        )?;
+        self.buildings.remove(id);
+        self.node_lod.remove(id);
+        self.by_home.remove(&id);
+        self.notables.remove(&id);
+        Ok(())
+    }
+
+    /// Allocates and inserts a non-baseline building in [`Namespace::Spawned`]
+    /// (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::Lod`] if `level` is not executable, `building.pos` is not
+    /// in its own cell, or the spawn counter is exhausted.
+    pub fn spawn_building(
+        &mut self,
+        building: Building,
+        level: Lod,
+    ) -> Result<EntityId, WorldError> {
+        if !level.is_executable() {
+            return Err(LodError::UnsupportedLevel(level).into());
+        }
+        let id = EntityId::spawned(self.next_spawned_id)
+            .map_err(|_| LodError::CounterExhausted(EntityId::procedural(0)))?;
+        if building.pos.occupied_cell() != Ok(building.pos.cell()) {
+            return Err(LodError::Invariant(LodViolation::NotInOwnCell(id)).into());
+        }
+        if !building.half_extent_m.is_finite()
+            || building.half_extent_m <= 0.0
+            || !building.height_m.is_finite()
+            || building.height_m <= 0.0
+        {
+            return Err(CoordError::NonFinite.into());
+        }
+        self.buildings.insert(id, building)?;
+        self.node_lod
+            .insert(id, level)
+            .expect("buildings and levels have the same IDs");
+        self.next_spawned_id += 1;
+        Ok(id)
+    }
+
+    /// Allocates and inserts a non-baseline resident in [`Namespace::Spawned`]
+    /// waiting at `home` at L1 (ADR 0025 §2).
+    ///
+    /// # Errors
+    ///
+    /// [`WorldError::UnknownBuilding`] if `home` is not a building, or
+    /// [`WorldError::Lod`] if the spawn counter is exhausted.
+    pub fn spawn_resident(&mut self, home: EntityId) -> Result<EntityId, WorldError> {
+        let Some(b) = self.buildings.get(home).copied() else {
+            return Err(WorldError::UnknownBuilding(home));
+        };
+        let id = EntityId::spawned(self.next_spawned_id)
+            .map_err(|_| LodError::CounterExhausted(EntityId::procedural(0)))?;
+        let resident = Resident {
+            address: ResidentAddress {
+                building_index: b.index,
+                slot: u32::try_from(id.payload()).unwrap_or(u32::MAX),
+            },
+            home,
+        };
+        self.insert_resident(id, resident)?;
+        self.next_spawned_id += 1;
+        Ok(id)
     }
 
     /// The world seed.

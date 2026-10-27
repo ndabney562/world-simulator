@@ -1,0 +1,16 @@
+# Format-3 fixture: version-pinned baseline plus canonical deltas, with an
+# intervention in effect, a scheduled one still waiting, a rejected one, and
+# both simulation levels (ADR 0025).
+# Regenerate only for an intentional format change, keeping old files as
+# migration fixtures:
+#   cargo run -p ws-cli -- save --seed 2026 --ticks 600 \
+#     --script tests/saves/toy-v3.script --out tests/saves/toy-v3.wssave
+step 100
+afflict building first 5
+afflict building first 8 at 100000000
+afflict building first 99
+lod all 2
+step 150
+lod all 1
+step 100
+lod all 2
