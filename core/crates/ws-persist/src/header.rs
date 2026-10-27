@@ -9,7 +9,12 @@ use ws_world::{Dataset, TOY_DATASET_ID};
 use crate::error::LoadError;
 
 /// The newest save format this build writes and reads.
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
+
+/// Model kind indicator in save format 4 (ADR 0036).
+pub const MODEL_KIND_TOY: u32 = 1;
+/// Real-slice model kind.
+pub const MODEL_KIND_SLICE: u32 = 2;
 
 /// Purpose key for the canonical baseline record digest (ADR 0025 §1, §3).
 pub const PURPOSE_BASELINE_DIGEST: Purpose = Purpose::new("ws-persist/baseline-digest");
@@ -43,11 +48,10 @@ pub struct Header {
     pub population_min: u32,
     /// Maximum residents per building (a generation input).
     pub population_max: u32,
-    /// `World::state_hash` at the save. Tier 2: a corruption check within
+    /// `World::state_hash` or `SliceSimulation::state_hash` at the save. Tier 2: a corruption check within
     /// one build and platform, not a cross-build guarantee.
     pub state_hash: u64,
-    /// `World::journal_digest` at the save: detects a lost or altered
-    /// journal outcome.
+    /// `World::journal_digest` or `SliceSimulation::operation_digest` at the save.
     pub journal_digest: u64,
     /// `EventStore::digest` at the save: detects a lost or altered event
     /// or causal link.
@@ -55,6 +59,21 @@ pub struct Header {
     /// Version of the intervention effect vocabulary the writer knew
     /// (ADR 0021 §7); zero in format-1 saves, which predate interventions.
     pub effect_vocabulary: u32,
+    /// Model kind: 1 for Toy World, 2 for Slice Simulation. In format 1-3, defaults to 1.
+    pub model_kind: u32,
+}
+
+impl Header {
+    /// Whether this save is a real Bay Ridge slice simulation.
+    pub fn is_slice(&self) -> bool {
+        self.model_kind == MODEL_KIND_SLICE
+            || self.dataset_version == ws_world::slice::DATASET_VERSION
+    }
+
+    /// Whether this save is a toy world simulation.
+    pub fn is_toy(&self) -> bool {
+        !self.is_slice()
+    }
 }
 
 /// The version-pinned baseline identity and configuration stored in the

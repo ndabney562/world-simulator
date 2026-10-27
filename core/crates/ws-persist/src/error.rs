@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use ws_sim::{RestoreError, WorldError};
+use ws_sim::{RestoreError, SliceRestoreError, WorldError};
 
 /// Why a world could not be saved. Nothing is left at the target path.
 #[derive(Debug)]
@@ -91,6 +91,8 @@ pub enum LoadError {
     Toy(WorldError),
     /// The records decode but do not form a valid world.
     Invalid(RestoreError),
+    /// The records decode but do not form a valid slice simulation.
+    Slice(SliceRestoreError),
     /// The restored world does not hash to a value recorded in the header.
     HashMismatch {
         /// Which digest: `"state"`, `"journal"` or `"events"`.
@@ -132,6 +134,7 @@ impl fmt::Display for LoadError {
             Self::Corrupt { table, reason } => write!(f, "corrupt save ({table}): {reason}"),
             Self::Toy(e) => write!(f, "the save's entities do not fit together: {e}"),
             Self::Invalid(e) => write!(f, "the save is not a valid world: {e}"),
+            Self::Slice(e) => write!(f, "the save is not a valid slice simulation: {e}"),
             Self::HashMismatch {
                 what,
                 stored,
@@ -155,5 +158,11 @@ impl From<std::io::Error> for LoadError {
 impl From<rusqlite::Error> for LoadError {
     fn from(e: rusqlite::Error) -> Self {
         Self::Sqlite(e)
+    }
+}
+
+impl From<SliceRestoreError> for LoadError {
+    fn from(e: SliceRestoreError) -> Self {
+        Self::Slice(e)
     }
 }

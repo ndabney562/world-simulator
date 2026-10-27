@@ -98,6 +98,9 @@ jobs:
           save="$RUNNER_TEMP/world-simulator-${{ matrix.os }}.wssave"
           cargo run --locked -p ws-cli -- save --seed 42 --ticks 2000 --hash-every 1000 --script crates/ws-cli/tests/fixtures/ci-commands.txt --out "$save"
           cargo run --locked -p ws-cli -- load --file "$save" --ticks 500 --hash-every 250
+          slice_save="$RUNNER_TEMP/slice-${{ matrix.os }}.wssave"
+          cargo run --locked -p ws-cli -- save --slice --seed 42 --ticks 200 --hash-every 100 --out "$slice_save"
+          cargo run --locked -p ws-cli -- load --file "$slice_save" --ticks 50 --hash-every 25
       - name: Dependency direction
         run: python3 ../scripts/check_core_deps.py
       - name: Dependency check script tests

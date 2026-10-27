@@ -225,3 +225,58 @@ fn an_intervention_records_and_replays_to_identical_hashes() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn slice_save_then_load_in_separate_processes_agree() {
+    let root = std::env::temp_dir().join(format!("ws-cli-slice-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let save = root.join("slice.wssave");
+    let script = root.join("slice.txt");
+    fs::write(
+        &script,
+        "step 10\nafflict first 5\ncamera 20000 30000 50000\nstep 20\n",
+    )
+    .unwrap();
+
+    let out = cli(&[
+        "save",
+        "--slice",
+        "--seed",
+        "42",
+        "--ticks",
+        "50",
+        "--hash-every",
+        "10",
+        "--script",
+        script.to_str().unwrap(),
+        "--out",
+        save.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let saved = String::from_utf8(out.stdout).unwrap();
+    let state = saved
+        .lines()
+        .find_map(|l| l.strip_prefix("saved "))
+        .and_then(|l| l.split("state=").nth(1))
+        .unwrap()
+        .trim()
+        .to_owned();
+
+    let out = cli(&["load", "--file", save.to_str().unwrap(), "--ticks", "20"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let loaded = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        loaded.contains(&format!("loaded tick=50 state={state}")),
+        "{loaded}"
+    );
+    assert!(loaded.contains("tick=70 state="));
+}

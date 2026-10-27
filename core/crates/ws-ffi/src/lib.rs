@@ -40,6 +40,8 @@ pub const STEP_FAILED: u32 = 5;
 pub const PANIC: u32 = 6;
 /// Only diagnostics and destruction are allowed on this handle.
 pub const POISONED: u32 = 7;
+/// A background save operation is still in progress.
+pub const SAVE_IN_PROGRESS: u32 = 8;
 /// Snapshot header bytes.
 pub const HEADER_SIZE: usize = 24;
 /// Snapshot instance record bytes.

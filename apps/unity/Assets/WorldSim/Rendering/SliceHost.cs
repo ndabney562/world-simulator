@@ -45,13 +45,17 @@ namespace WorldSim.Rendering
         public volatile Exception Failure;
         public SliceGeometry Geometry => world.Geometry;
         public int Population => world.Population;
-        public SliceHost(ulong seed,long start)
+        public SliceHost(ulong seed,long start) : this(new NativeSlice(seed,start))
         {
-            world=new NativeSlice(seed,start);
+        }
+        public SliceHost(NativeSlice loadedSlice)
+        {
+            world=loadedSlice ?? throw new ArgumentNullException(nameof(loadedSlice));
             clock=new SliceHostClock(Stopwatch.Frequency,Stopwatch.GetTimestamp());
             worker=new Thread(Run) {Name="WorldSim real slice",IsBackground=true};
             try {worker.Start();} catch {world.Dispose();throw;}
         }
+        public static SliceHost Load(string path) => new SliceHost(NativeSlice.Load(path));
         void Run()
         {
             try
@@ -92,6 +96,23 @@ namespace WorldSim.Rendering
             long begin=Stopwatch.GetTimestamp();world.Fill(frame,out stats);
             return (Stopwatch.GetTimestamp()-begin)*1000.0/Stopwatch.Frequency;
         }
+        public void Save(string path)
+        {
+            lock(pacingGate)
+            {
+                SubmitElapsed(Stopwatch.GetTimestamp(),true);
+                world.Save(path);
+            }
+        }
+        public void SaveBackground(string path)
+        {
+            lock(pacingGate)
+            {
+                SubmitElapsed(Stopwatch.GetTimestamp(),true);
+                world.SaveBackground(path);
+            }
+        }
+        public uint SaveStatus() => world.SaveStatus();
         public void Dispose()
         {
             stop=true;worker.Join();world.Dispose();

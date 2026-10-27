@@ -53,6 +53,9 @@ impl Writer {
     pub fn i64(&mut self, v: i64) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
+    pub fn i128(&mut self, v: i128) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
     pub fn f32(&mut self, v: f32) {
         self.u32(v.to_bits());
     }
@@ -98,6 +101,9 @@ impl<'a> Reader<'a> {
     }
     pub fn i64(&mut self) -> Result<i64> {
         Ok(i64::from_le_bytes(self.take()?))
+    }
+    pub fn i128(&mut self) -> Result<i128> {
+        Ok(i128::from_le_bytes(self.take()?))
     }
     pub fn f32(&mut self) -> Result<f32> {
         Ok(f32::from_bits(self.u32()?))
@@ -593,15 +599,6 @@ pub(crate) fn get_clock_v3(bytes: &[u8]) -> Result<ClockRowV3> {
 
 fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
     match p {
-        Payload::MissedDuty { .. }
-        | Payload::NeighbourCheckIn { .. }
-        | Payload::Recovered { .. }
-        | Payload::SliceIllnessApplied { .. }
-        | Payload::ScheduleChanged { .. }
-        | Payload::SliceCreated { .. }
-        | Payload::SliceLodChanged { .. } => {
-            return Err(CodecError("slice payload requires a slice save format"));
-        }
         Payload::WorldCreated {
             seed,
             dataset,
@@ -685,6 +682,89 @@ fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
             w.id(resident);
             w.id(home);
         }
+        Payload::SliceCreated {
+            seed,
+            dataset,
+            structural,
+            population,
+            schedules,
+            schedule_epoch,
+        } => {
+            w.u8(7);
+            w.u64(seed);
+            w.u64(dataset);
+            w.u32(structural);
+            w.u32(population);
+            w.u32(schedules);
+            w.i64(schedule_epoch);
+        }
+        Payload::SliceLodChanged {
+            building,
+            from,
+            to,
+            demoted,
+            promoted,
+        } => {
+            w.u8(8);
+            w.id(building);
+            w.u8(from);
+            w.u8(to);
+            w.u32(demoted);
+            w.u32(promoted);
+        }
+        Payload::ScheduleChanged {
+            resident,
+            destination,
+            previous,
+            next,
+        } => {
+            w.u8(9);
+            w.id(resident);
+            w.id(destination);
+            w.u8(previous as u8);
+            w.u8(next as u8);
+        }
+        Payload::SliceIllnessApplied {
+            resident,
+            sequence,
+            severity,
+            duration_us,
+            affected,
+        } => {
+            w.u8(10);
+            w.id(resident);
+            w.u64(sequence);
+            w.u32(severity);
+            w.u64(duration_us);
+            w.u32(affected);
+        }
+        Payload::MissedDuty {
+            resident,
+            destination,
+            activity,
+        } => {
+            w.u8(11);
+            w.id(resident);
+            w.id(destination);
+            w.u8(activity as u8);
+        }
+        Payload::NeighbourCheckIn {
+            visitor,
+            patient,
+            home,
+            intended_duration_us,
+        } => {
+            w.u8(12);
+            w.id(visitor);
+            w.id(patient);
+            w.id(home);
+            w.u64(intended_duration_us);
+        }
+        Payload::Recovered { resident, health } => {
+            w.u8(13);
+            w.id(resident);
+            w.u32(health);
+        }
     }
     Ok(())
 }
@@ -733,6 +813,52 @@ fn get_payload(r: &mut Reader) -> Result<Payload> {
         6 => Payload::ReturnedHome {
             resident: r.id()?,
             home: r.id()?,
+        },
+        7 => Payload::SliceCreated {
+            seed: r.u64()?,
+            dataset: r.u64()?,
+            structural: r.u32()?,
+            population: r.u32()?,
+            schedules: r.u32()?,
+            schedule_epoch: r.i64()?,
+        },
+        8 => Payload::SliceLodChanged {
+            building: r.id()?,
+            from: r.u8()?,
+            to: r.u8()?,
+            demoted: r.u32()?,
+            promoted: r.u32()?,
+        },
+        9 => Payload::ScheduleChanged {
+            resident: r.id()?,
+            destination: r.id()?,
+            previous: ws_events::Activity::from_tag(r.u8()?)
+                .ok_or(CodecError("invalid activity tag"))?,
+            next: ws_events::Activity::from_tag(r.u8()?)
+                .ok_or(CodecError("invalid activity tag"))?,
+        },
+        10 => Payload::SliceIllnessApplied {
+            resident: r.id()?,
+            sequence: r.u64()?,
+            severity: r.u32()?,
+            duration_us: r.u64()?,
+            affected: r.u32()?,
+        },
+        11 => Payload::MissedDuty {
+            resident: r.id()?,
+            destination: r.id()?,
+            activity: ws_events::Activity::from_tag(r.u8()?)
+                .ok_or(CodecError("invalid activity tag"))?,
+        },
+        12 => Payload::NeighbourCheckIn {
+            visitor: r.id()?,
+            patient: r.id()?,
+            home: r.id()?,
+            intended_duration_us: r.u64()?,
+        },
+        13 => Payload::Recovered {
+            resident: r.id()?,
+            health: r.u32()?,
         },
         _ => return Err(CodecError("unknown payload tag")),
     })
@@ -1394,6 +1520,540 @@ pub(crate) fn get_outcome(bytes: &[u8]) -> Result<Outcome> {
     })
 }
 
+// ---- slice codecs (ADR 0036) ---------------------------------------------
+
+pub(crate) fn put_slice_config(c: &ws_sim::slice::SliceConfig) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u64(c.seed);
+    w.time(c.start);
+    w.time(c.schedule_epoch);
+    w.0
+}
+
+pub(crate) fn get_slice_config(bytes: &[u8]) -> Result<ws_sim::slice::SliceConfig> {
+    let mut r = Reader::new(bytes);
+    let seed = r.u64()?;
+    let start = r.time()?;
+    let schedule_epoch = r.time()?;
+    r.finish()?;
+    Ok(ws_sim::slice::SliceConfig {
+        seed,
+        start,
+        schedule_epoch,
+    })
+}
+
+pub(crate) fn put_slice_vital(v: &ws_world::slice::vitals::VitalState) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u8(v.sex() as u8);
+    w.u8(v.health());
+    w.u8(v.life() as u8);
+    w.0
+}
+
+pub(crate) fn get_slice_vital(bytes: &[u8]) -> Result<ws_world::slice::vitals::VitalState> {
+    let mut r = Reader::new(bytes);
+    let sex =
+        ws_world::slice::vitals::Sex::from_tag(r.u8()?).ok_or(CodecError("invalid sex tag"))?;
+    let health = r.u8()?;
+    let life =
+        ws_world::slice::vitals::Life::from_tag(r.u8()?).ok_or(CodecError("invalid life tag"))?;
+    r.finish()?;
+    ws_world::slice::vitals::VitalState::checked(sex, health, life)
+        .ok_or(CodecError("invalid vital state"))
+}
+
+pub(crate) fn put_slice_episode(e: &ws_sim::slice::illness::Episode) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.id(e.resident);
+    w.u64(e.root.0);
+    w.u64(e.illness.0);
+    w.u32(e.severity);
+    w.time(e.start);
+    w.time(e.end);
+    match e.return_at {
+        Some(t) => {
+            w.u8(1);
+            w.i128(t);
+        }
+        None => w.u8(0),
+    }
+    w.u8(u8::from(e.recovered));
+    w.u8(u8::from(e.returned));
+    w.u8(e.missed);
+    w.u8(u8::from(e.visited));
+    w.0
+}
+
+pub(crate) fn get_slice_episode(bytes: &[u8]) -> Result<ws_sim::slice::illness::Episode> {
+    let mut r = Reader::new(bytes);
+    let resident = r.id()?;
+    let root = ws_events::EventId(r.u64()?);
+    let illness = ws_events::EventId(r.u64()?);
+    let severity = r.u32()?;
+    let start = r.time()?;
+    let end = r.time()?;
+    let return_at = match r.u8()? {
+        0 => None,
+        1 => Some(r.i128()?),
+        _ => return Err(CodecError("invalid return_at flag")),
+    };
+    let recovered = r.flag()?;
+    let returned = r.flag()?;
+    let missed = r.u8()?;
+    let visited = r.flag()?;
+    r.finish()?;
+    Ok(ws_sim::slice::illness::Episode {
+        resident,
+        root,
+        illness,
+        severity,
+        start,
+        end,
+        return_at,
+        recovered,
+        returned,
+        missed,
+        visited,
+    })
+}
+
+fn put_place(w: &mut Writer, p: ws_life::Place) {
+    match p {
+        ws_life::Place::Building(id) => {
+            w.u8(0);
+            w.id(id);
+        }
+        ws_life::Place::OffMap(id, exit) => {
+            w.u8(1);
+            w.id(id);
+            w.u8(exit);
+        }
+    }
+}
+
+fn get_place(r: &mut Reader) -> Result<ws_life::Place> {
+    match r.u8()? {
+        0 => Ok(ws_life::Place::Building(r.id()?)),
+        1 => Ok(ws_life::Place::OffMap(r.id()?, r.u8()?)),
+        _ => Err(CodecError("invalid place tag")),
+    }
+}
+
+fn put_journey(w: &mut Writer, j: ws_life::behavior::Journey) {
+    put_place(w, j.from);
+    put_place(w, j.to);
+    w.i128(j.departure);
+    w.i128(j.arrival);
+}
+
+fn get_journey(r: &mut Reader) -> Result<ws_life::behavior::Journey> {
+    let from = get_place(r)?;
+    let to = get_place(r)?;
+    let departure = r.i128()?;
+    let arrival = r.i128()?;
+    Ok(ws_life::behavior::Journey {
+        from,
+        to,
+        departure,
+        arrival,
+    })
+}
+
+fn put_routine(w: &mut Writer, r: ws_life::behavior::RoutineOverride) {
+    w.u32(r.kind);
+    w.u64(r.root);
+    w.id(r.home);
+    match r.original {
+        Some(j) => {
+            w.u8(1);
+            put_journey(w, j);
+        }
+        None => w.u8(0),
+    }
+    match r.homeward {
+        Some(j) => {
+            w.u8(1);
+            put_journey(w, j);
+        }
+        None => w.u8(0),
+    }
+    w.time(r.started);
+    w.time(r.until);
+    match r.rejoin {
+        Some(t) => {
+            w.u8(1);
+            w.time(t);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn get_routine(r: &mut Reader) -> Result<ws_life::behavior::RoutineOverride> {
+    let kind = r.u32()?;
+    let root = r.u64()?;
+    let home = r.id()?;
+    let original = match r.u8()? {
+        0 => None,
+        1 => Some(get_journey(r)?),
+        _ => return Err(CodecError("invalid original journey flag")),
+    };
+    let homeward = match r.u8()? {
+        0 => None,
+        1 => Some(get_journey(r)?),
+        _ => return Err(CodecError("invalid homeward journey flag")),
+    };
+    let started = r.time()?;
+    let until = r.time()?;
+    let rejoin = match r.u8()? {
+        0 => None,
+        1 => Some(r.time()?),
+        _ => return Err(CodecError("invalid rejoin flag")),
+    };
+    Ok(ws_life::behavior::RoutineOverride {
+        kind,
+        root,
+        home,
+        original,
+        homeward,
+        started,
+        until,
+        rejoin,
+    })
+}
+
+pub(crate) fn put_slice_resident_state(st: &ws_life::behavior::ResidentStateSnapshot) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.id(st.id);
+    w.u8(st.detail as u8);
+    for v in st.needs.values() {
+        w.u32(v);
+    }
+    w.time(st.anchor);
+    w.u8(st.action as u8);
+    w.u64(st.decisions);
+    match st.routine {
+        Some(r) => {
+            w.u8(1);
+            put_routine(&mut w, r);
+        }
+        None => w.u8(0),
+    }
+    w.0
+}
+
+pub(crate) fn get_slice_resident_state(
+    bytes: &[u8],
+) -> Result<ws_life::behavior::ResidentStateSnapshot> {
+    let mut r = Reader::new(bytes);
+    let id = r.id()?;
+    let detail =
+        ws_life::behavior::Detail::from_tag(r.u8()?).ok_or(CodecError("invalid detail tag"))?;
+    let needs = ws_life::behavior::Needs::checked([r.u32()?, r.u32()?, r.u32()?, r.u32()?])
+        .ok_or(CodecError("needs exceed MAX_DEFICIT"))?;
+    let anchor = r.time()?;
+    let action =
+        ws_life::behavior::Action::from_tag(r.u8()?).ok_or(CodecError("invalid action tag"))?;
+    let decisions = r.u64()?;
+    let routine = match r.u8()? {
+        0 => None,
+        1 => Some(get_routine(&mut r)?),
+        _ => return Err(CodecError("invalid routine flag")),
+    };
+    r.finish()?;
+    Ok(ws_life::behavior::ResidentStateSnapshot {
+        id,
+        detail,
+        needs,
+        anchor,
+        action,
+        decisions,
+        routine,
+    })
+}
+
+pub(crate) fn put_slice_lod(
+    camera: Option<ws_life::lod::CameraInterest>,
+    nodes: &[(EntityId, ws_life::lod::Mode, SimTime)],
+) -> Vec<u8> {
+    let mut w = Writer::new();
+    match camera {
+        Some(c) => {
+            w.u8(1);
+            w.i64(c.center.east);
+            w.i64(c.center.north);
+            w.u64(c.radius_mm);
+        }
+        None => w.u8(0),
+    }
+    w.u32(nodes.len() as u32);
+    for &(id, mode, changed_at) in nodes {
+        w.id(id);
+        w.u8(mode as u8);
+        w.time(changed_at);
+    }
+    w.0
+}
+
+pub(crate) type DecodedLod = (
+    Option<ws_life::lod::CameraInterest>,
+    Vec<(EntityId, ws_life::lod::Mode, SimTime)>,
+);
+
+pub(crate) fn get_slice_lod(bytes: &[u8]) -> Result<DecodedLod> {
+    let mut r = Reader::new(bytes);
+    let camera = match r.u8()? {
+        0 => None,
+        1 => {
+            let east = r.i64()?;
+            let north = r.i64()?;
+            let radius_mm = r.u64()?;
+            Some(ws_life::lod::CameraInterest {
+                center: ws_life::navigation::Point { east, north },
+                radius_mm,
+            })
+        }
+        _ => return Err(CodecError("invalid camera flag")),
+    };
+    let count = r.u32()? as usize;
+    if count > 16 {
+        return Err(CodecError("too many nodes"));
+    }
+    let mut nodes = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id = r.id()?;
+        let mode = ws_life::lod::Mode::from_tag(r.u8()?).ok_or(CodecError("invalid mode tag"))?;
+        let changed_at = r.time()?;
+        nodes.push((id, mode, changed_at));
+    }
+    r.finish()?;
+    Ok((camera, nodes))
+}
+
+pub(crate) fn put_operation_record(rec: &ws_sim::slice::OperationRecord) -> Vec<u8> {
+    let mut w = Writer::new();
+    match rec.operation {
+        ws_sim::slice::Operation::Steps(n) => {
+            w.u8(0);
+            w.u64(n);
+        }
+        ws_sim::slice::Operation::SetScale(scale) => {
+            w.u8(1);
+            w.u32(scale.multiplier());
+        }
+        ws_sim::slice::Operation::HostElapsed(us) => {
+            w.u8(2);
+            w.u64(us);
+        }
+        ws_sim::slice::Operation::SetDetail { resident, level } => {
+            w.u8(3);
+            w.id(resident);
+            w.u8(level as u8);
+        }
+        ws_sim::slice::Operation::CameraInterest(c) => {
+            w.u8(4);
+            w.i64(c.center.east);
+            w.i64(c.center.north);
+            w.u64(c.radius_mm);
+        }
+        ws_sim::slice::Operation::Afflict {
+            resident,
+            severity,
+            duration_us,
+        } => {
+            w.u8(5);
+            w.id(resident);
+            w.u32(severity);
+            w.u64(duration_us);
+        }
+    }
+    w.u64(rec.report.committed);
+    match rec.report.error {
+        Some(e) => {
+            w.u8(1);
+            w.u64(error_tag_sim(e));
+        }
+        None => w.u8(0),
+    }
+    match rec.stop {
+        Some(s) => {
+            w.u8(1);
+            w.u64(s.tick);
+            w.u64(s.state);
+            w.u64(s.events);
+            w.u64(s.pending_micros);
+        }
+        None => w.u8(0),
+    }
+    w.0
+}
+
+fn error_tag_sim(error: ws_sim::slice::SliceError) -> u64 {
+    match error {
+        ws_sim::slice::SliceError::Rejected(e) => 100 + e as u64,
+        ws_sim::slice::SliceError::Population(_) => 1,
+        ws_sim::slice::SliceError::Destination(_) => 2,
+        ws_sim::slice::SliceError::Grid => 3,
+        ws_sim::slice::SliceError::TimeOverflow => 4,
+        ws_sim::slice::SliceError::Resource => 5,
+        ws_sim::slice::SliceError::Lod(e) => match e {
+            ws_life::lod::LodError::Input => 40,
+            ws_life::lod::LodError::CameraOwned => 41,
+            ws_life::lod::LodError::Population => 42,
+            ws_life::lod::LodError::Resource => 43,
+            ws_life::lod::LodError::Invariant => 44,
+            ws_life::lod::LodError::Behavior(b) => error_tag_behavior(b),
+        },
+        ws_sim::slice::SliceError::Behavior(b) => error_tag_behavior(b),
+        ws_sim::slice::SliceError::History(_) => 6,
+    }
+}
+
+fn error_tag_behavior(b: ws_life::behavior::BehaviorError) -> u64 {
+    20 + match b {
+        ws_life::behavior::BehaviorError::Navigation(_) => 0,
+        ws_life::behavior::BehaviorError::InfeasibleRoute => 1,
+        ws_life::behavior::BehaviorError::Grid => 2,
+        ws_life::behavior::BehaviorError::Time => 3,
+        ws_life::behavior::BehaviorError::Counter => 4,
+        ws_life::behavior::BehaviorError::UnknownResident => 5,
+        ws_life::behavior::BehaviorError::Resource => 6,
+    }
+}
+
+fn error_from_tag(tag: u64) -> Result<ws_sim::slice::SliceError> {
+    if (100..=104).contains(&tag) {
+        let r = match tag - 100 {
+            0 => ws_sim::slice::illness::Rejection::Target,
+            1 => ws_sim::slice::illness::Rejection::Dead,
+            2 => ws_sim::slice::illness::Rejection::Severity,
+            3 => ws_sim::slice::illness::Rejection::Duration,
+            4 => ws_sim::slice::illness::Rejection::Deadline,
+            _ => return Err(CodecError("invalid rejection tag")),
+        };
+        return Ok(ws_sim::slice::SliceError::Rejected(r));
+    }
+    match tag {
+        3 => Ok(ws_sim::slice::SliceError::Grid),
+        4 => Ok(ws_sim::slice::SliceError::TimeOverflow),
+        5 => Ok(ws_sim::slice::SliceError::Resource),
+        6 => Ok(ws_sim::slice::SliceError::History(
+            ws_events::EventError::Resource,
+        )),
+        40 => Ok(ws_sim::slice::SliceError::Lod(
+            ws_life::lod::LodError::Input,
+        )),
+        41 => Ok(ws_sim::slice::SliceError::Lod(
+            ws_life::lod::LodError::CameraOwned,
+        )),
+        42 => Ok(ws_sim::slice::SliceError::Lod(
+            ws_life::lod::LodError::Population,
+        )),
+        43 => Ok(ws_sim::slice::SliceError::Lod(
+            ws_life::lod::LodError::Resource,
+        )),
+        44 => Ok(ws_sim::slice::SliceError::Lod(
+            ws_life::lod::LodError::Invariant,
+        )),
+        20 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::Navigation(ws_life::navigation::NavError::Geometry),
+        )),
+        21 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::InfeasibleRoute,
+        )),
+        22 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::Grid,
+        )),
+        23 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::Time,
+        )),
+        24 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::Counter,
+        )),
+        25 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::UnknownResident,
+        )),
+        26 => Ok(ws_sim::slice::SliceError::Behavior(
+            ws_life::behavior::BehaviorError::Resource,
+        )),
+        _ => Err(CodecError("invalid error tag")),
+    }
+}
+
+pub(crate) fn get_operation_record(bytes: &[u8]) -> Result<ws_sim::slice::OperationRecord> {
+    let mut r = Reader::new(bytes);
+    let operation = match r.u8()? {
+        0 => ws_sim::slice::Operation::Steps(r.u64()?),
+        1 => {
+            let mult = r.u32()?;
+            let scale = match mult {
+                0 => ws_sim::TimeScale::Paused,
+                1 => ws_sim::TimeScale::X1,
+                10 => ws_sim::TimeScale::X10,
+                100 => ws_sim::TimeScale::X100,
+                _ => return Err(CodecError("invalid timescale")),
+            };
+            ws_sim::slice::Operation::SetScale(scale)
+        }
+        2 => ws_sim::slice::Operation::HostElapsed(r.u64()?),
+        3 => {
+            let resident = r.id()?;
+            let level = ws_life::behavior::Detail::from_tag(r.u8()?)
+                .ok_or(CodecError("invalid detail tag"))?;
+            ws_sim::slice::Operation::SetDetail { resident, level }
+        }
+        4 => {
+            let east = r.i64()?;
+            let north = r.i64()?;
+            let radius_mm = r.u64()?;
+            ws_sim::slice::Operation::CameraInterest(ws_life::lod::CameraInterest {
+                center: ws_life::navigation::Point { east, north },
+                radius_mm,
+            })
+        }
+        5 => {
+            let resident = r.id()?;
+            let severity = r.u32()?;
+            let duration_us = r.u64()?;
+            ws_sim::slice::Operation::Afflict {
+                resident,
+                severity,
+                duration_us,
+            }
+        }
+        _ => return Err(CodecError("unknown operation tag")),
+    };
+    let committed = r.u64()?;
+    let error = match r.u8()? {
+        0 => None,
+        1 => Some(error_from_tag(r.u64()?)?),
+        _ => return Err(CodecError("invalid error flag")),
+    };
+    let report = ws_sim::slice::Report { committed, error };
+    let stop = match r.u8()? {
+        0 => None,
+        1 => {
+            let tick = r.u64()?;
+            let state = r.u64()?;
+            let events = r.u64()?;
+            let pending_micros = r.u64()?;
+            Some(ws_sim::slice::Checkpoint {
+                tick,
+                state,
+                events,
+                pending_micros,
+            })
+        }
+        _ => return Err(CodecError("invalid stop flag")),
+    };
+    r.finish()?;
+    Ok(ws_sim::slice::OperationRecord {
+        operation,
+        report,
+        stop,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use ws_math::SECTOR_LEVEL;
@@ -1734,8 +2394,8 @@ mod tests {
 mod slice_vocabulary_tests {
     use super::*;
     #[test]
-    fn legacy_payload_codec_rejects_slice_tags_and_returns_typed_encode_error() {
-        for tag in [7, 8, 9, 10, 11, 12, 13] {
+    fn slice_payload_codec_round_trips_every_slice_tag() {
+        for tag in [14, 15, 255] {
             assert!(get_payload(&mut Reader::new(&[tag])).is_err());
         }
         let resident = EntityId::procedural(1);
@@ -1786,8 +2446,11 @@ mod slice_vocabulary_tests {
             },
         ] {
             let mut writer = Writer::new();
-            assert!(put_payload(&mut writer, payload).is_err());
-            assert!(writer.0.is_empty());
+            put_payload(&mut writer, payload).unwrap();
+            let mut reader = Reader::new(&writer.0);
+            let decoded = get_payload(&mut reader).unwrap();
+            reader.finish().unwrap();
+            assert_eq!(decoded, payload);
         }
     }
 }

@@ -126,6 +126,22 @@ impl Vitals {
         v.health = health;
         true
     }
+    /// Borrowed canonical rows in entity ID order.
+    pub fn iter(&self) -> impl Iterator<Item = (EntityId, &VitalState)> {
+        self.rows.iter()
+    }
+    /// Restores vitals from saved rows, validating exact population roster match.
+    pub fn from_rows(
+        population: &PopulatedSlice,
+        vitals: impl IntoIterator<Item = (EntityId, VitalState)>,
+    ) -> Option<Self> {
+        let mut rows = Column::new();
+        rows.insert_batch(vitals.into_iter().collect()).ok()?;
+        if rows.ids() != population.residents().ids() {
+            return None;
+        }
+        Some(Self { rows })
+    }
     /// Canonical versioned integer digest; no allocation or randomness.
     pub fn state_hash(&self) -> u64 {
         let mut hash = SipHasher24::new(0, STATE.value());
@@ -203,5 +219,26 @@ mod tests {
             .unwrap();
         assert_ne!(values.state_hash(), original.state_hash());
         assert_ne!(SEX.value(), STATE.value());
+    }
+    #[test]
+    fn from_rows_roundtrips_and_validates_roster() {
+        let p = PopulatedSlice::new(42).unwrap();
+        let mut original = Vitals::new(&p);
+        let id = original.ids()[0];
+        original.set_living_health(id, 85);
+        let rows: Vec<_> = original.iter().map(|(id, v)| (id, *v)).collect();
+        let restored = Vitals::from_rows(&p, rows).expect("valid rows match roster");
+        assert_eq!(restored, original);
+        assert_eq!(restored.state_hash(), original.state_hash());
+
+        // Empty rows fail.
+        assert!(Vitals::from_rows(&p, []).is_none());
+        // Missing row fails.
+        let missing = original.iter().skip(1).map(|(id, v)| (id, *v));
+        assert!(Vitals::from_rows(&p, missing).is_none());
+        // Alien entity ID fails.
+        let mut alien: Vec<_> = original.iter().map(|(id, v)| (id, *v)).collect();
+        alien[0].0 = EntityId::spawned(999).unwrap();
+        assert!(Vitals::from_rows(&p, alien).is_none());
     }
 }

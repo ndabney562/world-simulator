@@ -35,7 +35,7 @@ namespace WorldSim.Rendering
         readonly Matrix4x4[] aggregateMatrices=new Matrix4x4[4];
         readonly SliceBuilding[] featured=new SliceBuilding[4];
         Bounds drawBounds;
-        bool streetRequested,pointerUiCapture;
+        bool streetRequested,pointerUiCapture,saving;
         string notice="",status="",logPath="";
         StreamWriter log;
         double runStart,nextLog,nextStatus;
@@ -192,6 +192,20 @@ namespace WorldSim.Rendering
                 windowFrames=0;frameSum=frameMax=fillSum=applySum=applyMax=0;tickStart=frame.Tick;nextStatus=now+0.5;
             }
             if(log!=null&&now>=nextLog) {WriteCsv(now);nextLog=now+1;}
+            if(saving&&host!=null)
+            {
+                uint saveStatus=host.SaveStatus();
+                if(saveStatus==0)
+                {
+                    saving=false;
+                    notice="Saved slice to "+Path.GetFileName(SavePath);
+                }
+                else if(saveStatus!=NativeSlice.SaveInProgress)
+                {
+                    saving=false;
+                    notice="Background save failed (code "+saveStatus+")";
+                }
+            }
         }
         /// <summary>Only cached geometry and value/matrix arrays enter the warmed render path.</summary>
         public void DrawInstances()
@@ -249,6 +263,45 @@ namespace WorldSim.Rendering
             if(streetRequested) notice=scale==0?"Paused: resume x1 for nearby detail.":scale>10?"Select x1 or x10 for nearby detail.":"Waiting for a local walker…";
         }
         public void ResetView() {streetRequested=false;notice="";orbit?.Reset();}
+        public string SavePath => Path.Combine(Application.persistentDataPath,"slice-demo.wssave");
+        public void SaveSlice()
+        {
+            if(host==null) return;
+            try
+            {
+                host.SaveBackground(SavePath);
+                saving=true;
+                notice="Saving slice in background…";
+            }
+            catch(Exception error)
+            {
+                notice="Save failed: "+error.Message;
+            }
+        }
+        public void LoadSlice()
+        {
+            if(!File.Exists(SavePath))
+            {
+                notice="No save file found at "+SavePath;
+                return;
+            }
+            try
+            {
+                ClearInspection();
+                host?.Dispose();
+                host=SliceHost.Load(SavePath);
+                picker=new SlicePicker(host.Geometry,capsuleMesh);
+                LastFillMs=host.Fill(frame,out var stats);
+                LastAdvance=stats;
+                calendar.Apply(frame.Sky);
+                RefreshStatus();
+                notice="Loaded slice from "+Path.GetFileName(SavePath)+" (tick "+frame.Tick+")";
+            }
+            catch(Exception error)
+            {
+                notice="Load failed: "+error.Message;
+            }
+        }
         void RefreshStatus()
         {
             string process=PlatformStats.FootprintBytes==0?"n/a":(PlatformStats.FootprintBytes/1048576.0).ToString("F0",CultureInfo.InvariantCulture)+"MB";
@@ -274,7 +327,7 @@ namespace WorldSim.Rendering
                 GUI.Box(new Rect(8,8,430,250),GUIContent.none);
                 GUILayout.BeginArea(new Rect(14,12,418,242));GUILayout.Label(calendar.Text);GUILayout.Label(status);
                 GUILayout.BeginHorizontal();if(GUILayout.Button("Pause")) SetSpeed(0);if(GUILayout.Button("x1")) SetSpeed(1);if(GUILayout.Button("x10")) SetSpeed(10);if(GUILayout.Button("x100")) SetSpeed(100);GUILayout.EndHorizontal();
-                GUILayout.BeginHorizontal();if(GUILayout.Button("Overview")) ResetView();if(GUILayout.Button("Street")) RequestStreetView();GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();if(GUILayout.Button("Overview")) ResetView();if(GUILayout.Button("Street")) RequestStreetView();if(GUILayout.Button("Save")) SaveSlice();if(GUILayout.Button("Load")) LoadSlice();GUILayout.EndHorizontal();
                 GUILayout.Label("Tap: inspect · Drag: orbit · right/two-finger drag: pan · wheel/pinch: zoom\nBlue bars: coarse current occupants.");if(notice.Length>0) GUILayout.Label(notice);GUILayout.EndArea();
             }
             if(inspection!=null)

@@ -3,7 +3,9 @@ use crate::{Clock, SimTime, TimeScale};
 use ws_ecs::EntityId;
 use ws_events::{Candidate, EventError, EventStore, Origin, Payload};
 use ws_life::behavior::{Behavior, BehaviorError, Detail, Snapshot};
-use ws_life::lod::{CameraInterest, Controller, LodError, View};
+pub use ws_life::lod::CameraInterest;
+use ws_life::lod::{Controller, LodError, View};
+pub use ws_life::navigation::Point;
 use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
@@ -15,6 +17,10 @@ pub mod illness;
 pub mod inspect;
 #[path = "slice_render.rs"]
 pub mod render;
+#[path = "slice/restore.rs"]
+pub mod restore;
+
+pub use restore::{SliceParts, SliceRestoreError};
 
 /// Pinned baseline and explicit model-week origin. Both times use the 100-ms grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

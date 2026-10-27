@@ -43,6 +43,19 @@ pub enum Action {
     Sleep = 6,
 }
 impl Action {
+    /// Decode an explicit action tag.
+    pub const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Idle),
+            1 => Some(Self::Rest),
+            2 => Some(Self::Eat),
+            3 => Some(Self::Socialize),
+            4 => Some(Self::Duties),
+            5 => Some(Self::Travel),
+            6 => Some(Self::Sleep),
+            _ => None,
+        }
+    }
     /// Base deficit drift plus this action's effect per 100-ms tick.
     pub const fn rates(self) -> [i32; 4] {
         match self {
@@ -209,6 +222,24 @@ struct ResidentState {
     // from hashing; a quiet tick need not re-evaluate the timetable for counts.
     logical: crate::Answer,
     routine: Option<RoutineOverride>,
+}
+/// Canonical persistent resident driving state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResidentStateSnapshot {
+    /// Stable resident identity.
+    pub id: EntityId,
+    /// Level membership.
+    pub detail: Detail,
+    /// Bounded need deficits.
+    pub needs: Needs,
+    /// Physical decision anchor time.
+    pub anchor: SimTime,
+    /// Held action.
+    pub action: Action,
+    /// Number of decisions made.
+    pub decisions: u64,
+    /// Temporary routine override if active.
+    pub routine: Option<RoutineOverride>,
 }
 /// Common current individual quantities, without reconstructing fine geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -463,6 +494,73 @@ impl Behavior {
             navigation,
             states,
             next: next_minute(schedules.epoch(), start),
+        })
+    }
+    /// Canonical resident states in entity ID order, for persistence.
+    pub fn resident_states(&self) -> impl Iterator<Item = ResidentStateSnapshot> + '_ {
+        self.states.iter().map(|s| ResidentStateSnapshot {
+            id: s.id,
+            detail: s.detail,
+            needs: s.needs,
+            anchor: s.anchor,
+            action: s.action,
+            decisions: s.decisions,
+            routine: s.routine,
+        })
+    }
+    /// Restores behavior directly from canonical driving states without replay.
+    ///
+    /// # Errors
+    /// Invalid roster, non-grid anchor, time before anchor or navigation failure.
+    pub fn from_saved_states(
+        population: &PopulatedSlice,
+        schedules: &Schedules,
+        states: &[ResidentStateSnapshot],
+        now: SimTime,
+    ) -> Result<Self, BehaviorError> {
+        let seed = population.baseline().structural.seed;
+        let navigation = Navigation::new(population).map_err(BehaviorError::Navigation)?;
+        if states.len() != population.residents().len() {
+            return Err(BehaviorError::UnknownResident);
+        }
+        let mut restored_states = Vec::new();
+        restored_states
+            .try_reserve(states.len())
+            .map_err(|_| BehaviorError::Resource)?;
+        for (saved, &expected_id) in states.iter().zip(population.residents().ids()) {
+            if saved.id != expected_id {
+                return Err(BehaviorError::UnknownResident);
+            }
+            if !grid(saved.anchor) || saved.anchor > now {
+                return Err(BehaviorError::Grid);
+            }
+            let logical = match saved
+                .routine
+                .filter(|r| saved.anchor >= r.started && r.rejoin.is_none_or(|t| saved.anchor < t))
+            {
+                Some(r) => r.answer(saved.anchor),
+                None => schedules
+                    .get(saved.id)
+                    .ok_or(BehaviorError::UnknownResident)?
+                    .at(schedules.epoch(), saved.anchor),
+            };
+            restored_states.push(ResidentState {
+                id: saved.id,
+                detail: saved.detail,
+                needs: saved.needs,
+                anchor: saved.anchor,
+                action: saved.action,
+                decisions: saved.decisions,
+                logical,
+                routine: saved.routine,
+            });
+        }
+        Ok(Self {
+            seed,
+            schedules: schedules.clone(),
+            navigation,
+            states: restored_states,
+            next: next_minute(schedules.epoch(), now),
         })
     }
     /// Retained routine, without advancing behavior.
