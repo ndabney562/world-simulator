@@ -93,3 +93,11 @@ Commitments:
 - CI: Linux runners for all core tests; a macOS job builds the static library and runs core tests on arm64; a Unity iOS build job (Unity in CI needs a licence activation for Personal, which is set up in the Technical Prototype) or local builds on Noah's Mac if CI activation proves impractical.
 - On-device testing from the first prototype: free 7-day provisioning with a personal Apple ID, and TestFlight once the Apple Developer Program membership exists (the one known cost, ADR 0007).
 - The minimum device is the iPhone 15 Pro (ADR 0004).
+
+### Browser deployment specifics (Proposed ADR 0035)
+
+- Target: Zero-friction friend distribution via static GitHub Pages web link ([ADR 0035](../adr/0035-browser-delivery-webgl-wasm.md)).
+- Build: Rust core compiled to WebAssembly (`wasm32-unknown-emscripten`) linked with Unity 6000.3 WebGL output.
+- Concurrency: Strictly single-threaded main loop to operate under static hosting without `SharedArrayBuffer` / COOP / COEP requirements.
+- Persistence: SQLite format 4 saves backed by browser IndexedDB (`IDBFS`) with file download/upload controls.
+- Fault Isolation: Fail-stop client quarantine on fatal WebAssembly trap, retaining offline capability and zero operational costs.

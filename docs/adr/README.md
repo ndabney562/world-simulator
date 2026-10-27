@@ -38,4 +38,5 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0032](0032-read-only-slice-inspection.md) | Read-only real-slice tap inspection and bounded recent actor events | Accepted |
 | [0033](0033-resident-vitals-and-inspection.md) | Resident sex, health/life state and ABI7 inspection extension | Accepted |
 | [0034](0034-slice-illness-and-consequences.md) | Real-slice illness, recovery and bounded causal consequences | Accepted |
+| [0035](0035-browser-delivery-webgl-wasm.md) | Browser delivery with Unity WebGL and pinned Rust Wasm build | Proposed |
 | [0036](0036-slice-persistence.md) | Slice persistence in save format 4 and off-thread writing | Accepted |

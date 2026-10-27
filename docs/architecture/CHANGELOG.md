@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## ADR 0035: browser delivery with Unity WebGL and pinned Rust Wasm build (2026-10-27, Proposed)
+
+Docs-only #107 proposal for zero-cost browser play via Unity 6 WebGL and pinned Rust WebAssembly (`wasm32-unknown-emscripten`). Defines single-threaded host pacing without `SharedArrayBuffer` / COOP/COEP dependencies for static GitHub Pages hosting, explicit browser fail-stop quarantine on fatal Wasm aborts, format 4 persistence with IndexedDB (`IDBFS`) backing and save import/export, and zero-cost provider isolation. Preserves native tests, offline capabilities, and iPhone 15 Pro stage exit criteria (#76).
+
 ## VS-009 implementation (2026-10-21)
 
 Implements ADR0032 with pure bounded core inspection, separate chronological actor index, ABI6 query/fixtures/C consumer, strict managed staging, tap gestures, occlusion-aware cached-mesh picking and timestamped HUD samples. Retains old indices/fixtures/consumer sources and all earlier behavioral checks; scaled picking and inconsistent commute records have explicit regressions. No new packages/data, event/save vocabulary, intervention, signing/device or stage-exit result.
