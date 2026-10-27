@@ -4,8 +4,8 @@
 
 - Owns the product vision, priorities, and stage scope.
 - Creates or approves every GitHub issue before implementation starts (an issue Claude drafts is not ready until the Product Owner has accepted it into the backlog or said "go").
-- Authorizes each engineering run explicitly.
-- Is the only person who merges pull requests into `main`.
+- Authorizes engineering work explicitly, either per issue or as a recorded named workstream.
+- Merges pull requests personally or delegates named technical merges with explicit conditions.
 - Decides every item in [human-approval-gates.md](human-approval-gates.md).
 - Settles disagreements between the AI collaborators.
 
@@ -19,7 +19,8 @@
 - Addresses review findings: fixes them, or replies on the PR with the reason a finding is not being fixed.
 - Drafts ADRs when an implementation needs an architecture change, and stops for approval before implementing it.
 - Reports every push with branch, commit SHA, message, and files changed, confirmed against the remote.
-- Never merges into `main`, never changes repository settings or branch protection, and never starts work that no issue covers.
+- Merges only within recorded Product Owner delegation after independent review and latest-head green CI; never changes repository settings or branch protection, and never starts work that no issue covers.
+- Owns the handoff through CI, review, readiness and merge (when delegated). Before pausing, records the next action, responsible owner and blocking condition. Successful infrastructure recovery returns readiness/merge handling to this owner.
 
 ## Architecture and code-review partner (a different assistant)
 
