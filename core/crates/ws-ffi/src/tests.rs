@@ -165,12 +165,12 @@ fn completed_ticks_survive_step_failure() {
         assert_eq!((*h).world.journal().len(), 1);
         assert_eq!((*h).world.pending().count(), 0);
         assert_eq!((*h).world.tick(), 1);
-        let mut diagnostic = [0i8; 128];
+        let mut diagnostic: [std::ffi::c_char; 128] = [0; 128];
         ws_last_error(h, diagnostic.as_mut_ptr(), diagnostic.len());
         let bytes: Vec<_> = diagnostic
             .iter()
             .take_while(|b| **b != 0)
-            .map(|b| *b as u8)
+            .map(|b| b.to_ne_bytes()[0])
             .collect();
         assert!(std::str::from_utf8(&bytes).unwrap().contains("overflow"));
         ws_destroy(h);
@@ -184,9 +184,9 @@ fn panic_poison_and_utf8_diagnostics() {
         assert_eq!(operate(h, |_| panic!("injected")), PANIC);
         assert_eq!(ws_advance(h, 0), POISONED);
         (*h).error.set("éé");
-        let mut out = [99i8; 4];
+        let mut out: [std::ffi::c_char; 4] = [99; 4];
         assert_eq!(ws_last_error(h, out.as_mut_ptr(), 4), 5);
-        assert_eq!(out.map(|x| x as u8), [0xc3, 0xa9, 0, 99]);
+        assert_eq!(out.map(|x| x.to_ne_bytes()[0]), [0xc3, 0xa9, 0, 99]);
         assert_eq!(ws_last_error(h, null_mut(), 3), 0);
         assert_eq!(ws_last_error(h, null_mut(), 0), 5);
         ws_destroy(h);
@@ -247,7 +247,7 @@ fn snapshot_output_errors_use_the_live_handle_diagnostic() {
             ws_fill_render_snapshot(h, null_mut(), 0, null_mut()),
             INVALID_ARGUMENT
         );
-        let mut error = [0i8; 256];
+        let mut error: [std::ffi::c_char; 256] = [0; 256];
         assert_eq!(ws_last_error(h, error.as_mut_ptr(), error.len()), 16);
         assert_eq!(
             std::ffi::CStr::from_ptr(error.as_ptr()).to_str().unwrap(),
