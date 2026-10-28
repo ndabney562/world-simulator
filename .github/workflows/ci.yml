@@ -52,13 +52,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # os retains the published check identity; runner selects the image.
         os: [ubuntu-latest, macos-15]
-    runs-on: ${{ matrix.os }}
+        include:
+          - os: ubuntu-latest
+            runner: ubuntu-latest
+          - os: macos-15
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         working-directory: core
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Apple Silicon runner image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sw_vers
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d . -f 1)" = 26
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
@@ -109,9 +122,16 @@ jobs:
 
   ffi:
     name: Native bridge and header
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Apple Silicon runner image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sw_vers
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d . -f 1)" = 26
       - name: Install pinned Rust and iOS target
         working-directory: core
         shell: bash
