@@ -13,6 +13,7 @@ root=Path(__file__).resolve().parents[3]
 source=root/'apps/unity/Builds/DesktopWeb'
 out=Path(sys.argv[1]).resolve()
 assert not out.exists(),'Candidate directory already exists; choose a new path'
+assert out!=source.resolve() and source.resolve() not in out.parents,'Stage outside the shipping directory'
 manifest_path=source/'build-manifest.json'
 # This staging tool is bound to the candidate whose complete checks are recorded
 # in issue112. A new export needs a new reviewed artifact identity.
