@@ -1,10 +1,12 @@
 # ADR 0035: Browser delivery with Unity WebGL and a pinned Rust Wasm build
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-27
-- Decided by: Noah (Product Owner), proposed by Claude; pending independent review
-- Issue: #107 (design), #106 (spike)
+- Decided by: Noah (Product Owner), explicitly accepted 2026-10-28; implementation review remains required
+- Issue: #107 (design), #106 (spike), #112 (desktop release preparation)
 - Supersedes: none; extends ADR 0005, ADR 0018, ADR 0031, and ADR 0036
+
+Noah accepted the browser approach directly on 2026-10-28, recorded on #112. Desktop browsers are the first release target; phone browsers follow later. This does not authorize public deployment or replace native iPhone acceptance.
 
 ## Context
 
