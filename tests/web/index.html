@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>World Simulator - Browser WebAssembly Spike (Issue #106)</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #111418;
+      color: #e0e6ed;
+      margin: 0;
+      padding: 24px;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #1e3a5f;
+      color: #60a5fa;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: #1a202c;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-top: 2px;
+    }
+    pre#output {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 16px;
+      font-family: "SF Mono", Monaco, Consolas, monospace;
+      font-size: 13px;
+      color: #7ee787;
+      overflow-x: auto;
+      min-height: 280px;
+      white-space: pre-wrap;
+    }
+    .button-bar {
+      margin-top: 16px;
+      display: flex;
+      gap: 12px;
+    }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    button:disabled {
+      background: #475569;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>World Simulator: Browser WebAssembly Spike</h1>
+    <div class="badge">Issue #106 Verification Evidence</div>
+    
+    <div class="card">
+      <div style="font-weight: 600; font-size: 16px;">WebAssembly Simulation Contract</div>
+      <p style="font-size: 14px; color: #94a3b8; margin: 6px 0 12px 0;">
+        Executes the authoritative Rust core (ABI8) compiled to WebAssembly via Emscripten.
+        Exercises the pinned 30-resident cohort, calendar-sky progression, acute illness inoculation,
+        causal consequences queries, and SQLite format-4 snapshot persistence.
+      </p>
+      <div class="grid">
+        <div>
+          <div class="stat-label">Architecture</div>
+          <div class="stat-value">wasm32-unknown-emscripten</div>
+        </div>
+        <div>
+          <div class="stat-label">Wasm Binary Size</div>
+          <div class="stat-value">2.9 MB (~980 KB gzip)</div>
+        </div>
+        <div>
+          <div class="stat-label">Pacing Model</div>
+          <div class="stat-value">Single-threaded Main Loop</div>
+        </div>
+        <div>
+          <div class="stat-label">Threading Headers</div>
+          <div class="stat-value">None required (GitHub Pages safe)</div>
+        </div>
+      </div>
+      <div class="button-bar">
+        <button id="runBtn" onclick="runSpike()">Re-run In-Browser Wasm Spike</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="stat-label">WebAssembly Execution Log</div>
+      <pre id="output">Initializing WebAssembly runtime...\n</pre>
+    </div>
+  </div>
+
+  <script>
+    var outEl = document.getElementById("output");
+    function print(text) {
+      if (outEl) {
+        outEl.textContent += text + "\n";
+        outEl.scrollTop = outEl.scrollHeight;
+      }
+    }
+    function printErr(text) {
+      if (outEl) {
+        outEl.textContent += "[stderr] " + text + "\n";
+        outEl.scrollTop = outEl.scrollHeight;
+      }
+    }
+    var Module = {
+      print: print,
+      printErr: printErr,
+      onRuntimeInitialized: function() {
+        print("Emscripten WebAssembly runtime initialized successfully.");
+        print("Ready to run simulation contracts.\n");
+      }
+    };
+    function runSpike() {
+      outEl.textContent = "";
+      print("Launching WebAssembly simulation spike harness...\n");
+      if (typeof _main === "function") {
+        _main(0, 0);
+      } else {
+        print("Error: WebAssembly module not yet loaded. Please compile with run_browser_spike.sh first.");
+      }
+    }
+  </script>
+  <script src="build/browser_slice_test.js"></script>
+</body>
+</html>

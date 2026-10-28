@@ -29,7 +29,7 @@ namespace WorldSim.Bridge
 
     internal static class NativeMethods
     {
-#if UNITY_IOS && !UNITY_EDITOR
+#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
         internal const string Library = "__Internal";
 #elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
         internal const string Library = "ws_ffi";

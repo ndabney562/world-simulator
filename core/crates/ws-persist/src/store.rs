@@ -1117,7 +1117,12 @@ fn write_slice_file(
 
 /// Opens a save read-only and checks that it is one this build can read.
 fn open(path: &Path) -> Result<Connection, LoadError> {
+    #[cfg(not(target_os = "emscripten"))]
     if !path.is_file() {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no such save file").into());
+    }
+    #[cfg(target_os = "emscripten")]
+    if !path.exists() {
         return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no such save file").into());
     }
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;

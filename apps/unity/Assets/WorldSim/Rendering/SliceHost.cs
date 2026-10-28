@@ -52,8 +52,10 @@ namespace WorldSim.Rendering
         {
             world=loadedSlice ?? throw new ArgumentNullException(nameof(loadedSlice));
             clock=new SliceHostClock(Stopwatch.Frequency,Stopwatch.GetTimestamp());
+#if !UNITY_WEBGL || UNITY_EDITOR
             worker=new Thread(Run) {Name="WorldSim real slice",IsBackground=true};
             try {worker.Start();} catch {world.Dispose();throw;}
+#endif
         }
         public static SliceHost Load(string path) => new SliceHost(NativeSlice.Load(path));
         void Run()
@@ -93,6 +95,9 @@ namespace WorldSim.Rendering
         /// <summary>Includes lock wait, fill, coherent sky and decode; costs share the captured tick window.</summary>
         public double Fill(SliceFrame frame,out SliceAdvanceStats stats)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            lock(pacingGate) SubmitElapsed(Stopwatch.GetTimestamp(),false);
+#endif
             long begin=Stopwatch.GetTimestamp();world.Fill(frame,out stats);
             return (Stopwatch.GetTimestamp()-begin)*1000.0/Stopwatch.Frequency;
         }
@@ -109,13 +114,17 @@ namespace WorldSim.Rendering
             lock(pacingGate)
             {
                 SubmitElapsed(Stopwatch.GetTimestamp(),true);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                world.Save(path);
+#else
                 world.SaveBackground(path);
+#endif
             }
         }
         public uint SaveStatus() => world.SaveStatus();
         public void Dispose()
         {
-            stop=true;worker.Join();world.Dispose();
+            stop=true;worker?.Join();world.Dispose();
         }
     }
 }
