@@ -292,3 +292,88 @@ fn older_fixtures_load_unchanged() {
         assert_eq!(w.state_hash(), h.state_hash);
     }
 }
+
+#[test]
+fn irregular_host_pacing_and_pause_round_trip_retains_operation_digest() {
+    let dir = Scratch::new("host-pacing");
+    let path = dir.path("host-pacing.wssave");
+    let mut sim = sample_slice(71449);
+    for operation in [
+        Operation::HostElapsed(50_003),
+        Operation::HostElapsed(53_127),
+        Operation::SetScale(ws_sim::TimeScale::X10),
+        Operation::HostElapsed(58_019),
+        Operation::SetScale(ws_sim::TimeScale::Paused),
+        Operation::HostElapsed(u64::MAX),
+        Operation::SetScale(ws_sim::TimeScale::X1),
+        Operation::HostElapsed(37_123),
+        Operation::SetScale(ws_sim::TimeScale::X100),
+        Operation::HostElapsed(2_000_127),
+        Operation::Steps(3),
+        Operation::SetScale(ws_sim::TimeScale::Paused),
+    ] {
+        let report = sim.apply(operation).unwrap();
+        assert!(report.error.is_none());
+    }
+    save_slice(&sim, &path).unwrap();
+    let mut loaded = load_slice(&path).expect("a paced world must load its own save");
+    assert_eq!(loaded.state_hash(), sim.state_hash());
+    assert_eq!(loaded.operation_digest(), sim.operation_digest());
+    assert_eq!(loaded.clock(), sim.clock());
+    assert_eq!(loaded.operations(), sim.operations());
+    assert_eq!(loaded.events().digest(), sim.events().digest());
+    for operation in [
+        Operation::SetScale(ws_sim::TimeScale::X100),
+        Operation::HostElapsed(61_337),
+    ] {
+        assert_eq!(
+            loaded.apply(operation).unwrap(),
+            sim.apply(operation).unwrap()
+        );
+        assert_eq!(loaded.state_hash(), sim.state_hash());
+        assert_eq!(loaded.operation_digest(), sim.operation_digest());
+        assert_eq!(loaded.clock(), sim.clock());
+    }
+}
+
+#[test]
+fn rejected_command_then_later_commands_can_save_load_and_replay() {
+    let dir = Scratch::new("rejected");
+    let path = dir.path("rejected.wssave");
+    let mut sim = sample_slice(71449);
+    let resident = sim.population().residents().ids()[0];
+    sim.apply(Operation::HostElapsed(90_001)).unwrap();
+    let before = sim.state_hash();
+    let report = sim
+        .apply(Operation::Afflict {
+            resident,
+            severity: 0,
+            duration_us: 100_000,
+        })
+        .unwrap();
+    assert!(matches!(
+        report.error,
+        Some(ws_sim::slice::SliceError::Rejected(_))
+    ));
+    assert_eq!(sim.state_hash(), before);
+    assert!(sim.operations().last().unwrap().stop.is_some());
+    sim.apply(Operation::HostElapsed(20_123)).unwrap();
+    sim.apply(Operation::Steps(3)).unwrap();
+    save_slice(&sim, &path).unwrap();
+    let loaded = load_slice(&path).unwrap();
+    assert_eq!(loaded.state_hash(), sim.state_hash());
+    assert_eq!(loaded.operation_digest(), sim.operation_digest());
+    assert_eq!(loaded.operations(), sim.operations());
+    let (replayed, terminal) = SliceSimulation::replay(sim.config(), sim.operations()).unwrap();
+    assert!(!terminal);
+    assert_eq!(replayed.state_hash(), sim.state_hash());
+    assert_eq!(replayed.operation_digest(), sim.operation_digest());
+    let mut legacy = sim.to_parts();
+    legacy
+        .operations
+        .iter_mut()
+        .find(|r| r.report.error.is_some())
+        .unwrap()
+        .stop = None;
+    assert!(SliceSimulation::from_parts(legacy).is_err());
+}

@@ -1,14 +1,16 @@
 mergeInto(LibraryManager.library, {
   WorldSimFlushSave: function(path, receiver) {
+    if(globalThis.worldsimFatal) return;
     var name = UTF8ToString(receiver);
     try {
       FS.syncfs(false, function(error) {
         if(globalThis.worldsimFatal) return;
         SendMessage(name, 'BrowserSaveComplete', error ? String(error) : '');
       });
-    } catch (error) { SendMessage(name, 'BrowserSaveComplete', String(error)); }
+    } catch (error) { if(globalThis.worldsimFatal) return; SendMessage(name, 'BrowserSaveComplete', String(error)); }
   },
   WorldSimDownloadSave: function(path) {
+    if(globalThis.worldsimFatal) return;
     try {
       var bytes = FS.readFile(UTF8ToString(path));
       var url = URL.createObjectURL(new Blob([bytes], {type:'application/octet-stream'}));
@@ -19,6 +21,7 @@ mergeInto(LibraryManager.library, {
     } catch (error) { alert('Could not download save: ' + error); }
   },
   WorldSimImportSave: function(path, receiver) {
+    if(globalThis.worldsimFatal) return;
     var dest = UTF8ToString(path), name = UTF8ToString(receiver);
     if (Module.worldsimImportOpen) return;
     Module.worldsimImportOpen = true;
@@ -27,6 +30,7 @@ mergeInto(LibraryManager.library, {
     var cleanup = function() { input.remove(); Module.worldsimImportOpen = false; };
     input.addEventListener('cancel', cleanup);
     input.addEventListener('change', function() {
+      if(globalThis.worldsimFatal) { cleanup(); return; }
       var file = input.files[0];
       if (!file) { cleanup(); return; }
       if (file.size > 16 * 1024 * 1024) {

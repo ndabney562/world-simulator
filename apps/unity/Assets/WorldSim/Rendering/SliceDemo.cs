@@ -309,7 +309,13 @@ namespace WorldSim.Rendering
                 candidate=SliceHost.Load(path);
                 var candidateFrame=new SliceFrame();candidate.Fill(candidateFrame,out _);
                 var candidatePicker=new SlicePicker(candidate.Geometry,capsuleMesh);
-                if(imported) candidate.Save(SavePath);
+                if(imported)
+                {
+                    candidate.Save(SavePath);
+                    // Remove staging BEFORE syncfs enumerates the filesystem.
+                    // Deleting it after sync starts races IDBFS's async reads.
+                    File.Delete(path);
+                }
                 var previous=host;host=candidate;candidate=null;previous?.Dispose();
                 ClearInspection();picker=candidatePicker;
                 LastFillMs=host.Fill(frame,out var stats);LastAdvance=stats;

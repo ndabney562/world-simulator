@@ -170,7 +170,25 @@ impl SliceSimulation {
         // Reconstruct operation hash from operation history.
         let mut operation_hash =
             SipHasher24::new(0, Purpose::new("ws-sim/slice-operations").value());
+        // Reconstruct host pacing independently of world evolution. Historical
+        // HostElapsed digests contain that call's remainder, not the final one.
+        let mut history_clock =
+            Clock::new(clock.start(), clock.base_step(), clock.max_steps_per_call());
         for record in &operations {
+            if record.report.error.is_some() != record.stop.is_some() {
+                return Err(SliceRestoreError::Corrupt(
+                    "saved error checkpoint metadata is missing or unexpected",
+                ));
+            }
+            if !matches!(
+                record.operation,
+                Operation::Steps(_) | Operation::HostElapsed(_)
+            ) && record.report.committed != 0
+            {
+                return Err(SliceRestoreError::Corrupt(
+                    "non-stepping operation reports committed ticks",
+                ));
+            }
             match record.operation {
                 Operation::Afflict {
                     resident,
@@ -196,26 +214,78 @@ impl SliceSimulation {
                     operation_hash.write_words(&[5, resident.raw(), level as u64]);
                 }
                 Operation::SetScale(scale) => {
+                    history_clock.set_scale(scale);
                     operation_hash.write_words(&[1, u64::from(scale.multiplier())]);
                 }
-                Operation::Steps(_) => {
+                Operation::Steps(requested) => {
+                    if record.report.committed > requested
+                        || (record.report.error.is_none() && record.report.committed != requested)
+                    {
+                        return Err(SliceRestoreError::Corrupt(
+                            "inconsistent saved step outcome",
+                        ));
+                    }
                     for _ in 0..record.report.committed {
+                        history_clock
+                            .step()
+                            .map_err(|_| SliceRestoreError::Corrupt("saved steps overflow"))?;
                         operation_hash.write_u64(0);
                     }
                 }
                 Operation::HostElapsed(elapsed) => {
                     operation_hash.write_words(&[2, elapsed]);
+                    let mut target = history_clock.clone();
+                    match target.advance_by_host_elapsed(elapsed) {
+                        Ok(due)
+                            if record.report.error.is_none()
+                                && u64::from(due) == record.report.committed =>
+                        {
+                            history_clock = target;
+                        }
+                        Ok(due)
+                            if record.report.error.is_some()
+                                && record.report.committed < u64::from(due) =>
+                        {
+                            // Failed calls keep their PRE-call pacing remainder,
+                            // while retaining only their committed physical prefix.
+                            for _ in 0..record.report.committed {
+                                history_clock.step().map_err(|_| {
+                                    SliceRestoreError::Corrupt("saved prefix overflows")
+                                })?;
+                            }
+                        }
+                        Err(_)
+                            if record.report.error == Some(SliceError::TimeOverflow)
+                                && record.report.committed == 0 => {}
+                        _ => {
+                            return Err(SliceRestoreError::Corrupt(
+                                "inconsistent saved host outcome",
+                            ));
+                        }
+                    }
                     for _ in 0..record.report.committed {
                         operation_hash.write_u64(0);
                     }
-                    let pending = record
+                    let pending = history_clock.pending_micros();
+                    if record
                         .stop
-                        .as_ref()
-                        .map_or_else(|| clock.pending_micros(), |s| s.pending_micros);
+                        .is_some_and(|stop| stop.pending_micros != pending)
+                    {
+                        return Err(SliceRestoreError::Corrupt(
+                            "saved stop remainder disagrees with history",
+                        ));
+                    }
                     operation_hash.write_words(&[3, record.report.committed, pending]);
                 }
             }
             if let (Some(error), Some(stop)) = (record.report.error, record.stop) {
+                if stop.tick != history_clock.steps()
+                    || stop.pending_micros != history_clock.pending_micros()
+                {
+                    return Err(SliceRestoreError::Corrupt(
+                        "saved error checkpoint disagrees with clock history",
+                    ));
+                }
                 operation_hash.write_words(&[
                     4,
                     error_tag(error),
@@ -225,6 +295,12 @@ impl SliceSimulation {
                     stop.pending_micros,
                 ]);
             }
+        }
+
+        if history_clock != clock {
+            return Err(SliceRestoreError::Corrupt(
+                "saved clock disagrees with operation history",
+            ));
         }
 
         let mut sim = Self {
@@ -309,5 +385,48 @@ mod tests {
             restored.step().unwrap();
             assert_eq!(restored.state_hash(), sim.state_hash());
         }
+    }
+    fn paced(config: SliceConfig) -> SliceSimulation {
+        let mut sim = SliceSimulation::new(config).unwrap();
+        sim.apply(Operation::HostElapsed(90_000)).unwrap();
+        sim
+    }
+    fn config(start: i64) -> SliceConfig {
+        SliceConfig {
+            seed: 42,
+            start: SimTime::from_micros_since_epoch(start),
+            schedule_epoch: SimTime::EPOCH,
+        }
+    }
+    #[test]
+    fn restore_retains_failed_host_prefix_and_pre_call_remainder() {
+        let mut sim = paced(config(0));
+        sim.fail_tick = Some(3);
+        let report = sim.apply(Operation::HostElapsed(1_000_123)).unwrap();
+        assert_eq!(report.committed, 2);
+        assert!(report.error.is_some());
+        let restored = SliceSimulation::from_parts(sim.to_parts()).unwrap();
+        assert_eq!(restored.clock(), sim.clock());
+        assert_eq!(restored.operation_digest(), sim.operation_digest());
+        assert_eq!(restored.checkpoint(), sim.checkpoint());
+    }
+    #[test]
+    fn restore_retains_host_overflow_and_rejects_forged_outcomes_or_clock() {
+        let max = i64::MAX / 100_000 * 100_000;
+        let mut sim = paced(config(max - 100_000));
+        let report = sim.apply(Operation::HostElapsed(u64::MAX)).unwrap();
+        assert_eq!(report.error, Some(SliceError::TimeOverflow));
+        let restored = SliceSimulation::from_parts(sim.to_parts()).unwrap();
+        assert_eq!(restored.clock(), sim.clock());
+        assert_eq!(restored.operation_digest(), sim.operation_digest());
+        let mut parts = sim.to_parts();
+        parts.operations.last_mut().unwrap().report.committed = 1;
+        assert!(SliceSimulation::from_parts(parts).is_err());
+        let mut parts = paced(config(0)).to_parts();
+        parts.clock.set_scale(crate::TimeScale::X10);
+        assert!(SliceSimulation::from_parts(parts).is_err());
+        let mut parts = paced(config(0)).to_parts();
+        parts.operations.last_mut().unwrap().report.committed = u64::MAX;
+        assert!(SliceSimulation::from_parts(parts).is_err());
     }
 }

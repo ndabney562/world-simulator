@@ -231,6 +231,30 @@ namespace WorldSim.Tests.EditMode
             }
         }
         [Test]
+        public void SlicePacedSaveRetainsHistoricalRemaindersAndContinuesAfterLoad()
+        {
+            string path=Path.Combine(Path.GetTempPath(),"unity_paced_"+Guid.NewGuid().ToString("N")+".wssave");
+            try
+            {
+                using(var original=new NativeSlice(71449,Start))
+                {
+                    original.HostElapsed(90001);original.HostElapsed(20123);original.SetScale(10);
+                    original.HostElapsed(58317);original.SetScale(0);original.Save(path);
+                    using(var loaded=NativeSlice.Load(path))
+                    {
+                        var a=new SliceFrame();var b=new SliceFrame();
+                        original.Fill(a,out _);loaded.Fill(b,out _);
+                        Assert.That(b.StateHash,Is.EqualTo(a.StateHash));Assert.That(b.Tick,Is.EqualTo(a.Tick));
+                        original.SetScale(100);loaded.SetScale(100);
+                        original.HostElapsed(61337);loaded.HostElapsed(61337);
+                        original.Fill(a,out _);loaded.Fill(b,out _);
+                        Assert.That(b.StateHash,Is.EqualTo(a.StateHash));Assert.That(b.Tick,Is.EqualTo(a.Tick));
+                    }
+                }
+            }
+            finally {if(File.Exists(path)) File.Delete(path);}
+        }
+        [Test]
         public void SliceBackgroundSaveRunsAndReportsStatus()
         {
             string path=Path.Combine(Path.GetTempPath(),"unity_slice_bg_"+Guid.NewGuid().ToString("N")+".wssave");

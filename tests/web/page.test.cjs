@@ -45,3 +45,41 @@ test('browser save completion waits for syncfs and reports storage failures', ()
   complete(null);
   assert.deepEqual(messages, [['Real Block Demo','BrowserSaveComplete','']]);
 });
+
+test('document/window input after a trap is blocked, including reload keystrokes', () => {
+  const listeners = {}, reload = {}, other = {};
+  let failed = false, reloads = 0, ffiCalls = 0;
+  const host = {addEventListener:(name, fn, options)=>{assert.equal(options.capture,true);listeners[name]=fn;}};
+  require('../../apps/unity/Assets/WebGLTemplates/Desktop/player.js').quarantineInput(host, ()=>failed, reload, ()=>reloads++);
+  function dispatch(type, target, key) {
+    let stopped = false;
+    listeners[type]({target, key, preventDefault(){}, stopImmediatePropagation(){stopped=true;}});
+    if(!stopped) ffiCalls++; // A later Unity document/window listener.
+  }
+  dispatch('keydown',other,'a');assert.equal(ffiCalls,1);
+  failed=true;
+  for(const name of Object.keys(listeners)) dispatch(name,other,'a');
+  dispatch('keydown',reload,'Enter');
+  dispatch('click',reload);
+  assert.equal(ffiCalls,1);
+  assert.equal(reloads,2);
+});
+
+test('late file chooser and storage error callbacks never reenter failed Wasm', () => {
+  let plugin, changed, complete, removed=0;
+  const messages=[];
+  const input={style:{},files:[{size:17*1024*1024}],addEventListener:(name,fn)=>{if(name==='change')changed=fn;},click(){},remove(){removed++;}};
+  const context={LibraryManager:{library:{}},mergeInto:(dest,value)=>plugin=value,UTF8ToString:x=>x,
+    Module:{},document:{createElement:()=>input,body:{appendChild(){}}},
+    SendMessage:(...args)=>messages.push(args),FS:{syncfs:(populate,cb)=>complete=cb}};
+  vm.runInNewContext(fs.readFileSync('apps/unity/Assets/Plugins/WebGL/BrowserStorage.jslib','utf8'),context);
+  plugin.WorldSimImportSave('/idbfs/import','Real Block Demo');
+  plugin.WorldSimFlushSave('/idbfs/save','Real Block Demo');
+  context.worldsimFatal=true;
+  changed();complete(new Error('late quota error'));
+  assert.equal(removed,1);assert.deepEqual(messages,[]);
+  context.worldsimFatal=false;
+  context.FS.syncfs=()=>{context.worldsimFatal=true;throw new Error('abort during sync');};
+  plugin.WorldSimFlushSave('/idbfs/save','Real Block Demo');
+  assert.deepEqual(messages,[]);
+});

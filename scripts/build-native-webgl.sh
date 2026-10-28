@@ -33,7 +33,11 @@ RUSTFLAGS="-C panic=abort -C target-cpu=mvp -C target-feature=-bulk-memory,-bulk
 cargo +"$rust_version" rustc -Zbuild-std=std,panic_abort --locked --release -p ws-ffi --lib --crate-type staticlib --target "$target"
 plugin="$repo/apps/unity/Assets/Plugins/WebGL"
 mkdir -p "$plugin"
-cp "$CARGO_TARGET_DIR/$target/release/libws_ffi.a" "$plugin/libws_ffi.a"
+# Preserve the archive timestamp when bytes match: Unity otherwise relinks
+# the entire player even for a page-only change.
+if ! cmp -s "$CARGO_TARGET_DIR/$target/release/libws_ffi.a" "$plugin/libws_ffi.a"; then
+  cp "$CARGO_TARGET_DIR/$target/release/libws_ffi.a" "$plugin/libws_ffi.a"
+fi
 cat > "$plugin/libws_ffi.a.meta" <<'META'
 fileFormatVersion: 2
 guid: 8b3c9d1a4e5f6071a2b3c4d5e6f7a8b9

@@ -133,7 +133,8 @@ pub struct OperationRecord {
     pub operation: Operation,
     /// Committed prefix and any failure.
     pub report: Report,
-    /// Present on failure, so replay can verify the prefix and stop without retrying an environmental failure.
+    /// Historical error checkpoint (including non-terminal rejections).
+    /// Only non-Rejected errors stop replay; presence alone is not a stop flag.
     pub stop: Option<Checkpoint>,
 }
 /// Typed replay construction/resource failure or the first inconsistent outcome/fence.
@@ -468,10 +469,10 @@ impl SliceSimulation {
                 ]);
             }
         }
-        let stop = report
-            .error
-            .filter(|e| !matches!(e, SliceError::Rejected(_)))
-            .map(|_| self.checkpoint());
+        // Every error contributes this checkpoint to the operation digest.
+        // Rejections may continue, but still need their historical metadata
+        // for canonical snapshot restoration without replaying the world.
+        let stop = report.error.map(|_| self.checkpoint());
         if let Some(error) = report.error {
             let at = self.checkpoint();
             self.operation_hash.write_words(&[

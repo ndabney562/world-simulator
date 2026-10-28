@@ -28,6 +28,23 @@
     host.addEventListener('unhandledrejection', function(event) { fail(event.reason); });
     return {fail: fail, guard: guard, isFailed: function() { return failed; }};
   }
+  function quarantineInput(host, isFailed, reload, reloadPage) {
+    // Capture at window BEFORE Unity installs window/document callbacks. Even
+    // keyboard input focused outside the canvas must never enter failed Wasm.
+    const events = ['keydown','keyup','keypress','pointerdown','pointerup','pointermove','pointercancel',
+      'mousedown','mouseup','mousemove','click','dblclick','wheel','touchstart','touchend','touchmove',
+      'touchcancel','contextmenu','focus','blur','focusin','focusout','visibilitychange','resize'];
+    events.forEach(function(name) {
+      host.addEventListener(name, function(event) {
+        if(!isFailed()) return;
+        event.preventDefault(); event.stopImmediatePropagation();
+        // Handle reload here: allowing its keyboard/click to propagate would
+        // also invoke Unity's document listeners on the failed instance.
+        if(event.target === reload && (name === 'click' ||
+           (name === 'keydown' && (event.key === 'Enter' || event.key === ' ')))) reloadPage();
+      }, {capture:true, passive:false});
+    });
+  }
   function start(create) {
     const canvas = document.getElementById('unity-canvas');
     const status = document.getElementById('status');
@@ -42,12 +59,9 @@
       download.disabled = upload.disabled = true;
       instance = null; // Never call Quit/dispose/FFI on a failed Wasm instance.
     });
-    document.getElementById('reload').onclick = function() { location.reload(); };
-    ['keydown','keyup','pointerdown','pointerup','mousedown','mouseup','wheel','touchstart'].forEach(function(name) {
-      canvas.addEventListener(name, function(event) {
-        if(state.isFailed()) { event.preventDefault(); event.stopImmediatePropagation(); }
-      }, {capture:true, passive:false});
-    });
+    const reload = document.getElementById('reload');
+    reload.onclick = function() { location.reload(); };
+    quarantineInput(window, state.isFailed, reload, function() { location.reload(); });
     function send(method) {
       if(instance && !state.isFailed()) state.guard(function() { instance.SendMessage('Real Block Demo', method); })();
     }
@@ -61,6 +75,6 @@
       }).catch(state.fail);
     } catch(error) { state.fail(error); }
   }
-  root.WorldSimPage = {boundary: boundary, start: start};
+  root.WorldSimPage = {boundary: boundary, quarantineInput: quarantineInput, start: start};
   if(typeof module !== 'undefined') module.exports = root.WorldSimPage;
 })(globalThis);
