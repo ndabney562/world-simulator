@@ -2,9 +2,9 @@
 
 A continuous-scale simulation of real Earth, from a single Bay Ridge street to the solar system, targeting iPhone.
 
-**Status (2026-10-26):** Technical Prototype complete; Vertical Slice in progress ([tracker #77](https://github.com/ndabney562/world-simulator/issues/77)). Real buildings, synthetic residents, schedules, L1 behavior, camera LOD, calendar/sun, rendering, inspection and finite illness are merged. Rendering and inspection still need iPhone acceptance (#72/#73). Baseline/delta persistence (#53), whole-slice saves (#75), and the final 20-minute device run/report (#76) remain open. Merged code is not a device or stage-completion claim.
+**Status (2026-10-28):** Technical Prototype complete; Vertical Slice engineering includes real buildings, 30 synthetic residents, schedules, L1 behavior, camera LOD, calendar/sun, rendering, inspection, finite illness, baseline/delta persistence (#53) and whole-slice format-4 saves (#75). Rendering/inspection iPhone acceptance (#72/#73) and the final 20-minute device report (#76) remain open. See [tracker #77](https://github.com/ndabney562/world-simulator/issues/77).
 
-**Next:** #53 → #75 → #76. [Current workstream](docs/process/current-workstream.md) records ownership, existing delegated authorization and remaining gates. Friends must be able to play without building source; see the [distribution brief](docs/process/friend-distribution.md) for the pending target decision and cost constraints.
+**Next:** desktop browser delivery first; phone browsers later. The browser compatibility spike (#106) is merged; a reproducible full Unity player, durable browser saves, fault recovery and release notices are tracked in [#112](https://github.com/ndabney562/world-simulator/issues/112). [ADR 0035](docs/adr/0035-browser-delivery-webgl-wasm.md) was accepted by Noah on 2026-10-28 (recorded separately in PR #113). No public game release or device/stage completion is claimed. See [current workstream](docs/process/current-workstream.md) and [distribution brief](docs/process/friend-distribution.md).
 
 - Architecture proposal: [docs/architecture/README.md](docs/architecture/README.md)
 - Architecture decision records: [docs/adr/](docs/adr/README.md)

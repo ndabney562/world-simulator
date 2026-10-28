@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
@@ -55,6 +56,12 @@ namespace WorldSim.Rendering
         public bool WaitingForStreet => streetRequested;
         static readonly Color[] FeaturedColours={Color.cyan,Color.green,Color.yellow,Color.magenta};
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        [DllImport("__Internal")] static extern void WorldSimFlushSave(string path,string receiver);
+        [DllImport("__Internal")] static extern void WorldSimDownloadSave(string path);
+        [DllImport("__Internal")] static extern void WorldSimImportSave(string path,string receiver);
+        bool exportAfterFlush,browserFlushPending;
+#endif
         void OnEnable()
         {
             try {Initialize();} catch {Release();throw;}
@@ -197,8 +204,17 @@ namespace WorldSim.Rendering
                 uint saveStatus=host.SaveStatus();
                 if(saveStatus==0)
                 {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    // Browser completion is delivered by IndexedDB, never by MEMFS alone.
+                    if(!browserFlushPending)
+                    {
+                        browserFlushPending=true;notice="Saving to browser storage…";
+                        WorldSimFlushSave(SavePath,gameObject.name);
+                    }
+#else
                     saving=false;
                     notice="Saved slice to "+Path.GetFileName(SavePath);
+#endif
                 }
                 else if(saveStatus!=NativeSlice.SaveInProgress)
                 {
@@ -266,7 +282,7 @@ namespace WorldSim.Rendering
         public string SavePath => Path.Combine(Application.persistentDataPath,"slice-demo.wssave");
         public void SaveSlice()
         {
-            if(host==null) return;
+            if(host==null||saving) return;
             try
             {
                 host.SaveBackground(SavePath);
@@ -280,27 +296,79 @@ namespace WorldSim.Rendering
         }
         public void LoadSlice()
         {
-            if(!File.Exists(SavePath))
-            {
-                notice="No save file found at "+SavePath;
-                return;
-            }
+            if(saving) {notice="Wait for the save to finish.";return;}
+            if(!File.Exists(SavePath)) {notice="No saved world yet.";return;}
+            ReplaceFromSave(SavePath,false);
+        }
+        void ReplaceFromSave(string path,bool imported)
+        {
+            SliceHost candidate=null;
             try
             {
-                ClearInspection();
-                host?.Dispose();
-                host=SliceHost.Load(SavePath);
-                picker=new SlicePicker(host.Geometry,capsuleMesh);
-                LastFillMs=host.Fill(frame,out var stats);
-                LastAdvance=stats;
-                calendar.Apply(frame.Sky);
-                RefreshStatus();
-                notice="Loaded slice from "+Path.GetFileName(SavePath)+" (tick "+frame.Tick+")";
+                // Validate and prepare the replacement before releasing the live world.
+                candidate=SliceHost.Load(path);
+                var candidateFrame=new SliceFrame();candidate.Fill(candidateFrame,out _);
+                var candidatePicker=new SlicePicker(candidate.Geometry,capsuleMesh);
+                if(imported)
+                {
+                    candidate.Save(SavePath);
+                    // Remove staging BEFORE syncfs enumerates the filesystem.
+                    // Deleting it after sync starts races IDBFS's async reads.
+                    File.Delete(path);
+                }
+                var previous=host;host=candidate;candidate=null;previous?.Dispose();
+                ClearInspection();picker=candidatePicker;
+                LastFillMs=host.Fill(frame,out var stats);LastAdvance=stats;
+                calendar.Apply(frame.Sky);RefreshStatus();
+                notice="Loaded slice (tick "+frame.Tick+")";
+#if UNITY_WEBGL && !UNITY_EDITOR
+                if(imported) {saving=true;browserFlushPending=true;notice="Saving to browser storage…";WorldSimFlushSave(SavePath,gameObject.name);}
+#endif
             }
-            catch(Exception error)
+            catch(Exception error) {notice="Load failed: "+error.Message;}
+            finally {candidate?.Dispose();}
+        }
+        // Called by the page toolbar; native HUD and persistence are unchanged.
+        public void ExportBrowserSave()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if(saving) {notice="Wait for the save to finish.";return;}
+            exportAfterFlush=true;SaveSlice();
+            if(!saving) exportAfterFlush=false;
+#endif
+        }
+        public void ImportBrowserSave()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if(saving) {notice="Wait for the save to finish.";return;}
+            WorldSimImportSave(SavePath+".import",gameObject.name);
+#endif
+        }
+        public void BrowserImportReady(string path)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if(saving||path!=SavePath+".import") return;
+            try {ReplaceFromSave(path,true);} finally {if(File.Exists(path)) File.Delete(path);}
+#endif
+        }
+        public void BrowserSaveComplete(string error)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            saving=false;browserFlushPending=false;
+            notice=error.Length==0?"Saved in this browser.":"Browser save failed; download a backup. "+error;
+            if(exportAfterFlush)
             {
-                notice="Load failed: "+error.Message;
+                exportAfterFlush=false;
+                // An export is still available when storage is denied/full.
+                WorldSimDownloadSave(SavePath);
             }
+#endif
+        }
+        public void BrowserImportError(string error)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            notice="Import failed: "+error;
+#endif
         }
         void RefreshStatus()
         {

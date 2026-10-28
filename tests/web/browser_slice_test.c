@@ -163,6 +163,13 @@ int main(int argc, char **argv) {
 
     /* 7. Save and Load SQLite database in WebAssembly filesystem */
     printf("\n[7/7] SQLite persistence in WebAssembly virtual filesystem...\n");
+    /* Actual browser hosts submit irregular elapsed intervals, not just Steps. */
+    memset(op.words, 0, sizeof op.words);
+    op.tag = 3; op.words[0] = 50003;
+    assert(ws_slice_apply(slice, &op) == OK);
+    op.words[0] = 53127;
+    assert(ws_slice_apply(slice, &op) == OK);
+    assert(ws_slice_get_calendar_sky(slice, &sky) == OK);
     const char *save_path = "/tmp/browser_slice_test.wssave";
     t0 = now_ms();
     assert(ws_slice_save(slice, save_path) == OK);

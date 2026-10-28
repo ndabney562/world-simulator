@@ -134,5 +134,12 @@ VS-010 implements accepted ADR0034 with finite-episode, continuous-routine, prov
 
 Issue #53 implements accepted ADR0025 in `ws-persist` (save format 3): version-pinned baseline regeneration (`baseline`), canonical structural deltas (`structural_overrides`, `notables`, `tombstones`, `spawned`), separated node LOD (`node_lod`), dataset content SHA-256 verification against `BaselineRegistry`, and explicit atomic migration (`migrate_to_v3`) while keeping format-1 (`tests/saves/toy-v1.wssave`) and format-2 (`tests/saves/toy-v2.wssave`) fixtures and adding `tests/saves/toy-v3.wssave`.
 
+## Desktop browser release preparation (#112)
+
+The additive **Browser boundary contracts** job runs a real Wasm-trap scheduling/quarantine check, deferred browser-storage acknowledgment/error tests, and whole-player manifest tests. It does not build Unity, drive a browser, prove IndexedDB durability, or replace native regression checks.
+
+A complete Unity export is a separate local check: `scripts/build-desktop-web.sh` uses Unity 6000.3.26f1 with WebGL Support and Rust 1.97.0 plus `rust-src`. It rebuilds the standard library with the same MVP feature set as the simulator for compatibility with Unity's Binaryen 112. This experimental browser-only command scopes `RUSTC_BOOTSTRAP=1` to `build-std`; native builds retain unwind/poisoning and existing tests. Rust reports three known experimental target-feature warnings on this compatibility path; do not claim a warning-free browser build. It restores serialized settings and collects a full payload manifest and notices.
+
+No Unity cloud licensing secret or new account is configured. Until a free, approved Editor CI setup is verified, require a successful local full-player export and desktop browser evidence in the PR, alongside hosted checks. A green static Unity job is insufficient.
 
 The first ARM Linux run at `2079dc51577bc31de380adb3355c3b80212105b0` acquired a runner and passed its architecture assertion, then exposed five test-buffer declarations hard-coded to signed `i8`. On ARM Linux, C `char` is unsigned; the existing exported functions correctly use `std::ffi::c_char`, so those tests failed to compile. The declarations now use `c_char` and byte comparisons use one-byte representations, retaining the exact existing UTF-8/truncation/sentinel assertions. Production exports, layouts, status codes and test expectations are unchanged.

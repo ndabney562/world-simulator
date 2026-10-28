@@ -1,35 +1,43 @@
 #!/bin/sh
-# Builds ws-ffi as a static library for Unity WebGL using Unity's bundled Emscripten.
-# Installs libws_ffi.a with WebGL-only plugin import settings into Assets/Plugins/WebGL.
+# Experimental desktop browser build (#112 / accepted ADR0035).
+# Native builds retain their unwind/poisoning contract.
 set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+unity_version=6000.3.26f1
+rust_version=1.97.0
 target=wasm32-unknown-emscripten
-
-# Locate Unity bundled Emscripten
-emscripten_dir="/Applications/Unity/Hub/Editor/6000.3.26f1/PlaybackEngines/WebGLSupport/BuildTools/Emscripten"
-if [ ! -d "$emscripten_dir" ]; then
-  # Fallback to general editor discovery if specific version differs
-  emscripten_dir=$(find /Applications/Unity/Hub/Editor -name WebGLSupport -exec echo "{}/BuildTools/Emscripten" \; 2>/dev/null | head -n 1)
-fi
-
-if [ -z "$emscripten_dir" ] || [ ! -d "$emscripten_dir" ]; then
-  echo "Error: Unity WebGLSupport Emscripten toolchain not found." >&2
+editor_root=${WORLD_SIM_UNITY_ROOT:-/Applications/Unity/Hub/Editor/$unity_version}
+emscripten_dir="$editor_root/PlaybackEngines/WebGLSupport/BuildTools/Emscripten"
+if [ ! -f "$emscripten_dir/.emscripten" ]; then
+  echo "Missing Unity $unity_version WebGL module: $emscripten_dir" >&2
   exit 1
 fi
-
+if ! "$editor_root/Unity.app/Contents/MacOS/Unity" -version 2>/dev/null | head -n 1 | grep -Fx "$unity_version" >/dev/null; then
+  echo "Expected Unity $unity_version at $editor_root" >&2
+  exit 1
+fi
+if ! rustup component list --toolchain "$rust_version" --installed | grep '^rust-src' >/dev/null; then
+  echo "Install pinned standard-library sources: rustup component add --toolchain $rust_version rust-src" >&2
+  exit 1
+fi
 export EM_CONFIG="$emscripten_dir/.emscripten"
 export PATH="$emscripten_dir/emscripten:$PATH"
-
+# Use a separate cache: browser fail-stop flags must never contaminate native builds.
+export CARGO_TARGET_DIR="$repo/core/target/webgl-mvp"
 cd "$repo/core"
-rustup target add "$target" >/dev/null 2>&1 || true
-
-# Compile with position-independent code (-fPIC) and bypass wasm-opt flag mismatches (-C link-arg=-O0)
-CFLAGS="-fPIC" RUSTFLAGS="-C link-arg=-O0" cargo build --release --locked -p ws-ffi --target "$target"
-
+# Unity's Binaryen 112 cannot consume newer Rust std Wasm features. Rebuild std,
+# not only this crate, with one compatible feature set. Bootstrap is scoped to
+# this pinned build-std command; no global toolchain/environment change.
+CFLAGS="-fPIC" RUSTC_BOOTSTRAP=1 \
+RUSTFLAGS="-C panic=abort -C target-cpu=mvp -C target-feature=-bulk-memory,-bulk-memory-opt,-reference-types,-call-indirect-overlong,-exception-handling,-multivalue,-nontrapping-fptoint,-sign-ext" \
+cargo +"$rust_version" rustc -Zbuild-std=std,panic_abort --locked --release -p ws-ffi --lib --crate-type staticlib --target "$target"
 plugin="$repo/apps/unity/Assets/Plugins/WebGL"
 mkdir -p "$plugin"
-cp "target/$target/release/libws_ffi.a" "$plugin/libws_ffi.a"
-
+# Preserve the archive timestamp when bytes match: Unity otherwise relinks
+# the entire player even for a page-only change.
+if ! cmp -s "$CARGO_TARGET_DIR/$target/release/libws_ffi.a" "$plugin/libws_ffi.a"; then
+  cp "$CARGO_TARGET_DIR/$target/release/libws_ffi.a" "$plugin/libws_ffi.a"
+fi
 cat > "$plugin/libws_ffi.a.meta" <<'META'
 fileFormatVersion: 2
 guid: 8b3c9d1a4e5f6071a2b3c4d5e6f7a8b9
@@ -45,7 +53,7 @@ PluginImporter:
   validateReferences: 1
   platformData:
   - first:
-      Any: 
+      Any:
     second:
       enabled: 0
       settings: {}
@@ -53,16 +61,14 @@ PluginImporter:
       Editor: Editor
     second:
       enabled: 0
-      settings:
-        DefaultValueInitialized: true
+      settings: {}
   - first:
       WebGL: WebGL
     second:
       enabled: 1
       settings: {}
-  userData: 
-  assetBundleName: 
-  assetBundleVariant: 
+  userData:
+  assetBundleName:
+  assetBundleVariant:
 META
-
-printf 'Built %s plugin: %s\n' "$target" "$plugin/libws_ffi.a"
+printf 'Built experimental WebGL archive: %s\n' "$plugin/libws_ffi.a"

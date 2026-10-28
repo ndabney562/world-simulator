@@ -1,0 +1,50 @@
+{
+  "total_payload_bytes": 15079958,
+  "files": [
+    {
+      "path": "Build/DesktopWeb.data.unityweb",
+      "bytes": 2595510,
+      "sha256": "c7e22a378a1ba82f2855f3b98b0e0053d17b490db6d4f745b8ec84e00151bf86"
+    },
+    {
+      "path": "Build/DesktopWeb.framework.js.unityweb",
+      "bytes": 89073,
+      "sha256": "1957915c095e51422d2ac57c31a09cdec3301e16f118e4776a2bb123cc885fd7"
+    },
+    {
+      "path": "Build/DesktopWeb.loader.js",
+      "bytes": 40317,
+      "sha256": "cb601d6be11fb873fa3c763715e61e6173faca69acf82f3917253e9d4b26f8b1"
+    },
+    {
+      "path": "Build/DesktopWeb.wasm.unityweb",
+      "bytes": 11098144,
+      "sha256": "ad531838d33b56bf356169717109afaf960714879de62f73b9d4fcea31a40e8b"
+    },
+    {
+      "path": "RUST_LIBRARY_COPYRIGHT.html",
+      "bytes": 279302,
+      "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.txt",
+      "bytes": 860346,
+      "sha256": "69a6252b9651409b2a73a1c9d3941488939ffba425d4eacd240ac87e2337a77a"
+    },
+    {
+      "path": "UNITY_PLAYER_NOTICES.pdf",
+      "bytes": 110383,
+      "sha256": "e164c1fc20578479d8c97526d61676292388039f1be35ce855fa735f12690cf8"
+    },
+    {
+      "path": "index.html",
+      "bytes": 2339,
+      "sha256": "88f6169393edb41dd2aef8224163f59487a262ea43012c4666833cf7c7f878d0"
+    },
+    {
+      "path": "player.js",
+      "bytes": 4544,
+      "sha256": "189542375b68a289c8ef1f7ca16f5033b737dcbf9a6095ba27a4f266fc349829"
+    }
+  ]
+}

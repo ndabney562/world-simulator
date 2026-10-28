@@ -19,14 +19,14 @@ out_dir="$repo/tests/web/build"
 mkdir -p "$out_dir"
 
 printf 'Compiling WebAssembly spike test runner...\n'
-emcc -fwasm-exceptions \
+emcc \
      -I"$repo/core/crates/ws-ffi/include" \
      "$repo/tests/web/browser_slice_test.c" \
-     "$repo/core/target/wasm32-unknown-emscripten/release/libws_ffi.a" \
+     "$repo/core/target/webgl-mvp/wasm32-unknown-emscripten/release/libws_ffi.a" \
      -o "$out_dir/browser_slice_test.js" \
      -sINITIAL_MEMORY=64MB \
      -sALLOW_MEMORY_GROWTH=1 \
-     -sSTACK_SIZE=1MB
+     -sSTACK_SIZE=512KB
 
 printf 'Executing spike runner in Node.js runtime...\n'
 node "$out_dir/browser_slice_test.js"
