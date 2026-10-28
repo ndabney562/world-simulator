@@ -53,7 +53,7 @@ jobs:
       fail-fast: false
       matrix:
         # os retains the published check identity; runner selects the image.
-        os: [ubuntu-latest, macos-15, macos-15-intel]
+        os: [ubuntu-latest, macos-15, macos-15-intel, ubuntu-24.04-arm]
         include:
           - os: ubuntu-latest
             runner: ubuntu-latest
@@ -61,6 +61,8 @@ jobs:
             runner: macos-26
           - os: macos-15-intel
             runner: macos-15-intel
+          - os: ubuntu-24.04-arm
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -81,6 +83,12 @@ jobs:
           sw_vers
           test "$(uname -m)" = x86_64
           test "$(sw_vers -productVersion | cut -d . -f 1)" = 15
+      - name: Verify ARM Linux probe image
+        if: matrix.runner == 'ubuntu-24.04-arm'
+        shell: bash
+        run: |
+          uname -a
+          test "$(uname -m)" = aarch64
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
