@@ -42,6 +42,8 @@ The final page-only hardening also captures the generated Unity framework's game
 
 ## Remaining release evidence
 
+The historical record above is followed by [remaining desktop release checks](release-checks.md), including fresh-profile Chromium/Firefox/WebKit storage and actual Rust-panic recovery evidence. That record distinguishes completed engine benchmarks from installed-Safari visual and other-device gaps.
+
 This proves the local desktop Chromium path. Firefox, Safari, a clean external desktop, full-player Rust panic injection, browser storage denial/quota UI, sustained browser performance, phone browsers and cold-start offline caching remain unverified. Boundary unit tests are not claimed as full-player fault-injection evidence. Native iPhone criteria remain open. Independent review and hosted CI apply to the final published head; publication remains a separate decision.
 
 ## Release checklist

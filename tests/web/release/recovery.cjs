@@ -1,0 +1,21 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {execFileSync}=require('node:child_process');
+const pw=require(process.env.WORLD_SIM_PLAYWRIGHT||'playwright');
+const engine=process.argv[2]||'chromium',out=path.resolve(process.argv[3]||'/tmp/worldsim-recovery-'+engine);fs.mkdirSync(out,{recursive:true});
+const results={engine,checks:[],console:[]};let browser;
+(async()=>{
+ browser=await pw[engine].launch({headless:true});const context=await browser.newContext({viewport:{width:1280,height:900},acceptDownloads:true});
+ await context.addInitScript(()=>{Object.defineProperty(window,'WorldSimPage',{configurable:true,set(api){const start=api.start;api.start=create=>start((...a)=>create(...a).then(p=>{window.__releasePlayer=p;return p}));Object.defineProperty(window,'WorldSimPage',{value:api,writable:true,configurable:true});}})});
+ const page=await context.newPage();page.on('console',m=>{if(/panic|stopped|abort|unreachable/i.test(m.text()))results.console.push(m.text().slice(0,2000))});
+ await page.goto('http://127.0.0.1:8769/ReleaseFaultProbe/');await page.getByText('Ready',{exact:true}).waitFor({timeout:120000});await page.waitForTimeout(2500);
+ const hud=async(x,y)=>{const r=await page.locator('canvas').boundingBox();await page.mouse.click(r.x+x*r.width/1100,r.y+y*r.width/1100);await page.waitForTimeout(600)};
+ await hud(66,147);
+ const save=async name=>{const got=page.waitForEvent('download',{timeout:30000});await page.getByRole('button',{name:'Download save',exact:true}).click();const file=path.join(out,name+'.wssave');await(await got).saveAs(file);return execFileSync(process.env.WORLD_SIM_NATIVE_CLI,['load','--file',file,'--ticks','0'],{encoding:'utf8'}).match(/loaded tick=\d+ state=[^ ]+/)[0]};
+ const saved=await save('before-panic');results.checks.push({name:'durable-save-before-panic',state:saved});
+ await page.evaluate(()=>{window.__releaseCallbacks=0;window.__releaseInput=0;document.addEventListener('keydown',()=>window.__releaseInput++);function tick(){window.__releaseCallbacks++;requestAnimationFrame(tick)}requestAnimationFrame(tick)});
+ await hud(378,147);await page.locator('#fault').waitFor({state:'visible',timeout:30000});
+ assert(await page.evaluate(()=>!!window.worldsimFatal));assert(results.console.some(x=>x.includes('WORLD_SIM_RELEASE_PROBE_RUST_PANIC')),'Must observe actual Rust panic marker');
+ const before=await page.evaluate(()=>({callbacks:window.__releaseCallbacks,input:window.__releaseInput}));await page.keyboard.press('ArrowLeft');await page.evaluate(()=>{document.getElementById('upload').onclick();document.getElementById('download').onclick()});await page.waitForTimeout(1500);assert.deepEqual(await page.evaluate(()=>({callbacks:window.__releaseCallbacks,input:window.__releaseInput})),before);
+ assert(await page.getByRole('button',{name:'Download save',exact:true}).isDisabled());await page.screenshot({path:path.join(out,'rust-panic-quarantined.png')});results.checks.push({name:'actual-rust-panic-quarantines-callbacks-input-and-toolbar'});
+ await page.getByRole('button',{name:'Reload World',exact:true}).click();await page.getByText('Ready',{exact:true}).waitFor({timeout:120000});await page.waitForTimeout(2000);await hud(385,172);const restored=await save('after-recovery');assert.equal(restored,saved);await page.screenshot({path:path.join(out,'loaded-after-rust-panic.png')});results.checks.push({name:'reload-and-load-restores-last-durable-state',state:restored});
+})().catch(e=>{results.failure=String(e.stack||e);process.exitCode=1}).finally(async()=>{fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify(results));await browser?.close()});

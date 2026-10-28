@@ -27,6 +27,12 @@ jobs:
           node-version: "24"
       - name: Fatal-trap quarantine and browser-storage acknowledgment
         run: node --test tests/web/page.test.cjs
+      - name: Release harness syntax (does not run Unity)
+        run: |
+          node --check tests/web/release/compatibility.cjs
+          node --check tests/web/release/recovery.cjs
+          node --check tests/web/release/performance.cjs
+          python3 -c 'import ast; from pathlib import Path; [ast.parse(p.read_text()) for p in Path("tests/web/release").glob("*.py")]'
       - name: Full-player manifest tests
         run: python3 -m unittest discover -s scripts -p 'test_web_build_manifest.py'
 
