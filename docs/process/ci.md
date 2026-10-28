@@ -28,6 +28,12 @@ The existing check name **`Rust core (macos-15)` is retained as a historical com
 
 Every original job/step, pinned Rust/cbindgen version, golden, native C consumer, replay/save-load test and iOS archive check remains. No failure is ignored, check made optional, performance budget changed or signing/account action introduced. This CI-only image change does not change the Unity Editor pin or game platform scope. #117 records hosted results and independent review before merge.
 
+### Additional Intel pool diagnostic (#117)
+
+The first macOS26 run [40734703787](https://github.com/ndabney562/world-simulator/actions/runs/40734703787) also failed to acquire either Mac runner; both jobs were cancelled before execution at 17:35:08 UTC on 2026-10-28. Linux Rust, docs and Unity-static checks passed. The alternative image therefore did not resolve the observed arm64 capacity problem.
+
+Additive `macos-15-intel` probes now run every existing Rust-core and native-header/iOS-archive step on a separate standard Intel pool, with explicit macOS15/x86_64 diagnostics. [GitHub lists this as a free standard runner for public repositories](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). Their check names are `Rust core (macos-15-intel)` and `Native bridge and header (Intel probe)`. The original Apple Silicon jobs, required-check identities and failure conditions remain. Intel success is comparative evidence and cannot replace a missing Apple Silicon result or authorize merge. No signing, credentials, settings, paid runner or game build changes are introduced.
+
 ## Nightly LOD workflow
 
 [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) runs the two existing ignored LOD tests in release mode on Linux. It uses the same pinned-toolchain installation and Cargo cache as PR CI, read-only contents permission, and no secrets. Failures fail the job; tests and PR checks are unchanged. The daily schedule is 07:23 UTC (03:23 New York during daylight saving time, 02:23 during standard time); GitHub may delay scheduled runs. Scheduled runs use `main`.
