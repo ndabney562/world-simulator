@@ -17,6 +17,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  browser-boundary:
+    name: Browser boundary contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Fatal-trap quarantine and browser-storage acknowledgment
+        run: node --test tests/web/page.test.cjs
+      - name: Full-player manifest tests
+        run: python3 -m unittest discover -s scripts -p 'test_web_build_manifest.py'
+
   docs:
     name: Docs consistency
     runs-on: ubuntu-latest

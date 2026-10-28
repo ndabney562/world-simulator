@@ -214,7 +214,7 @@ namespace WorldSim.Tests.EditMode
 
                         var sampleB=worldB.Illness(targetId,sampleA.Consequences.Root);
                         Assert.That(sampleB.Consequences.Root,Is.EqualTo(sampleA.Consequences.Root));
-                        Assert.That(sampleB.Consequences.ConsequenceCount,Is.EqualTo(sampleA.Consequences.ConsequenceCount));
+                        Assert.That(sampleB.Consequences.Events,Is.EqualTo(sampleA.Consequences.Events));
 
                         worldA.Steps(30);
                         worldB.Steps(30);

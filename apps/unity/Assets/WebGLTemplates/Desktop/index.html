@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World Simulator</title>
+<style>
+body{margin:0;background:#121820;color:#e8edf3;font:15px system-ui}header{padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}button,a{font:inherit;color:inherit}button{background:#263b4f;border:1px solid #648099;border-radius:5px;padding:7px 12px;cursor:pointer}button:disabled{opacity:.45;cursor:wait}canvas{width:100%;height:calc(100vh - 105px);display:block;background:#202832}#fault{position:fixed;inset:0;background:#121820;display:grid;place-content:center;padding:30px;z-index:9}#fault[hidden]{display:none}#fault p{max-width:560px;line-height:1.6}footer{padding:8px 16px;color:#b3c2cf}progress{width:140px}
+</style>
+</head>
+<body>
+<header><strong>World Simulator · desktop preview</strong><span id="status" role="status">Loading…</span><progress id="progress" max="1" value="0"></progress><button id="download" disabled>Download save</button><button id="upload" disabled>Import save</button><a href="THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener">Credits &amp; notices</a></header>
+<canvas id="unity-canvas" width="1280" height="800" tabindex="0" aria-label="World Simulator game"></canvas>
+<footer>Desktop browsers first. Use Save before leaving. Browser storage can be cleared; download a backup to keep your world.</footer>
+<section id="fault" hidden role="alert"><h1>The world stopped</h1><p>An unrecoverable error stopped this session. Reload to start again, then use Load to restore your last saved world. Unsaved progress may be lost.</p><button id="reload">Reload World</button></section>
+<script src="player.js"></script>
+<script src="Build/{{{ LOADER_FILENAME }}}"></script>
+<script>
+WorldSimPage.start(function(canvas, progress, fail) {
+  return createUnityInstance(canvas, {
+    dataUrl: 'Build/{{{ DATA_FILENAME }}}',
+    frameworkUrl: 'Build/{{{ FRAMEWORK_FILENAME }}}',
+    codeUrl: 'Build/{{{ CODE_FILENAME }}}',
+    streamingAssetsUrl: 'StreamingAssets',
+    companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+    productName: 'World Simulator',
+    productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+    showBanner: function(message, type) { if(type === 'error') fail(message); },
+    onAbort: fail
+  }, progress);
+});
+</script>
+</body></html>
