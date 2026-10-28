@@ -69,18 +69,20 @@ The first SwiftShader run and a headful window that closed early are excluded.
 Final raw results and screenshots are retained locally; current readiness and
 additional Safari/manual evidence are tracked on [issue112](https://github.com/ndabney562/world-simulator/issues/112).
 
-Actual installed Safari has not passed the visual player check yet. WebDriver
-could not connect; the first-party MCP interface ran storage operations but its
-canvas control/capture results were inconsistent. Those experiments are not
-counted as a Safari player pass. A direct visual Safari smoke check is pending;
-no further preference change is requested. Playwright WebKit is not Safari.
+Installed Safari27.0.1 passed a direct manual visual smoke check: the block and
+HUD render; paused Save -> page reload -> Load restores the saved tick; the
+separate deliberate Rust-panic player stops, then Reload World -> Load restores
+its saved tick. This is manual evidence, not an automated state-hash assertion.
+WebDriver could not connect and the first-party MCP interface did not reliably
+capture/drive the canvas; those attempts are excluded. No installed-Safari
+sustained FPS, automated trusted-HUD panic activation or native-picker guarantee
+is claimed. Playwright WebKit remains a separately named engine.
 
 ## Publication decision and limits
 
 The test commands, isolation rules and evidence requirements are in
 [the harness guide](../../../tests/web/release/README.md). Public deployment remains
-unapproved. Before a publish request, complete the actual-Safari
-check, independent final review and latest-head CI, and present the concrete
+unapproved. Before a publish request, complete independent final review and latest-head CI, and present the concrete
 artifact plus [hosting/settings action](publication-proposal.md). Verify HTTPS, compression and the real
 repository URL prefix after approved deployment before sharing a working link.
 

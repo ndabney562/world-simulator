@@ -47,7 +47,7 @@ or wrong speed is not a pass. Saves/profiles/results stay outside version contro
 
 ## Installed Safari
 
-Installed Safari requires its own visual smoke check; Playwright WebKit is not
+Installed Safari has its own manual visual smoke record; Playwright WebKit is not
 Safari. Safari 27 automation experiments could execute storage operations but did
 not reliably capture/operate the Unity canvas. They are not counted as a Safari
 player pass. Experimental drivers are retained privately for diagnosis rather

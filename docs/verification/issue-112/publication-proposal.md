@@ -41,8 +41,9 @@ provenance file. Share the link only after this public smoke test succeeds.
 
 ## What stays separate
 
-Installed Safari still needs a reliable visual check; its automation experiments
-are not a player pass. Another physical desktop/Windows/Linux, Intel or low-memory
+Installed Safari27.0.1 passed manual visual/save/reload and intentional-panic
+recovery checks; its automation experiments are excluded, and no sustained Safari
+FPS or native-picker guarantee is claimed. Another physical desktop/Windows/Linux, Intel or low-memory
 graphics, phone browsers, cold-start offline caching and native iPhone criteria
 remain explicit preview limits. [Release evidence](release-checks.md) records exact
 engine results and their measurement limits. Browser saves belong to each origin
