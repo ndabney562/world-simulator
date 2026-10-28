@@ -328,7 +328,7 @@ fn caught_panic_poison_preserves_query_outputs_and_only_diagnostics_and_destroy_
         assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), POISONED);
         assert_eq!(sky, original);
         assert_eq!(ws_slice_apply(h, &op(1, 1)), POISONED);
-        let mut diagnostic = [0i8; 256];
+        let mut diagnostic: [std::ffi::c_char; 256] = [0; 256];
         assert!(ws_slice_last_error(h, diagnostic.as_mut_ptr(), diagnostic.len()) > 1);
         assert!(
             std::ffi::CStr::from_ptr(diagnostic.as_ptr())
@@ -473,7 +473,7 @@ fn slice_boundary_rejects_misaligned_requests_and_preserves_failed_sky_and_diagn
         );
         assert_eq!(n, 7);
         (*h).error.set("éé!");
-        let mut diagnostic = [99i8; 3];
+        let mut diagnostic: [std::ffi::c_char; 3] = [99; 3];
         assert_eq!(ws_slice_last_error(h, diagnostic.as_mut_ptr(), 3), 6);
         assert_eq!(
             std::ffi::CStr::from_ptr(diagnostic.as_ptr())
