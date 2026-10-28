@@ -56,6 +56,10 @@ test('document/window input after a trap is blocked, including reload keystrokes
     listeners[type]({target, key, preventDefault(){}, stopImmediatePropagation(){stopped=true;}});
     if(!stopped) ffiCalls++; // A later Unity document/window listener.
   }
+  for(const name of ['gamepadconnected','gamepaddisconnected','fullscreenchange','webkitfullscreenchange',
+    'mozfullscreenchange','MSFullscreenChange','pointerlockchange','pointerlockerror',
+    'webkitpointerlockchange','mozpointerlockchange','mspointerlockchange','webglcontextlost',
+    'webglcontextrestored','deviceorientation','devicemotion']) assert.ok(listeners[name], name);
   dispatch('keydown',other,'a');assert.equal(ffiCalls,1);
   failed=true;
   for(const name of Object.keys(listeners)) dispatch(name,other,'a');

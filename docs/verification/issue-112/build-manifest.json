@@ -1,5 +1,5 @@
 {
-  "total_payload_bytes": 15079452,
+  "total_payload_bytes": 15079958,
   "files": [
     {
       "path": "Build/DesktopWeb.data.unityweb",
@@ -43,8 +43,8 @@
     },
     {
       "path": "player.js",
-      "bytes": 4038,
-      "sha256": "bb698d0ac50c9a7d00426d31bef39b670dcc1ec90993e95260499344a9742602"
+      "bytes": 4544,
+      "sha256": "189542375b68a289c8ef1f7ca16f5033b737dcbf9a6095ba27a4f266fc349829"
     }
   ]
 }

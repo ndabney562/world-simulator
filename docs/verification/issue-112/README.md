@@ -20,7 +20,7 @@ The native archive command rebuilds Rust std and the simulator together with pin
 
 ## Verification record (2026-10-28)
 
-- Complete pinned Unity WebGL export succeeded. Total distribution payload: **15,079,452 bytes**, excluding the manifest itself and including notices; see [artifact manifest](build-manifest.json). Hashes identify this export; bit-for-bit reproducibility across machines remains unverified.
+- Complete pinned Unity WebGL export succeeded. Total distribution payload: **15,079,958 bytes**, excluding the manifest itself and including notices; see [artifact manifest](build-manifest.json). Hashes identify this export; bit-for-bit reproducibility across machines remains unverified.
 - Native Rust: workspace fmt and clippy with warnings denied passed; complete release suite **493 passed**, five preexisting ignored tests unchanged. The original debug suite also passed before the save fixes (489 tests). Current affected save/restore tests passed in debug; the generated ABI header and native C consumer passed.
 - Python: **64 tests passed**; docs, Unity static and dependency-direction checks passed.
 - Browser boundary Node tests: **4 passed**, including a real Wasm trap, document/window input quarantine, deferred storage success/errors and late chooser/sync callbacks after failure.
@@ -37,6 +37,8 @@ Evidence: [loaded after reload](screenshots/reloaded.png), [import acknowledged 
 3. [#116](https://github.com/ndabney562/world-simulator/issues/116): rejected commands hashed error checkpoints but omitted them from the existing optional record field. Retain that metadata without changing digest rules or file layout; rejection remains nonterminal. Rejected command -> later commands -> save/load/replay is tested. Existing valid fixtures are retained. Older rejected records lacking checkpoint metadata remain explicitly unreadable; no historical checkpoint is fabricated.
 4. Independent review: guard document/window input and late file-picker/storage callbacks after a fatal fault, including reload input without letting the event reach Unity.
 5. Browser integration: remove the imported staging file before starting asynchronous syncfs; deleting it during sync caused an FS error despite a successful world load.
+
+The final page-only hardening also captures the generated Unity framework's gamepad, fullscreen/pointer-lock (including vendor names), WebGL context and device-orientation lifecycle events before they can reach a failed instance. The current RealBlock does not subscribe to sensor objects or audio-source callbacks. The page source was copied verbatim into the export and the manifest regenerated; the linked Wasm/data files are unchanged.
 
 ## Remaining release evidence
 

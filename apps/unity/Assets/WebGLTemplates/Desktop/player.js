@@ -33,7 +33,12 @@
     // keyboard input focused outside the canvas must never enter failed Wasm.
     const events = ['keydown','keyup','keypress','pointerdown','pointerup','pointermove','pointercancel',
       'mousedown','mouseup','mousemove','click','dblclick','wheel','touchstart','touchend','touchmove',
-      'touchcancel','contextmenu','focus','blur','focusin','focusout','visibilitychange','resize'];
+      'touchcancel','contextmenu','focus','blur','focusin','focusout','visibilitychange','resize',
+      'gamepadconnected','gamepaddisconnected','fullscreenchange','webkitfullscreenchange','mozfullscreenchange',
+      'MSFullscreenChange','pointerlockchange','pointerlockerror','webkitpointerlockchange',
+      'mozpointerlockchange','mspointerlockchange','webglcontextlost','webglcontextrestored',
+      'deviceorientation','deviceorientationabsolute','devicemotion','orientationchange',
+      'copy','cut','paste','change','beforeinput','input','compositionstart','compositionupdate','compositionend'];
     events.forEach(function(name) {
       host.addEventListener(name, function(event) {
         if(!isFailed()) return;
