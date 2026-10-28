@@ -52,3 +52,4 @@ crashlytics-build.properties
 /Assets/Plugins/macOS/*.dylib
 /Assets/Plugins/macOS/*.dylib.meta
 /Assets/Plugins/iOS/*.a.meta
+/Assets/Plugins/WebGL/*.a.meta
