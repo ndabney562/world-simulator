@@ -5,8 +5,8 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo"
 test "$(uname -s)" = Darwin
 test "$(uname -m)" = arm64
-if test -n "$(git status --porcelain --untracked-files=all -- core)"; then
-  echo 'Commit or remove core source changes before collecting exact-source evidence.' >&2
+if test -n "$(git status --porcelain --untracked-files=all)"; then
+  echo 'Commit or remove checkout changes before collecting exact-source evidence.' >&2
   exit 1
 fi
 tested_commit=$(git rev-parse HEAD)
@@ -45,5 +45,6 @@ PATH="$HOME/.cargo/bin:$PATH" scripts/check-ffi-header.sh
 cd core
 cargo +"$channel" build --release --locked -p ws-ffi --target aarch64-apple-ios
 test "$(git rev-parse HEAD:core)" = "$native_tree"
-test -z "$(git status --porcelain --untracked-files=all -- .)"
+test "$(git rev-parse HEAD)" = "$tested_commit"
+test -z "$(git -C "$repo" status --porcelain --untracked-files=all)"
 printf 'PASS: Apple Silicon native verification; tested commit %s; core tree %s\n' "$tested_commit" "$native_tree"
