@@ -23,8 +23,17 @@ namespace WorldSim.Rendering
         SliceInspection inspection;
         string inspectionText="";
         ulong consequenceRoot;
-        Vector2 inspectionScroll;
         public SliceInspection CurrentInspection=>inspection;
+        /// <summary>Set by the HUD: true when a screen point (Input coordinates) is over a HUD control.</summary>
+        public Func<Vector2,bool> UiHitTest;
+        /// <summary>Raised after a successful tap inspection.</summary>
+        public event Action<SliceInspection> Inspected;
+        /// <summary>Raised once per newly applied intervention: subject and consequence root.</summary>
+        public event Action<ulong,ulong> Cast;
+        /// <summary>Raised after a load replaces the world; earlier roots no longer apply.</summary>
+        public event Action WorldReplaced;
+        public string Notice=>notice;
+        public string StatusText=>status;
         public string InspectorText=>inspectionText;
         public int InspectionQueries {get;private set;}
         CalendarPresentation calendar;
@@ -118,17 +127,11 @@ namespace WorldSim.Rendering
             layoutWidth=Screen.width;layoutHeight=Screen.height;
             // Reserve the HUD strip so it cannot obscure featured footprints in
             // the default fit. Camera projection uses the remaining real viewport.
-            float reserved=266*HudScale();
+            float reserved=HudStripHeight*HudScale();
             sceneCamera.rect=new Rect(0,0,1,Mathf.Clamp((Screen.height-reserved)/Mathf.Max(1,Screen.height),0.25f,1));
             sceneCamera.ResetAspect();orbit?.ResizeIfNeeded();
         }
-        bool WideHud()=>Screen.width/HudScale()>=900;
-        Rect InspectorRect()=>new Rect(WideHud()?446:8,8,430,250);
-        bool OverHud(Vector2 position)
-        {
-            Vector2 logical=new Vector2(position.x,Screen.height-position.y)/HudScale();
-            return new Rect(8,8,430,250).Contains(logical)||(inspection!=null&&InspectorRect().Contains(logical));
-        }
+        bool OverHud(Vector2 position)=>UiHitTest!=null&&UiHitTest(position);
         bool PointerOverHud()
         {
             if(tap.UiCaptured||pointerUiCapture) return true;
@@ -167,20 +170,35 @@ namespace WorldSim.Rendering
             try
             {
                 InspectionQueries++;var sample=host.Inspect(hit.Id);string text=SliceInspectionText.Format(sample);
-                consequenceRoot=0;inspection=sample;inspectionText=text;inspectionScroll=Vector2.zero;notice="Tap again to refresh this snapshot.";return true;
+                consequenceRoot=0;inspection=sample;inspectionText=text;notice="Tap again to refresh this snapshot.";
             }
             catch(Exception error) {notice="Inspection failed: "+error.Message;return false;}
+            Inspected?.Invoke(inspection);return true;
         }
-        public void ClearInspection() {consequenceRoot=0;inspection=null;inspectionText="";inspectionScroll=Vector2.zero;}
+        public void ClearInspection() {consequenceRoot=0;inspection=null;inspectionText="";}
+        /// <summary>Refresh-only query of an applied root; never reapplies.</summary>
+        public SliceConsequences Consequences(ulong subject,ulong root)
+        {
+            if(host==null||root==0) throw new InvalidOperationException("No applied intervention.");
+            return host.Illness(subject,root).Consequences;
+        }
+        /// <summary>Display name for another resident; does not change the current selection.</summary>
+        public string ResidentName(ulong id)
+        {
+            if(host==null) return "Someone";
+            try {var r=host.Inspect(id);return r.Kind==1?r.GivenName+" "+r.FamilyName:"Someone";}
+            catch(Exception) {return "Someone";}
+        }
         /// <summary>One explicit action; refresh keeps the same root and never reapplies illness.</summary>
         public bool InspectIllness()
         {
             if(host==null||inspection==null||inspection.Kind!=1) return false;
             try {
-                var sample=host.Illness(inspection.Id,consequenceRoot);
+                bool applied=consequenceRoot==0;var sample=host.Illness(inspection.Id,consequenceRoot);
                 string text=SliceInspectionText.Consequences(sample);
-                inspection=sample.Inspection;consequenceRoot=sample.Consequences.Root;inspectionText=text;inspectionScroll=Vector2.zero;
-                notice="Tap the person to return to their details.";return true;
+                inspection=sample.Inspection;consequenceRoot=sample.Consequences.Root;inspectionText=text;
+                notice="Tap the person to return to their details.";
+                if(applied) Cast?.Invoke(inspection.Id,consequenceRoot);return true;
             } catch(Exception error) {notice="Illness action failed: "+error.Message;return false;}
         }
         void Update()
@@ -320,7 +338,7 @@ namespace WorldSim.Rendering
                 ClearInspection();picker=candidatePicker;
                 LastFillMs=host.Fill(frame,out var stats);LastAdvance=stats;
                 calendar.Apply(frame.Sky);RefreshStatus();
-                notice="Loaded slice (tick "+frame.Tick+")";
+                notice="Loaded slice (tick "+frame.Tick+")";WorldReplaced?.Invoke();
 #if UNITY_WEBGL && !UNITY_EDITOR
                 if(imported) {saving=true;browserFlushPending=true;notice="Saving to browser storage…";WorldSimFlushSave(SavePath,gameObject.name);}
 #endif
@@ -382,32 +400,9 @@ namespace WorldSim.Rendering
                 fps.ToString("F3",c),meanFrame.ToString("F3",c),maxFrame.ToString("F3",c),meanFill.ToString("F4",c),meanApply.ToString("F5",c),maxApply.ToString("F4",c),frame.L1,frame.L2,frame.LocalStationary,frame.InTransit,frame.OffMapStationary,
                 (GC.GetTotalMemory(false)/1048576.0).ToString("F2",c),(Profiler.GetTotalAllocatedMemoryLong()/1048576.0).ToString("F2",c),PlatformStats.FootprintBytes==0?"":(PlatformStats.FootprintBytes/1048576.0).ToString("F2",c),PlatformStats.ThermalState));log.Flush();
         }
-        void OnGUI()
-        {
-            if(host==null) return;Matrix4x4 previousMatrix=GUI.matrix;
-            GUI.matrix=Matrix4x4.Scale(new Vector3(HudScale(),HudScale(),1));
-            // The camera clears only the viewport below this strip. Clear the
-            // entire strip opaquely so changing text never accumulates there.
-            Color previous=GUI.color;GUI.color=Color.black;
-            GUI.DrawTexture(new Rect(0,0,Screen.width/HudScale(),266),Texture2D.whiteTexture);GUI.color=previous;
-            if(inspection==null||WideHud())
-            {
-                GUI.Box(new Rect(8,8,430,250),GUIContent.none);
-                GUILayout.BeginArea(new Rect(14,12,418,242));GUILayout.Label(calendar.Text);GUILayout.Label(status);
-                GUILayout.BeginHorizontal();if(GUILayout.Button("Pause")) SetSpeed(0);if(GUILayout.Button("x1")) SetSpeed(1);if(GUILayout.Button("x10")) SetSpeed(10);if(GUILayout.Button("x100")) SetSpeed(100);GUILayout.EndHorizontal();
-                GUILayout.BeginHorizontal();if(GUILayout.Button("Overview")) ResetView();if(GUILayout.Button("Street")) RequestStreetView();if(GUILayout.Button("Save")) SaveSlice();if(GUILayout.Button("Load")) LoadSlice();GUILayout.EndHorizontal();
-                GUILayout.Label("Tap: inspect · Drag: orbit · right/two-finger drag: pan · wheel/pinch: zoom\nBlue bars: coarse current occupants.");if(notice.Length>0) GUILayout.Label(notice);GUILayout.EndArea();
-            }
-            if(inspection!=null)
-            {
-                Rect panel=InspectorRect();GUI.Box(panel,GUIContent.none);
-                GUILayout.BeginArea(new Rect(panel.x+6,panel.y+6,panel.width-12,panel.height-12));
-                if(GUILayout.Button("Close inspection")) ClearInspection();
-                else {if(inspection.Kind==1&&GUILayout.Button(consequenceRoot==0?"Curse with illness":"Refresh consequences")) InspectIllness();inspectionScroll=GUILayout.BeginScrollView(inspectionScroll);GUILayout.Label(inspectionText);GUILayout.EndScrollView();}
-                GUILayout.EndArea();
-            }
-            GUI.matrix=previousMatrix;
-        }
+        /// <summary>Logical HUD units per pixel; the camera viewport excludes the top strip of HudStripHeight units.</summary>
+        public static float HudUnits=>HudScale();
+        public const float HudStripHeight=266;
         void OnDisable() {Release();}
         void OnDestroy() {Release();}
         void Release()

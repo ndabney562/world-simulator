@@ -237,6 +237,7 @@ GameObject:
   m_Component:
   - component: {fileID: 301}
   - component: {fileID: 302}
+  - component: {fileID: 303}
   m_Layer: 0
   m_Name: Real Block Demo
   m_IsActive: 1
@@ -265,3 +266,15 @@ MonoBehaviour:
   StartHourUtc: 11
   StartMinuteUtc: 22
   StartSecondUtc: 30
+--- !u!114 &303
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 300}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 09b41d6db1f44b55ad83029944411454, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
