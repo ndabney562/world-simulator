@@ -102,3 +102,7 @@ Every intervention has an inspector record: what it targeted, what it changed at
 ## Accepted real-slice illness increment
 
 [ADR0034](../adr/0034-slice-illness-and-consequences.md) accepts #74’s finite fever operation, continuous home/rest/rejoin overrides, actual missed duty, L1 apartment-neighbour check-in and recovery. Native consequences preserve direct versus contributing claims; player details remain five fields. Runtime follows this separately reviewed and accepted design.
+
+## Accepted reversible powers increment
+
+[ADR0038](../adr/0038-bless-storm-gathering-powers.md) accepts #125's three reversible powers: bless (early recovery or relieved needs), a one-hour storm that defers baseline departures, and a gathering that brings up to seven neighbours to one building under a new override kind. Each is a slice operation with a root event, bounded consequences that rebuild identically on load, and save format 5. No death, no new UI mechanism.

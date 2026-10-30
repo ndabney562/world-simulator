@@ -1,5 +1,13 @@
 # Architecture Proposal Changelog
 
+## ADR 0038 accepted (2026-10-30)
+
+Claude accepted ADR 0038 under the standing delegation (#122, PR #123) after a fresh-context review on PR #129 found three Majors, all fixed in the text: producer-defined consequence-index membership that rebuilds identically on load (gathering capped at seven attendees, `StayedInside` excluded), a dedicated override kind 3 for gatherings instead of reusing the neighbour visit, and a single storm deferral rule with storm/gathering mutual exclusion. Round 2 added per-root consequence header and row rules with a root-only consequence read, bless recovery indexed under the bless root, and ABI 8 → 9.
+
+## ADR 0038: bless, storm and gathering as reversible slice powers (2026-10-30, Proposed)
+
+Docs-only proposal for #125. Three slice operations (tags 6 to 8), nine payload tags (14 to 22), two block-level episodes in slice state, override kind 3, save format 5. Implementation follows in the #125 implementation PR after the GP-001 HUD (#128) merges.
+
 ## ADR 0037 accepted (2026-10-29)
 
 Noah reviewed PR #121 and accepted ADR 0037 as Product Owner; Codex and Gemini were unavailable (usage limits), so his review stands in for the independent assistant review. Status and index now record Accepted.
