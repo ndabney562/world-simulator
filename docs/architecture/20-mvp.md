@@ -52,7 +52,7 @@ Not in scope: real buildings, real population calibration, gameplay, visual qual
 3. Save, quit, and load reproduce the same state hash (Tier 2).
 4. The intervention's consequences are listed by a "consequences of this intervention" query, with confidence classes ([24](24-world-events-and-causality.md)).
 5. Toggling the Google backdrop on or off does not change the state hash.
-6. Stable frame rate on the iPhone 15 Pro for 20 minutes (any reasonable frame rate; polish is not the goal).
+6. Stable frame rate on the iPhone 16 Pro for 20 minutes (any reasonable frame rate; polish is not the goal).
 
 ## 21.4 Stage 3: Neighbourhood MVP (6–12 Bay Ridge blocks)
 
@@ -94,5 +94,5 @@ Other neighbourhoods; city, planet, and space scales; vehicles beyond parked pro
 1. All Vertical Slice criteria hold at neighbourhood scale.
 2. A 30-day headless run in `ws-cli` finishes with every invariant holding (conservation, event invariants, ID uniqueness). The Linux and macOS arm64 runs agree on all Tier 1 checks and stay within the agreed Tier 3 drift tolerances ([25](25-determinism-policy.md)).
 3. Each intervention has a scenario test covering materialized and non-materialized targets and its expected linked consequence events.
-4. Sustained target frame rate and memory within budget for 20 minutes on an iPhone 15 Pro, with the Google backdrop both on and off.
+4. Sustained target frame rate and memory within budget for 20 minutes on an iPhone 16 Pro, with the Google backdrop both on and off.
 5. A tester who has never seen the project can identify, without help, at least one consequence of an intervention they made, using the in-game history.

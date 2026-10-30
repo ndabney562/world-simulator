@@ -12,7 +12,7 @@ The test for "decide now": **would changing this later force a rewrite of large 
 | D-2 | **Core/front-end separation:** headless core; commands in, snapshots and query results out; a coarse-grained C ABI | 0005 |
 | D-3 | **Reproducibility policy:** tiered. Exact for identity and structure everywhere; replay-exact on the same build and platform; bounded differences elsewhere ([25](25-determinism-policy.md)) | 0010 |
 | D-8 | **Mutation model:** serialized, validated, journaled commands and typed factual history. Intervention effect vocabulary remains TP-010 | [0019](../adr/0019-command-journal-and-world-events.md) |
-| D-9 | **Minimum device:** iPhone 15 Pro (8 GB), current and previous iOS | 0004 |
+| D-9 | **Minimum device:** iPhone 16 Pro (8 GB), current and previous iOS | 0037 (supersedes 0004) |
 | D-11 | **Real Earth:** open data for simulation, synthetic people | 0001 |
 | D-12 | **Realistic visuals** within iPhone limits | 0002 |
 | D-13 | **Single-player** | 0003 |

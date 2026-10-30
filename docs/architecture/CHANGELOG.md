@@ -1,5 +1,13 @@
 # Architecture Proposal Changelog
 
+## ADR 0037 accepted (2026-10-29)
+
+Noah reviewed PR #121 and accepted ADR 0037 as Product Owner; Codex and Gemini were unavailable (usage limits), so his review stands in for the independent assistant review. Status and index now record Accepted.
+
+## ADR 0037: minimum device is the iPhone 16 Pro (2026-10-29, Proposed)
+
+Docs-only #120 proposal superseding ADR 0004. Noah's only test device is an iPhone 16 Pro, so stage exits and budgets are measured on it; the TP-011 device record is corrected from iPhone 15 Pro to iPhone 16 Pro. Architecture 02, 06, 15, 19, 20 and 21 now name the 16 Pro. Earlier accepted ADRs are not edited; ADR 0037 states how their 15 Pro references read. No code, test, save or budget value changes; no device run or stage exit is claimed.
+
 ## ADR 0035: browser delivery with Unity WebGL and pinned Rust Wasm build (2026-10-27, Proposed)
 
 Docs-only #107 proposal for zero-cost browser play via Unity 6 WebGL and pinned Rust WebAssembly (`wasm32-unknown-emscripten`). Defines single-threaded host pacing without `SharedArrayBuffer` / COOP/COEP dependencies for static GitHub Pages hosting, explicit browser fail-stop quarantine on fatal Wasm aborts, format 4 persistence with IndexedDB (`IDBFS`) backing and save import/export, and zero-cost provider isolation. Preserves native tests, offline capabilities, and iPhone 15 Pro stage exit criteria (#76).

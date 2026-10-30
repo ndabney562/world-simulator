@@ -1,6 +1,6 @@
 # ADR 0004: Minimum device is the iPhone 15 Pro
 
-- Status: Accepted
+- Status: Superseded by [0037](0037-minimum-device-iphone-16-pro.md)
 - Date: 2026-10-14
 - Decided by: Noah
 

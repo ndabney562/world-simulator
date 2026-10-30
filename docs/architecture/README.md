@@ -13,7 +13,7 @@ This directory is the architecture and technical plan for World Simulator: a con
 | [0001](../adr/0001-real-earth.md) | The world is real Earth: open data for simulation, synthetic people |
 | [0002](../adr/0002-realistic-visuals.md) | Realistic visuals, within iPhone limits |
 | [0003](../adr/0003-single-player.md) | Single-player |
-| [0004](../adr/0004-minimum-device-iphone-15-pro.md) | Minimum device: iPhone 15 Pro |
+| [0037](../adr/0037-minimum-device-iphone-16-pro.md) | Minimum device: iPhone 16 Pro (supersedes [0004](../adr/0004-minimum-device-iphone-15-pro.md)) |
 | [0005](../adr/0005-stack-rust-core-unity-cesium.md) | Rust simulation core → Unity 6 / URP → Cesium for Unity → iPhone |
 | [0006](../adr/0006-mvp-area-bay-ridge.md) | First area: Bay Ridge, Brooklyn |
 | [0007](../adr/0007-zero-cost-policy.md) | Zero-cost policy |

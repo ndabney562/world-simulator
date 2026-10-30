@@ -1,4 +1,4 @@
-# TP-011: iPhone 15 Pro performance spike
+# TP-011: iPhone performance spike
 
 Status: **awaiting device data.** The build, scene, HUD and run procedure are done and checked as far as Linux CI can. The numbers in this note come from Noah's iPhone sessions; nothing below is measured on a device yet, and the S-5 and S-6 recommendations stay open until it is.
 
@@ -19,7 +19,7 @@ Issue: [#12](https://github.com/ndabney562/world-simulator/issues/12). Contract:
 
 Both threads use the one native handle behind a single lock. The main thread's fill therefore waits while the worker is inside `Advance`. The 5,000-resident step costs about 4 ms on the Linux CI runner (see the TP-003 and TP-008 notes), and at ×1 the worker steps ten times a second, so overlap is rare and short. The HUD's fill time includes that wait, so a double buffer is justified only if the device logs show a fill time well above its decode cost (rule of thumb: the 99th percentile fill above 4 ms at 5,000 residents). I have not added a double buffer: it would be optimisation work without data, which the issue excludes.
 
-## Run checklist (Noah's Mac and iPhone 15 Pro)
+## Run checklist (Noah's Mac and iPhone)
 
 Free personal-team signing only; nothing here needs a paid account.
 
@@ -33,7 +33,7 @@ Free personal-team signing only; nothing here needs a paid account.
 
 ## Results
 
-Device: Noah's iPhone 15 Pro, build of `main` at `1da855a` (PR #63), free personal-team signing. Logs: `tp011-50-20261018-194027.csv`, `tp011-500-20261018-195815.csv`, `tp011-5000-20261018-200421.csv` (one row per second). iOS version, room temperature and battery level were not recorded.
+Device: Noah's iPhone 16 Pro (corrected 2026-10-29; this note first recorded it as an iPhone 15 Pro, see ADR 0037), build of `main` at `1da855a` (PR #63), free personal-team signing. Logs: `tp011-50-20261018-194027.csv`, `tp011-500-20261018-195815.csv`, `tp011-5000-20261018-200421.csv` (one row per second). iOS version, room temperature and battery level were not recorded.
 
 | Scale | Duration | Mean fps | 1% low fps | Frame ms (mean / max) | Core step ms (mean / max) | Fill ms (mean / max) | Process MB (start / end) | Thermal |
 |---|---|---|---|---|---|---|---|---|

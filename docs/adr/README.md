@@ -7,7 +7,7 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0001](0001-real-earth.md) | The world is real Earth | Accepted |
 | [0002](0002-realistic-visuals.md) | Realistic visuals preferred | Accepted |
 | [0003](0003-single-player.md) | Single-player only | Accepted |
-| [0004](0004-minimum-device-iphone-15-pro.md) | Minimum device is the iPhone 15 Pro | Accepted |
+| [0004](0004-minimum-device-iphone-15-pro.md) | Minimum device is the iPhone 15 Pro | Superseded by [0037](0037-minimum-device-iphone-16-pro.md) |
 | [0005](0005-stack-rust-core-unity-cesium.md) | Stack: Rust core + Unity 6 (URP) + Cesium for Unity | Accepted |
 | [0006](0006-mvp-area-bay-ridge.md) | MVP area: Bay Ridge, Brooklyn | Accepted |
 | [0007](0007-zero-cost-policy.md) | Zero-cost policy: open data by default, Google tiles optional and capped | Accepted |
@@ -40,3 +40,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0034](0034-slice-illness-and-consequences.md) | Real-slice illness, recovery and bounded causal consequences | Accepted |
 | [0035](0035-browser-delivery-webgl-wasm.md) | Browser delivery with Unity WebGL and pinned Rust Wasm build | Accepted |
 | [0036](0036-slice-persistence.md) | Slice persistence in save format 4 and off-thread writing | Accepted |
+| [0037](0037-minimum-device-iphone-16-pro.md) | Minimum device is the iPhone 16 Pro | Accepted |

@@ -4,7 +4,7 @@ Covers point 20. Revised in Revision 4 to the progression agreed after ChatGPT's
 
 > **Technical Prototype → Vertical Slice → Neighbourhood MVP → City → Planet → Solar System**
 
-Each stage has **exit criteria**. A stage is done when its criteria are met on real hardware (iPhone 15 Pro, ADR 0004), not when its features exist. Durations are deliberately not given; effort is shown relatively, and the plan is re-estimated after the Technical Prototype with real data. Stage definitions for the first three stages are in [20](20-mvp.md).
+Each stage has **exit criteria**. A stage is done when its criteria are met on real hardware (iPhone 16 Pro, ADR 0037), not when its features exist. Durations are deliberately not given; effort is shown relatively, and the plan is re-estimated after the Technical Prototype with real data. Stage definitions for the first three stages are in [20](20-mvp.md).
 
 ## Stage 1: Technical Prototype ("MVP-0")
 
@@ -15,7 +15,7 @@ Each stage has **exit criteria**. A stage is done when its criteria are met on r
 - Rust ↔ Unity bridge on iPhone: the core as a native static library, commands in, render snapshot out through shared buffers, with no per-entity calls.
 - A synthetic test scene placed at real Bay Ridge coordinates: a flat cell, a few boxes as "buildings", and a few dozen moving agents. Unity draws them with Cesium georeferencing.
 - Headless `ws-cli` runner; save and load of the trivial world; one headless LOD round trip (L1 ⇄ L2) with conservation checks.
-- Spikes, each documented: ECS library choice; serialization format; Cesium plus open-data geometry on device; Google tiles through the provider abstraction with quota enforcement ([23](23-visual-providers.md)); memory and thermal limits on an iPhone 15 Pro.
+- Spikes, each documented: ECS library choice; serialization format; Cesium plus open-data geometry on device; Google tiles through the provider abstraction with quota enforcement ([23](23-visual-providers.md)); memory and thermal limits on an iPhone 16 Pro.
 
 Exit criteria: a Tier 1 and Tier 2 determinism harness running in CI; the iPhone build runs the core and draws core-provided instances at a stable frame rate for 20 minutes; save/load round-trips state hashes; all spikes written up as ADRs or notes.
 
