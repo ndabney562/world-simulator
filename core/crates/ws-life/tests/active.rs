@@ -568,29 +568,3 @@ fn gathering_rejects_an_empty_stay() {
         BehaviorError::Time
     );
 }
-#[test]
-fn illness_and_visit_hashes_unchanged() {
-    // The generalised answer must not alter kind 1/2 states: the pinned
-    // intervention goldens in ws-sim/ws-persist cover whole-world hashes;
-    // here, kind 1/2 never take the stay branch (no gap between journeys).
-    let (mut b, id, home, _, _) = gathering_setup();
-    let start = 3 * 60 * MINUTE;
-    let mut p = b.prepare(t(start)).unwrap();
-    p.visit(id, home, t(start + 10 * MINUTE), 3).unwrap();
-    p.commit();
-    for us in (start..start + 30 * MINUTE).step_by(MINUTE as usize) {
-        let r = b.routine(id).unwrap();
-        if let Some(r) = r {
-            assert!(r.original.is_none() && r.homeward.is_none());
-            let snap = b.snapshot(id, t(us)).unwrap();
-            let want = if us < start + 10 * MINUTE {
-                Action::Socialize
-            } else {
-                Action::Rest
-            };
-            assert_eq!(snap.action, want);
-            assert_eq!(snap.logical.location, Location::AtBuilding(home));
-        }
-        b.advance_to(t(us + MINUTE)).unwrap();
-    }
-}
