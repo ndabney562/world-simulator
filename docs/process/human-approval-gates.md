@@ -4,10 +4,10 @@ These decisions belong to the Product Owner alone. An AI collaborator may propos
 
 | Gate | Examples |
 |---|---|
-| **Merging into `main`** | Every PR. AI collaborators never merge unless the Product Owner has delegated merging for a named work stream and recorded that on the relevant issue or PR; a delegated merge still requires green CI and a clean review. |
-| **Starting an engineering run** | Beginning implementation of an issue, or of the next issue after a PR is opened. |
-| **Architecture changes** | Accepting, superseding, or deprecating an ADR; any change that contradicts an accepted ADR or the architecture guardrails. |
-| **Scope changes** | Adding, removing, or re-scoping a stage, or moving work between stages; changing an issue's acceptance criteria after work starts. |
+| **Merging into `main`** | Delegated by the [standing delegation](#standing-delegation-2026-10-29): assistants merge their own PRs after latest-head green CI and a clean review. |
+| **Starting an engineering run** | Delegated by the [standing delegation](#standing-delegation-2026-10-29) for work that serves its priority. |
+| **Architecture changes** | Delegated by the [standing delegation](#standing-delegation-2026-10-29): assistants may accept or supersede ADRs, recording the reason; Noah can reverse any of them. |
+| **Scope changes** | Delegated by the [standing delegation](#standing-delegation-2026-10-29), except declaring a stage complete. |
 | **Test and CI weakening** | Deleting, skipping, disabling, or loosening a test or CI check; lowering a performance budget or tolerance; updating Tier 1 golden values. |
 | **Cost** | Anything that may cost money: paid services, paid tiers, API usage above free tiers, paid assets or plugins (ADR 0007). |
 | **External services and credentials** | Adding a third-party service, API key, secret, or account; changing Google or other provider quotas. |
@@ -16,6 +16,17 @@ These decisions belong to the Product Owner alone. An AI collaborator may propos
 | **Repository settings** | Default branch, branch protection, rulesets, Actions permissions, collaborators, visibility. |
 | **Irreversible actions** | Force-pushing or rewriting `main`, deleting branches with unmerged work, deleting issues or releases. |
 | **Stage exit** | Declaring a stage (for example the Technical Prototype) complete. |
+
+## Standing delegation (2026-10-29)
+
+Noah, 2026-10-29 ([#122](https://github.com/ndabney562/world-simulator/issues/122)): "i shouldnt have to review this in the future. I just want a playable god simulator with a fun interface." This delegation applies to all work until Noah narrows or withdraws it.
+
+- **Priority:** a playable, fun god simulator with a good interface comes before device-acceptance paperwork.
+- **Work:** assistants open issues, start work and propose or accept ADRs and scope changes that serve that priority, recording the reason on the issue or PR.
+- **Review:** a different assistant reviews the actual diff when one is available. When none is (for example usage limits), a fresh-context review agent that sees only the issue and the diff reviews it instead. The PR states which review was used.
+- **Merge:** the implementer squash-merges once latest-head CI is green and no Blocker or Major finding is open.
+- **Still Noah's:** cost, external services and credentials, licences and new data sources, Apple and device actions, repository settings, irreversible actions, test and CI weakening, and stage exit.
+- Noah is not asked to review diffs. Report what merged in one or two plain sentences.
 
 ## Recorded delegation
 

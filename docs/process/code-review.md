@@ -32,4 +32,4 @@ Every finding carries one severity, written at the start of the comment, for exa
 
 ## Review summary
 
-Each review ends with a short summary: the count of findings by severity, and a verdict of **Approve**, **Approve with minor follow-ups**, or **Changes required**. Only the Product Owner's merge makes a PR final.
+Each review ends with a short summary: the count of findings by severity, and a verdict of **Approve**, **Approve with minor follow-ups**, or **Changes required**. Under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29), the implementer's merge after this review and green CI makes a PR final.

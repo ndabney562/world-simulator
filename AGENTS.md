@@ -10,7 +10,7 @@ GitHub is canonical. Specifications live in issues, decisions in ADRs (`docs/adr
 
 - **Noah (Product Owner):** priorities, approvals, and merges personally or through recorded, bounded delegation. See [human-approval-gates](docs/process/human-approval-gates.md).
 - **Codex or Claude:** implementation engineer for the issue Noah assigns; one writer per branch.
-- **ChatGPT/Codex or Claude:** reviewer of the other assistant’s actual GitHub diff; an author’s self-review is not independent review.
+- **ChatGPT/Codex or Claude:** reviewer of the other assistant’s actual GitHub diff; an author’s self-review is not independent review. When no other assistant is available, a fresh-context review agent reviews instead ([standing delegation](docs/process/human-approval-gates.md#standing-delegation-2026-10-29)).
 - Existing defaults remain Claude implementing and ChatGPT reviewing when Noah has not assigned different roles.
 
 Daily setup and handoffs: [shared-development](docs/process/shared-development.md).
@@ -26,7 +26,7 @@ Details: [roles-and-responsibilities](docs/process/roles-and-responsibilities.md
 5. Update relevant documentation.
 6. Run every available check locally (see [ci.md](docs/process/ci.md)).
 7. Open a PR referencing the issue, using the [PR template](.github/pull_request_template.md).
-8. Stop for independent review. Merge or start dependent work only when covered by recorded Product Owner delegation; otherwise stop for authorization. Read [current-workstream](docs/process/current-workstream.md) and [human-approval-gates](docs/process/human-approval-gates.md) before asking again. Delegation never waives review, latest-head green CI or its excluded gates.
+8. Get the review required by the [standing delegation](docs/process/human-approval-gates.md#standing-delegation-2026-10-29), then merge after latest-head green CI and continue; stop only at a gate it keeps for Noah. Read [current-workstream](docs/process/current-workstream.md) and [human-approval-gates](docs/process/human-approval-gates.md) before asking again. Delegation never waives review, latest-head green CI or its excluded gates.
 
 The full loop is in [ai-development-workflow](docs/process/ai-development-workflow.md); completion criteria are in [definition-of-done](docs/process/definition-of-done.md); review severities are in [code-review](docs/process/code-review.md).
 

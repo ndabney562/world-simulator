@@ -19,7 +19,7 @@
 - Addresses review findings: fixes them, or replies on the PR with the reason a finding is not being fixed.
 - Drafts ADRs when an implementation needs an architecture change, and stops for approval before implementing it.
 - Reports every push with branch, commit SHA, message, and files changed, confirmed against the remote.
-- Merges only within recorded Product Owner delegation after independent review and latest-head green CI; never changes repository settings or branch protection, and never starts work that no issue covers.
+- Merges under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29) after its review and latest-head green CI; never changes repository settings or branch protection, and never starts work that no issue covers.
 - Owns the handoff through CI, review, readiness and merge (when delegated). Before pausing, records the next action, responsible owner and blocking condition. Successful infrastructure recovery returns readiness/merge handling to this owner.
 
 ## Architecture and code-review partner (a different assistant)
@@ -29,7 +29,7 @@
 - Classifies every finding with a severity from [code-review.md](code-review.md).
 - Reviews proposed ADRs and architecture changes before the Product Owner accepts them.
 - In the reviewer role, does not edit the implementation branch. Findings reach the PR as a review or comment (posted when authorized, or relayed by the Product Owner), so the record lives on GitHub.
-- Codex may implement issues assigned by Noah; Claude may review those changes. Self-review does not replace review by a different assistant.
+- Codex may implement issues assigned by Noah; Claude may review those changes. Self-review does not replace review by a different assistant; when none is available, a fresh-context review agent reviews instead (standing delegation).
 - Default roles remain Claude implementing and ChatGPT reviewing unless Noah assigns otherwise.
 
 ## Shared rules for all AI collaborators

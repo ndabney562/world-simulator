@@ -56,7 +56,7 @@ Product Owner
 
 ## 8. Approval and merge
 
-- The Product Owner approves where [human-approval-gates.md](human-approval-gates.md) requires it. The Product Owner merges, or the implementer merges within recorded named-workstream delegation after independent review and latest-head green CI.
+- The Product Owner approves only the gates [human-approval-gates.md](human-approval-gates.md) keeps for Noah. The implementer merges under the standing delegation after its review and latest-head green CI.
 - Merge method: **squash and merge** for normal issue PRs, so each issue lands as one commit on `main` whose message references the issue. Use **create a merge commit** only when the branch history itself must be preserved (as with the Architecture V1 freeze).
 - After merge, the issue closes automatically through `Closes #N`; the implementer confirms it closed and updates any tracking issue.
 
