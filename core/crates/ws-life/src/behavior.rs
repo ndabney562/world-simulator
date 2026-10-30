@@ -20,7 +20,7 @@ pub const TIE: Purpose = Purpose::new("ws-life/utility/tie");
 mod overrides;
 mod storm;
 pub use overrides::{Journey, RoutineOverride};
-pub use storm::{Deferral, StormHold, StormWindow};
+pub use storm::{Deferral, HoldPhase, StormHold, StormWindow};
 
 const STEP: i128 = 100_000;
 const MINUTE: i128 = 60_000_000;
@@ -606,7 +606,8 @@ impl Behavior {
                 saved.storm_hold,
             ) {
                 (_, Some(_)) if saved.routine.is_some() => return Err(BehaviorError::Time),
-                (_, Some(h)) => h.answer(saved.anchor, storm.ok_or(BehaviorError::Time)?.end),
+                (_, Some(_)) if storm.is_none() => return Err(BehaviorError::Time),
+                (_, Some(h)) => h.answer(saved.anchor),
                 (Some(r), None) => r.answer(saved.anchor),
                 (None, None) => schedules
                     .get(saved.id)
@@ -648,7 +649,7 @@ impl Behavior {
         let hold = s
             .storm_hold
             .zip(self.storm)
-            .filter(|(h, w)| !h.rejoined(time, w.end));
+            .filter(|(h, _)| !h.rejoined(time));
         Ok(
             match (
                 s.routine
@@ -656,7 +657,7 @@ impl Behavior {
                 hold,
             ) {
                 (Some(r), _) => r.answer(time),
-                (None, Some((h, w))) => h.answer(time, w.end),
+                (None, Some((h, _))) => h.answer(time),
                 (None, None) => self
                     .schedules
                     .get(id)
@@ -749,7 +750,7 @@ impl Behavior {
                     let epoch = self.schedules.epoch();
                     s.logical = match storm {
                         Some(w) => {
-                            let (answer, new) = storm::step(w, &self.featured, p, epoch, s, at);
+                            let (answer, new) = storm::step(self, w, p, s, at)?;
                             if let Some(d) = new {
                                 deferrals
                                     .try_reserve(1)

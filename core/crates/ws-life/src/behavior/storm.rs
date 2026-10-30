@@ -12,23 +12,34 @@ pub struct StormWindow {
     /// Exclusive end; held residents are re-evaluated exactly here.
     pub end: SimTime,
 }
+/// Explicit hold phase, independent of any (possibly replaced) storm window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HoldPhase {
+    /// Held at `building`; `resume` is the latest deferred baseline row.
+    Deferring = 0,
+    /// Post-storm (D3): `resume` is the walk now under way, if any, then `rejoin`.
+    Resuming = 1,
+}
 /// Saved per-resident storm state (D1). Not an override: inspection never reports it.
 ///
-/// While deferring, `resume` is the latest deferred baseline row (its departure is
-/// before the storm's end) and `rejoin` is None. At the first re-evaluation at or
-/// after the end (D3) it becomes either the post-storm journey (departing at that
-/// instant, keeping the row's duration) or None for a stay, with the first
-/// continuous baseline `rejoin`; None there means beyond SimTime.
+/// While `Deferring`, `resume` is the latest deferred baseline row and `rejoin` is
+/// None. At the first re-evaluation at or after the storm's end (D3) it becomes
+/// `Resuming`: `resume` is the post-storm walk departing at that instant and
+/// `rejoin` the first continuous baseline instant at its destination (None means
+/// beyond SimTime).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StormHold {
     /// Featured building the resident is held at.
     pub building: EntityId,
     /// Activity kept from before the first deferral.
     pub activity: Activity,
-    /// Deferred row while deferring; post-storm journey afterwards, if any.
+    /// Deferred row while deferring; post-storm walk afterwards, if any.
     pub resume: Option<Journey>,
     /// Post-storm baseline rejoin.
     pub rejoin: Option<SimTime>,
+    /// Deferring or resuming; never derived from the window.
+    pub phase: HoldPhase,
 }
 /// One new deferred departure from a prepare, for the `StayedInside` record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,13 +52,9 @@ pub struct Deferral {
     pub activity: Activity,
 }
 impl StormHold {
-    /// True until D3 has been applied at the storm's end.
-    fn deferring(self, end: SimTime) -> bool {
-        self.resume.is_some_and(|j| j.departure < micros(end))
-    }
     /// Held logical answer at `time`, before the rejoin.
-    pub(super) fn answer(self, time: SimTime, end: SimTime) -> Answer {
-        match self.resume.filter(|_| !self.deferring(end)) {
+    pub(super) fn answer(self, time: SimTime) -> Answer {
+        match self.resume.filter(|_| self.phase == HoldPhase::Resuming) {
             Some(j) if micros(time) < j.arrival => j.answer(),
             Some(j) => Answer {
                 activity: self.activity,
@@ -59,16 +66,15 @@ impl StormHold {
             },
         }
     }
-    /// Whether a post-storm hold has reached its baseline rejoin at `time`.
-    pub(super) fn rejoined(self, time: SimTime, end: SimTime) -> bool {
-        !self.deferring(end) && self.rejoin.is_some_and(|r| time >= r)
+    /// Whether a resuming hold has reached its baseline rejoin at `time`.
+    pub(super) fn rejoined(self, time: SimTime) -> bool {
+        self.phase == HoldPhase::Resuming && self.rejoin.is_some_and(|r| time >= r)
     }
     /// Next exact re-evaluation strictly after `after`: the end, an arrival or the rejoin.
     pub(super) fn next(self, after: SimTime, end: SimTime) -> Option<SimTime> {
-        let times = if self.deferring(end) {
-            [Some(micros(end)), None]
-        } else {
-            [self.resume.map(|j| j.arrival), self.rejoin.map(micros)]
+        let times = match self.phase {
+            HoldPhase::Deferring => [Some(micros(end)), None],
+            HoldPhase::Resuming => [self.resume.map(|j| j.arrival), self.rejoin.map(micros)],
         };
         times
             .into_iter()
@@ -77,36 +83,61 @@ impl StormHold {
             .filter_map(|v| i64::try_from(v).ok().map(SimTime::from_micros_since_epoch))
             .min()
     }
-    /// D3 at the first re-evaluation `t` at or after the storm's end.
-    fn resume_after(self, profile: &Schedule, epoch: SimTime, base: Answer, t: SimTime) -> Self {
-        let Some(row) = self.resume else {
-            return self;
-        };
-        let due = matches!(base.location, Location::InTransit { from, departure, arrival, .. }
-            if from == Place::Building(self.building)
-                && departure == row.departure
-                && arrival == row.arrival);
-        if due {
-            let journey = Journey {
+    /// D3 at the first re-evaluation `t` at or after the storm's end. If the deferred
+    /// row is still in its walk window, depart now keeping its duration; otherwise
+    /// walk to where the baseline places the resident now. Either way, rejoin the
+    /// baseline from the destination at arrival.
+    fn resume_after(
+        self,
+        navigation: &Navigation,
+        profile: &Schedule,
+        epoch: SimTime,
+        base: Answer,
+        t: SimTime,
+    ) -> Result<Self, BehaviorError> {
+        let here = Place::Building(self.building);
+        let row = self.resume.filter(|row| {
+            matches!(base.location, Location::InTransit { from, departure, arrival, .. }
+                if from == here && departure == row.departure && arrival == row.arrival)
+        });
+        let walk = match (row, base.location) {
+            (Some(row), _) => Some(Journey {
                 departure: micros(t),
                 arrival: micros(t) + (row.arrival - row.departure),
                 ..row
-            };
-            Self {
-                resume: Some(journey),
-                rejoin: rejoin_at(profile, epoch, row.to, journey.arrival),
-                ..self
+            }),
+            (None, Location::AtBuilding(x)) if x == self.building => None,
+            (None, location) => {
+                let to = match location {
+                    Location::AtBuilding(x) => Place::Building(x),
+                    Location::OffMap(w, e) => Place::OffMap(w, e),
+                    Location::InTransit { to, .. } => to,
+                };
+                // Already there (a journey into the held building): no walk.
+                (to != here)
+                    .then(|| -> Result<_, BehaviorError> {
+                        let ticks = navigation.route(here, to)?.walking_ticks();
+                        Ok(Journey {
+                            from: here,
+                            to,
+                            departure: micros(t),
+                            arrival: micros(t) + i128::from(ticks) * STEP,
+                        })
+                    })
+                    .transpose()?
             }
-        } else {
-            Self {
-                resume: None,
-                rejoin: rejoin_at(profile, epoch, Place::Building(self.building), micros(t)),
-                ..self
-            }
-        }
+        };
+        let (place, at) = walk.map_or((here, micros(t)), |j| (j.to, j.arrival));
+        Ok(Self {
+            resume: walk,
+            rejoin: rejoin_at(profile, epoch, place, at),
+            phase: HoldPhase::Resuming,
+            ..self
+        })
     }
     pub(super) fn hash(self, h: &mut SipHasher24) {
         h.write_words(&[
+            self.phase as u64,
             self.building.raw(),
             self.activity as u64,
             u64::from(self.rejoin.is_some()),
@@ -128,24 +159,26 @@ impl StormHold {
 /// Storm rule for a routine-free resident re-evaluated at `at`, whose `logical` is
 /// still the previous answer. Returns the new logical answer and any new deferral.
 pub(super) fn step(
+    world: &Behavior,
     storm: StormWindow,
-    featured: &[EntityId],
     profile: &Schedule,
-    epoch: SimTime,
     s: &mut ResidentState,
     at: SimTime,
-) -> (Answer, Option<Deferral>) {
+) -> Result<(Answer, Option<Deferral>), BehaviorError> {
+    let epoch = world.schedules.epoch();
     let base = profile.at(epoch, at);
     if let Some(h) = s.storm_hold
+        && h.phase == HoldPhase::Deferring
         && at >= storm.end
-        && h.deferring(storm.end)
     {
-        s.storm_hold = Some(h.resume_after(profile, epoch, base, at));
+        s.storm_hold = Some(h.resume_after(&world.navigation, profile, epoch, base, at)?);
     }
-    if s.storm_hold.is_some_and(|h| h.rejoined(at, storm.end)) {
+    if s.storm_hold.is_some_and(|h| h.rejoined(at)) {
         s.storm_hold = None;
     }
     let mut new = None;
+    // Only someone standing at the featured building is held; a resident on a
+    // post-storm walk is in transit and continues, even under a later storm.
     if storm.start <= at
         && at < storm.end
         && let Location::InTransit {
@@ -154,7 +187,7 @@ pub(super) fn step(
             departure,
             arrival,
         } = base.location
-        && featured.contains(&b)
+        && world.featured.contains(&b)
         && s.logical.location == Location::AtBuilding(b)
     {
         let activity = s.storm_hold.map_or(s.logical.activity, |h| h.activity);
@@ -168,6 +201,7 @@ pub(super) fn step(
                 arrival,
             }),
             rejoin: None,
+            phase: HoldPhase::Deferring,
         });
         if departure > micros(at) - MINUTE {
             new = Some(Deferral {
@@ -177,6 +211,6 @@ pub(super) fn step(
             });
         }
     }
-    let answer = s.storm_hold.map_or(base, |h| h.answer(at, storm.end));
-    (answer, new)
+    let answer = s.storm_hold.map_or(base, |h| h.answer(at));
+    Ok((answer, new))
 }

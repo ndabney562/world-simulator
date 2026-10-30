@@ -192,40 +192,193 @@ fn resident_departs_at_end_if_row_still_due() {
     );
 }
 
+/// Exact post-storm walk duration between two places (D3 "row passed" branch).
+fn walk(b: &Behavior, from: Place, to: Place) -> i64 {
+    b.navigation().route(from, to).unwrap().walking_ticks() as i64 * STEP
+}
+
 #[test]
-fn resident_rejoins_if_row_passed() {
+fn resident_walks_to_baseline_if_row_passed() {
     let (id, r) = row(|r| matches!(r.destination, Place::OffMap(..)));
     let home = origin(&r);
     let d = i64::from(r.minute) * MINUTE;
     let arrival = i64::from(r.arrival_minute.unwrap()) * MINUTE;
     let end = arrival + 10 * MINUTE;
-    // Independent rejoin: first minute at or after the end found at home.
-    let rejoin = (0..)
-        .map(|m| end + m * MINUTE)
-        .find(|&at| baseline(id, at).location == Location::AtBuilding(home))
-        .unwrap();
-    assert!(rejoin > end + 60 * MINUTE);
+    // The baseline already has them at the off-map workplace.
+    assert_eq!(baseline(id, end).location, Location::from(r.destination));
     let mut b = world(d - 20 * MINUTE);
     b.advance_to(t(d - 10 * MINUTE)).unwrap();
     cast(&mut b, d - 10 * MINUTE, end);
-    let all = run(&mut b, d - 9 * MINUTE, end, MINUTE);
+    let all = run(&mut b, d - 9 * MINUTE, end - MINUTE, MINUTE);
     assert_eq!(mine(&all, id).len(), 1);
-    for at in [end, end + MINUTE, (end + rejoin) / 2, rejoin - MINUTE] {
+    assert_eq!(
+        logical(&b, id, end - MINUTE).location,
+        Location::AtBuilding(home)
+    );
+    let arrive = end + walk(&b, Place::Building(home), r.destination);
+    let journey = Location::InTransit {
+        from: Place::Building(home),
+        to: r.destination,
+        departure: i128::from(end),
+        arrival: i128::from(arrive),
+    };
+    for at in [end, arrive - STEP] {
         b.advance_to(t(at)).unwrap();
         let now = logical(&b, id, at);
-        assert_eq!(now.location, Location::AtBuilding(home), "at {at}");
-        assert_eq!(now.activity, Activity::Home);
+        assert_eq!(now.location, journey, "at {at}");
+        assert_eq!(now.activity, Activity::Commute);
     }
-    b.advance_to(t(rejoin)).unwrap();
-    assert_eq!(logical(&b, id, rejoin), baseline(id, rejoin));
+    // Arrival: the baseline is at the destination, so it rejoins immediately.
+    b.advance_to(t(arrive)).unwrap();
+    assert_eq!(logical(&b, id, arrive), baseline(id, arrive));
     assert!(
         b.resident_states()
             .all(|s| s.id != id || s.storm_hold.is_none())
     );
-    // Every hold has rejoined by late evening; the ended storm is then cleared.
-    b.advance_to(t(21 * 60 * MINUTE)).unwrap();
+    // Every hold has rejoined well before noon; the ended storm is then cleared.
+    b.advance_to(t(12 * 60 * MINUTE)).unwrap();
     assert!(b.resident_states().all(|s| s.storm_hold.is_none()));
     assert_eq!(b.storm(), None);
+}
+
+#[test]
+fn resident_held_at_work_in_the_evening_walks_home_not_overnight() {
+    // A worker at an on-block featured workplace whose return row passes in the storm.
+    let (_, s) = inputs();
+    let (id, work, back) = s
+        .profiles()
+        .iter()
+        .find_map(|p| {
+            p.weekday().windows(2).find_map(|w| {
+                (w[0].activity == Activity::Work
+                    && matches!(w[0].destination, Place::Building(_))
+                    && w[1].origin == Some(w[0].destination))
+                .then(|| (p.resident, w[0].destination, w[1]))
+            })
+        })
+        .expect("an on-block worker");
+    let Place::Building(shop) = work else {
+        unreachable!()
+    };
+    let d = i64::from(back.minute) * MINUTE;
+    let end = i64::from(back.arrival_minute.unwrap()) * MINUTE + 3 * MINUTE;
+    let mut b = world(d - 20 * MINUTE);
+    b.advance_to(t(d - 10 * MINUTE)).unwrap();
+    cast(&mut b, d - 10 * MINUTE, end);
+    let all = run(&mut b, d - 9 * MINUTE, end - MINUTE, MINUTE);
+    assert_eq!(mine(&all, id).len(), 1);
+    let held = logical(&b, id, end - MINUTE);
+    assert_eq!(held.location, Location::AtBuilding(shop));
+    assert_eq!(held.activity, Activity::Work);
+    // At the end the baseline has them at home: walk there now, then rejoin.
+    let target = match baseline(id, end).location {
+        Location::AtBuilding(h) => h,
+        other => panic!("{other:?}"),
+    };
+    assert_ne!(target, shop);
+    let arrive = end + walk(&b, work, Place::Building(target));
+    b.advance_to(t(end)).unwrap();
+    assert_eq!(
+        logical(&b, id, end).location,
+        Location::InTransit {
+            from: work,
+            to: Place::Building(target),
+            departure: i128::from(end),
+            arrival: i128::from(arrive),
+        }
+    );
+    b.advance_to(t(arrive)).unwrap();
+    assert_eq!(logical(&b, id, arrive), baseline(id, arrive));
+    assert!(
+        b.resident_states()
+            .all(|s| s.id != id || s.storm_hold.is_none())
+    );
+    // Nobody is left at the workplace overnight.
+    b.advance_to(t(23 * 60 * MINUTE)).unwrap();
+    assert_eq!(
+        logical(&b, id, 23 * 60 * MINUTE),
+        baseline(id, 23 * 60 * MINUTE)
+    );
+    assert_eq!(b.storm(), None);
+}
+
+#[test]
+fn second_storm_does_not_stop_a_post_storm_journey() {
+    let (id, r) = row(|r| matches!(r.destination, Place::OffMap(..)));
+    let home = origin(&r);
+    let d = i64::from(r.minute) * MINUTE;
+    let length = (i64::from(r.arrival_minute.unwrap()) - i64::from(r.minute)) * MINUTE;
+    let e1 = d + 10 * MINUTE;
+    let journey = Location::InTransit {
+        from: Place::Building(home),
+        to: r.destination,
+        departure: i128::from(e1),
+        arrival: i128::from(e1 + length),
+    };
+    let scenario = || {
+        let mut b = world(d - 20 * MINUTE);
+        b.advance_to(t(d - 10 * MINUTE)).unwrap();
+        cast(&mut b, d - 10 * MINUTE, e1);
+        b.advance_to(t(d + 20 * MINUTE)).unwrap();
+        assert_eq!(logical(&b, id, d + 20 * MINUTE).location, journey);
+        // The first storm has ended; a second, longer one is cast mid-journey.
+        cast(&mut b, d + 20 * MINUTE, d + 80 * MINUTE);
+        let mut hashes = vec![b.state_hash()];
+        let mut all = Vec::new();
+        for m in [21, 25, 39] {
+            all.extend(run(&mut b, d + m * MINUTE, d + m * MINUTE, MINUTE));
+            assert_eq!(logical(&b, id, d + m * MINUTE).location, journey, "m {m}");
+            hashes.push(b.state_hash());
+        }
+        b.advance_to(t(e1 + length)).unwrap();
+        assert_eq!(logical(&b, id, e1 + length), baseline(id, e1 + length));
+        assert!(mine(&all, id).is_empty());
+        hashes.push(b.state_hash());
+        hashes
+    };
+    assert_eq!(scenario(), scenario());
+}
+
+#[test]
+fn override_homeward_leg_is_not_deferred() {
+    // An illness at an on-block workplace walks home from a featured building.
+    let (_, s) = inputs();
+    let (id, work, home, row) = s
+        .profiles()
+        .iter()
+        .find_map(|p| {
+            let w = p.weekday().windows(2).find(|w| {
+                w[0].activity == Activity::Work && matches!(w[0].destination, Place::Building(_))
+            })?;
+            let Place::Building(h) = w[1].destination else {
+                return None;
+            };
+            Some((p.resident, w[0].destination, h, w[0]))
+        })
+        .expect("an on-block worker");
+    let at = i64::from(row.minute) * MINUTE + 60 * MINUTE;
+    let mut b = world(at - MINUTE);
+    b.advance_to(t(at)).unwrap();
+    assert_eq!(logical(&b, id, at).location, Location::from(work));
+    let mut p = b.prepare(t(at)).unwrap();
+    p.set_storm(Some(StormWindow {
+        start: t(at),
+        end: t(at + 60 * MINUTE),
+    }));
+    let r = p.afflict(id, home, t(at + 240 * MINUTE), 11).unwrap();
+    let leg = r.homeward.unwrap();
+    assert_eq!(leg.from, work);
+    p.commit();
+    let all = run(&mut b, at + MINUTE, at + MINUTE, MINUTE);
+    assert!(mine(&all, id).is_empty());
+    assert!(matches!(
+        logical(&b, id, at + MINUTE).location,
+        Location::InTransit { from, .. } if from == work
+    ));
+    assert!(
+        b.resident_states()
+            .all(|s| s.id != id || s.storm_hold.is_none())
+    );
 }
 
 #[test]
