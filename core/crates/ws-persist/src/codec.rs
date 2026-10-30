@@ -765,6 +765,71 @@ fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
             w.id(resident);
             w.u32(health);
         }
+        Payload::BlessApplied {
+            resident,
+            sequence,
+            affected,
+        } => {
+            w.u8(14);
+            w.id(resident);
+            w.u64(sequence);
+            w.u32(affected);
+        }
+        Payload::NeedsRelieved { resident } => {
+            w.u8(15);
+            w.id(resident);
+        }
+        Payload::StormApplied {
+            sequence,
+            duration_us,
+        } => {
+            w.u8(16);
+            w.u64(sequence);
+            w.u64(duration_us);
+        }
+        Payload::StayedInside {
+            resident,
+            building,
+            activity,
+        } => {
+            w.u8(17);
+            w.id(resident);
+            w.id(building);
+            w.u8(activity as u8);
+        }
+        Payload::StormKeptInside { count } => {
+            w.u8(18);
+            w.u32(count);
+        }
+        Payload::StormEnded { sequence } => {
+            w.u8(19);
+            w.u64(sequence);
+        }
+        Payload::GatheringCalled {
+            building,
+            sequence,
+            duration_us,
+            attendees,
+        } => {
+            w.u8(20);
+            w.id(building);
+            w.u64(sequence);
+            w.u64(duration_us);
+            w.u32(attendees);
+        }
+        Payload::JoinedGathering { resident, building } => {
+            w.u8(21);
+            w.id(resident);
+            w.id(building);
+        }
+        Payload::GatheringEnded {
+            building,
+            attendees,
+        } => {
+            w.u8(22);
+            w.id(building);
+            w.u32(attendees);
+        }
     }
     Ok(())
 }
@@ -859,6 +924,38 @@ fn get_payload(r: &mut Reader) -> Result<Payload> {
         13 => Payload::Recovered {
             resident: r.id()?,
             health: r.u32()?,
+        },
+        14 => Payload::BlessApplied {
+            resident: r.id()?,
+            sequence: r.u64()?,
+            affected: r.u32()?,
+        },
+        15 => Payload::NeedsRelieved { resident: r.id()? },
+        16 => Payload::StormApplied {
+            sequence: r.u64()?,
+            duration_us: r.u64()?,
+        },
+        17 => Payload::StayedInside {
+            resident: r.id()?,
+            building: r.id()?,
+            activity: ws_events::Activity::from_tag(r.u8()?)
+                .ok_or(CodecError("invalid activity tag"))?,
+        },
+        18 => Payload::StormKeptInside { count: r.u32()? },
+        19 => Payload::StormEnded { sequence: r.u64()? },
+        20 => Payload::GatheringCalled {
+            building: r.id()?,
+            sequence: r.u64()?,
+            duration_us: r.u64()?,
+            attendees: r.u32()?,
+        },
+        21 => Payload::JoinedGathering {
+            resident: r.id()?,
+            building: r.id()?,
+        },
+        22 => Payload::GatheringEnded {
+            building: r.id()?,
+            attendees: r.u32()?,
         },
         _ => return Err(CodecError("unknown payload tag")),
     })
@@ -2395,7 +2492,7 @@ mod slice_vocabulary_tests {
     use super::*;
     #[test]
     fn slice_payload_codec_round_trips_every_slice_tag() {
-        for tag in [14, 15, 255] {
+        for tag in [23, 24, 255] {
             assert!(get_payload(&mut Reader::new(&[tag])).is_err());
         }
         let resident = EntityId::procedural(1);
@@ -2443,6 +2540,37 @@ mod slice_vocabulary_tests {
                 to: 3,
                 demoted: 4,
                 promoted: 0,
+            },
+            Payload::BlessApplied {
+                resident,
+                sequence: 6,
+                affected: 1,
+            },
+            Payload::NeedsRelieved { resident },
+            Payload::StormApplied {
+                sequence: 7,
+                duration_us: 3_600_000_000,
+            },
+            Payload::StayedInside {
+                resident,
+                building: destination,
+                activity: ws_events::Activity::School,
+            },
+            Payload::StormKeptInside { count: 9 },
+            Payload::StormEnded { sequence: 7 },
+            Payload::GatheringCalled {
+                building: destination,
+                sequence: 8,
+                duration_us: 600_000_000,
+                attendees: 7,
+            },
+            Payload::JoinedGathering {
+                resident,
+                building: destination,
+            },
+            Payload::GatheringEnded {
+                building: destination,
+                attendees: 3,
             },
         ] {
             let mut writer = Writer::new();

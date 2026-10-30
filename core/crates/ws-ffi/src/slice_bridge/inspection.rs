@@ -104,6 +104,42 @@ fn event_words(payload: Payload) -> Result<[u64; 5], &'static str> {
             u64::from(demoted),
             u64::from(promoted),
         ],
+        Payload::BlessApplied {
+            resident,
+            sequence,
+            affected,
+        } => [resident.raw(), sequence, u64::from(affected), 0, 0],
+        Payload::NeedsRelieved { resident } => [resident.raw(), 0, 0, 0, 0],
+        Payload::StormApplied {
+            sequence,
+            duration_us,
+        } => [sequence, duration_us, 0, 0, 0],
+        Payload::StayedInside {
+            resident,
+            building,
+            activity,
+        } => [resident.raw(), building.raw(), activity as u64, 0, 0],
+        Payload::StormKeptInside { count } => [u64::from(count), 0, 0, 0, 0],
+        Payload::StormEnded { sequence } => [sequence, 0, 0, 0, 0],
+        Payload::GatheringCalled {
+            building,
+            sequence,
+            duration_us,
+            attendees,
+        } => [
+            building.raw(),
+            sequence,
+            duration_us,
+            u64::from(attendees),
+            0,
+        ],
+        Payload::JoinedGathering { resident, building } => {
+            [resident.raw(), building.raw(), 0, 0, 0]
+        }
+        Payload::GatheringEnded {
+            building,
+            attendees,
+        } => [building.raw(), u64::from(attendees), 0, 0, 0],
         _ => return Err("unsupported inspection event vocabulary"),
     })
 }

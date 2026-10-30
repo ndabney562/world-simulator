@@ -331,6 +331,71 @@ pub enum Payload {
         /// Zero for duplicate, one for a new episode.
         affected: u32,
     },
+    /// Real-slice bless root, including accepted no-ops (ADR 0038).
+    BlessApplied {
+        /// Target resident.
+        resident: EntityId,
+        /// Normalized operation-record index.
+        sequence: u64,
+        /// Zero for a no-op, one when an episode or need deficit was cured.
+        affected: u32,
+    },
+    /// A bless relieved a healthy resident's need deficits.
+    NeedsRelieved {
+        /// Relieved resident.
+        resident: EntityId,
+    },
+    /// Real-slice storm root (ADR 0038).
+    StormApplied {
+        /// Normalized operation-record index.
+        sequence: u64,
+        /// Requested duration, integer microseconds.
+        duration_us: u64,
+    },
+    /// A departure the storm deferred.
+    StayedInside {
+        /// Resident that stayed.
+        resident: EntityId,
+        /// Building the resident stayed in.
+        building: EntityId,
+        /// Activity of the deferred row.
+        activity: Activity,
+    },
+    /// Storm summary at its end.
+    StormKeptInside {
+        /// Number of `StayedInside` events recorded during the storm.
+        count: u32,
+    },
+    /// The storm ended.
+    StormEnded {
+        /// Operation-record index of the storm root.
+        sequence: u64,
+    },
+    /// Real-slice gathering root (ADR 0038).
+    GatheringCalled {
+        /// Target featured building.
+        building: EntityId,
+        /// Normalized operation-record index.
+        sequence: u64,
+        /// Requested duration, integer microseconds.
+        duration_us: u64,
+        /// Residents summoned, at most seven.
+        attendees: u32,
+    },
+    /// An attendee arrived at the gathering.
+    JoinedGathering {
+        /// Attending resident.
+        resident: EntityId,
+        /// Gathering building.
+        building: EntityId,
+    },
+    /// The gathering ended.
+    GatheringEnded {
+        /// Gathering building.
+        building: EntityId,
+        /// Residents that recorded `JoinedGathering`.
+        attendees: u32,
+    },
     /// An ill resident arrived at its home.
     ReturnedHome {
         /// The resident.
@@ -347,6 +412,15 @@ impl Payload {
             Self::NeighbourCheckIn { .. } => "social.neighbour_check_in",
             Self::Recovered { .. } => "life.recovered",
             Self::SliceIllnessApplied { .. } => "intervention.slice_illness_applied",
+            Self::BlessApplied { .. } => "intervention.bless_applied",
+            Self::NeedsRelieved { .. } => "life.needs_relieved",
+            Self::StormApplied { .. } => "intervention.storm_applied",
+            Self::StayedInside { .. } => "life.stayed_inside",
+            Self::StormKeptInside { .. } => "life.storm_kept_inside",
+            Self::StormEnded { .. } => "life.storm_ended",
+            Self::GatheringCalled { .. } => "intervention.gathering_called",
+            Self::JoinedGathering { .. } => "social.joined_gathering",
+            Self::GatheringEnded { .. } => "social.gathering_ended",
             Self::WorldCreated { .. } => "sim.world_created",
             Self::CommandApplied { .. } => "sim.command_applied",
             Self::LodChanged { .. } => "sim.lod_changed",
@@ -366,6 +440,15 @@ impl Payload {
             Self::NeighbourCheckIn { .. } => 11,
             Self::Recovered { .. } => 12,
             Self::SliceIllnessApplied { .. } => 13,
+            Self::BlessApplied { .. } => 14,
+            Self::NeedsRelieved { .. } => 15,
+            Self::StormApplied { .. } => 16,
+            Self::StayedInside { .. } => 17,
+            Self::StormKeptInside { .. } => 18,
+            Self::StormEnded { .. } => 19,
+            Self::GatheringCalled { .. } => 20,
+            Self::JoinedGathering { .. } => 21,
+            Self::GatheringEnded { .. } => 22,
             Self::WorldCreated { .. } => 0,
             Self::CommandApplied { .. } => 1,
             Self::LodChanged { .. } => 2,
@@ -381,10 +464,19 @@ impl Payload {
     /// Initial quantized importance, without floating relevance calculation.
     pub fn importance(self) -> u16 {
         match self {
-            Self::MissedDuty { .. } | Self::NeighbourCheckIn { .. } | Self::Recovered { .. } => {
-                8192
-            }
-            Self::SliceIllnessApplied { .. } => 32768,
+            Self::MissedDuty { .. }
+            | Self::NeighbourCheckIn { .. }
+            | Self::Recovered { .. }
+            | Self::StayedInside { .. }
+            | Self::JoinedGathering { .. }
+            | Self::NeedsRelieved { .. }
+            | Self::StormKeptInside { .. }
+            | Self::StormEnded { .. }
+            | Self::GatheringEnded { .. } => 8192,
+            Self::SliceIllnessApplied { .. }
+            | Self::BlessApplied { .. }
+            | Self::StormApplied { .. }
+            | Self::GatheringCalled { .. } => 32768,
             Self::WorldCreated { .. } => 65535,
             Self::CommandApplied { .. } => 0,
             Self::LodChanged { .. } => 16384,
@@ -396,6 +488,16 @@ impl Payload {
             Self::SliceCreated { .. } => 65535,
             Self::SliceLodChanged { .. } => 16384,
         }
+    }
+    /// True for the real-slice intervention roots (tags 13, 14, 16 and 20).
+    pub fn is_slice_root(&self) -> bool {
+        matches!(
+            self,
+            Self::SliceIllnessApplied { .. }
+                | Self::BlessApplied { .. }
+                | Self::StormApplied { .. }
+                | Self::GatheringCalled { .. }
+        )
     }
 }
 /// Non-causal related event link; TP-008 producers leave this empty.
@@ -532,6 +634,36 @@ impl Event {
                 duration_us,
                 u64::from(affected),
             ]),
+            Payload::BlessApplied {
+                resident,
+                sequence,
+                affected,
+            } => sink(&[resident.raw(), sequence, u64::from(affected)]),
+            Payload::NeedsRelieved { resident } => sink(&[resident.raw()]),
+            Payload::StormApplied {
+                sequence,
+                duration_us,
+            } => sink(&[sequence, duration_us]),
+            Payload::StayedInside {
+                resident,
+                building,
+                activity,
+            } => sink(&[resident.raw(), building.raw(), activity as u64]),
+            Payload::StormKeptInside { count } => sink(&[u64::from(count)]),
+            Payload::StormEnded { sequence } => sink(&[sequence]),
+            Payload::GatheringCalled {
+                building,
+                sequence,
+                duration_us,
+                attendees,
+            } => sink(&[building.raw(), sequence, duration_us, u64::from(attendees)]),
+            Payload::JoinedGathering { resident, building } => {
+                sink(&[resident.raw(), building.raw()])
+            }
+            Payload::GatheringEnded {
+                building,
+                attendees,
+            } => sink(&[building.raw(), u64::from(attendees)]),
             Payload::WorldCreated {
                 seed,
                 dataset,
@@ -1021,6 +1153,54 @@ impl EventStore {
                         return Err(EventError::Order);
                     }
                 }
+                Payload::BlessApplied {
+                    resident: id,
+                    sequence,
+                    ..
+                } => {
+                    if !known(id) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.origin != Origin::Command(sequence) || !c.causes.is_empty() {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::StormApplied { sequence, .. } => {
+                    if c.origin != Origin::Command(sequence) || !c.causes.is_empty() {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::GatheringCalled {
+                    building, sequence, ..
+                } => {
+                    if !known(building) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    if c.origin != Origin::Command(sequence) || !c.causes.is_empty() {
+                        return Err(EventError::Order);
+                    }
+                }
+                Payload::NeedsRelieved { resident: id }
+                | Payload::JoinedGathering { resident: id, .. }
+                | Payload::StayedInside { resident: id, .. } => {
+                    if !known(id) {
+                        return Err(EventError::UnknownActor);
+                    }
+                    let other = match c.payload {
+                        Payload::JoinedGathering { building, .. }
+                        | Payload::StayedInside { building, .. } => Some(building),
+                        _ => None,
+                    };
+                    if other.is_some_and(|b| !known(b)) {
+                        return Err(EventError::UnknownActor);
+                    }
+                }
+                Payload::GatheringEnded { building, .. } => {
+                    if !known(building) {
+                        return Err(EventError::UnknownActor);
+                    }
+                }
+                Payload::StormKeptInside { .. } | Payload::StormEnded { .. } => {}
                 Payload::WorldCreated { .. } => {
                     if c.system != 0 || c.lod != 0 {
                         return Err(EventError::Order);
@@ -1248,10 +1428,8 @@ impl EventStore {
                 None => break,
             }
         }
-        matches!(
-            at.record.payload,
-            Payload::InterventionApplied { .. } | Payload::SliceIllnessApplied { .. }
-        )
+        (matches!(at.record.payload, Payload::InterventionApplied { .. })
+            || at.record.payload.is_slice_root())
         .then_some(at)
     }
     /// Reconstructs counters/indices from committed records (not a save codec).
