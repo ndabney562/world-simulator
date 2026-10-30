@@ -1,6 +1,6 @@
 # ADR 0037: Minimum device is the iPhone 16 Pro
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Decided by: Noah (Product Owner), option chosen in a local Claude session on 2026-10-29; proposal drafted by Claude
 - Issue: [#120](https://github.com/ndabney562/world-simulator/issues/120)

@@ -40,4 +40,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0034](0034-slice-illness-and-consequences.md) | Real-slice illness, recovery and bounded causal consequences | Accepted |
 | [0035](0035-browser-delivery-webgl-wasm.md) | Browser delivery with Unity WebGL and pinned Rust Wasm build | Accepted |
 | [0036](0036-slice-persistence.md) | Slice persistence in save format 4 and off-thread writing | Accepted |
-| [0037](0037-minimum-device-iphone-16-pro.md) | Minimum device is the iPhone 16 Pro | Proposed |
+| [0037](0037-minimum-device-iphone-16-pro.md) | Minimum device is the iPhone 16 Pro | Accepted |
