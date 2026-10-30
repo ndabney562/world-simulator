@@ -14,6 +14,7 @@ use ws_world::slice::population::{PopulatedSlice, PopulationError};
 pub mod illness;
 #[path = "slice/powers.rs"]
 mod powers;
+pub use powers::Storm;
 
 #[path = "slice_inspect.rs"]
 pub mod inspect;
@@ -98,7 +99,7 @@ pub enum Operation {
         /// Existing living resident.
         resident: EntityId,
     },
-    /// Block-wide storm (ADR 0038 §3). Rejected as `Busy` until #125 Task 5.
+    /// Block-wide storm (ADR 0038 §3); rejected while a storm or a gathering is active.
     Storm {
         /// Grid-aligned duration, one tick through one hour.
         duration_us: u64,
@@ -179,6 +180,7 @@ pub struct SliceSimulation {
     population: PopulatedSlice,
     vitals: ws_world::slice::vitals::Vitals,
     illness: illness::Illness,
+    powers: powers::Powers,
     schedules: Schedules,
     behavior: Behavior,
     lod: Controller,
@@ -256,6 +258,7 @@ impl SliceSimulation {
             population,
             vitals,
             illness: illness::Illness::default(),
+            powers: powers::Powers::default(),
             schedules,
             behavior,
             lod,
@@ -343,13 +346,23 @@ impl SliceSimulation {
                 self.vitals.state_hash(),
             ],
         );
-        if !self.illness.has_episodes() {
-            return vitals;
+        let state = if self.illness.has_episodes() {
+            ws_rng::hash(
+                0,
+                Purpose::new("ws-sim/slice-state/v3").value(),
+                &[vitals, u64::from(illness::VERSION), self.illness.hash()],
+            )
+        } else {
+            vitals
+        };
+        // Mixed only while a block power is active, so earlier goldens hold.
+        if !self.powers.active() {
+            return state;
         }
         ws_rng::hash(
             0,
-            Purpose::new("ws-sim/slice-state/v3").value(),
-            &[vitals, u64::from(illness::VERSION), self.illness.hash()],
+            Purpose::new("ws-sim/slice-state/v4").value(),
+            &[state, self.powers.hash()],
         )
     }
     fn legacy_state_hash(&self) -> u64 {
@@ -425,7 +438,7 @@ impl SliceSimulation {
             }
             Operation::Storm { duration_us } => {
                 self.operation_hash.write_words(&[9, duration_us]);
-                report.error = Some(SliceError::Rejected(illness::Rejection::Busy));
+                report.error = self.cast_storm(duration_us).err();
             }
             Operation::Gather {
                 building,
@@ -610,6 +623,12 @@ impl SliceSimulation {
                             .map_err(|_| ReplayError::Record(index))?;
                         world.operation_hash.write_words(&[8, resident.raw()]);
                     }
+                    Operation::Storm { duration_us } if record.report.committed == 0 => {
+                        world
+                            .storm_preflight(duration_us)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world.operation_hash.write_words(&[9, duration_us]);
+                    }
                     Operation::HostElapsed(elapsed) => {
                         let mut target = world.clock.clone();
                         let due = target
@@ -708,6 +727,8 @@ impl SliceSimulation {
             .lod
             .prepare(&mut behavior, clock.scale().multiplier())
             .map_err(lod_error)?;
+        let (powers, mut storm_facts) =
+            powers::storm_tick(self.powers, &self.events, &behavior, clock.now())?;
         #[cfg(test)]
         if self.fail_controller_tick == Some(clock.steps()) {
             return Err(SliceError::Lod(LodError::Resource));
@@ -756,6 +777,10 @@ impl SliceSimulation {
             .try_reserve(illness_plan.facts.len())
             .map_err(|_| SliceError::History(EventError::Resource))?;
         facts.append(&mut illness_plan.facts);
+        facts
+            .try_reserve(storm_facts.len())
+            .map_err(|_| SliceError::History(EventError::Resource))?;
+        facts.append(&mut storm_facts);
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
         let updates = self.illness.stage_index(
             &self.events,
@@ -769,6 +794,7 @@ impl SliceSimulation {
         behavior.commit();
         lod.commit();
         self.illness.commit(illness_plan, updates, &mut self.vitals);
+        self.powers = powers;
         self.next_change = next;
         self.clock = clock;
         Ok(())

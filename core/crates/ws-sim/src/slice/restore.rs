@@ -325,6 +325,8 @@ impl SliceSimulation {
             population,
             vitals,
             illness,
+            // Format 4 holds no block power; format 5 restores the storm (#125 Task 7).
+            powers: super::powers::Powers::default(),
             schedules,
             behavior,
             lod,

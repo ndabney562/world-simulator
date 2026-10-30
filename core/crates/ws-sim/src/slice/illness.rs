@@ -31,7 +31,7 @@ pub enum Rejection {
 /// identically by the live producers and [`SliceSimulation::rebuild_consequence_index`].
 /// Tag 17 is `StayedInside` (ADR 0038 §3).
 pub const INDEX_EXCLUDED: &[u16] = &[17];
-fn excluded(payload: &Payload) -> bool {
+pub(super) fn excluded(payload: &Payload) -> bool {
     u16::try_from(payload.tag()).is_ok_and(|t| INDEX_EXCLUDED.contains(&t))
 }
 /// Canonical persistent illness episode.
