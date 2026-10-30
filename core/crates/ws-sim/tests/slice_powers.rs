@@ -907,3 +907,585 @@ fn storm_defers_identically_at_l1_and_l2() {
     assert!(!l2.0.is_empty());
     assert_eq!(run(true), l2);
 }
+
+// ---- Gathering (ADR 0038 §4) ----
+
+const GATHER_US: u64 = 30 * 60_000_000;
+
+/// Monday 21:00, when most residents are home; every resident at L1.
+fn gather_world() -> SliceSimulation {
+    let mut w = SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(21 * 3_600_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    for id in w.population().residents().ids().to_vec() {
+        ok(
+            &mut w,
+            Operation::SetDetail {
+                resident: id,
+                level: ws_life::behavior::Detail::L1,
+            },
+        );
+    }
+    w
+}
+fn featured(w: &SliceSimulation, role: &str) -> EntityId {
+    w.population()
+        .world()
+        .buildings()
+        .iter()
+        .find(|(_, b)| b.featured == Some(role))
+        .unwrap()
+        .0
+}
+fn count(w: &SliceSimulation, root: EventId, tag: u32) -> usize {
+    tags(w, root).into_iter().filter(|t| *t == tag).count()
+}
+/// ADR 0038 §4 eligibility from public state, in ascending ID order, at most seven.
+fn expected_attendees(w: &SliceSimulation, target: EntityId) -> Vec<EntityId> {
+    let buildings = w.population().world().buildings();
+    let to = buildings.get(target).unwrap();
+    w.population()
+        .residents()
+        .iter()
+        .filter(|(id, r)| {
+            let s = w.resident(*id).unwrap();
+            let state = w.illness_state(*id).unwrap();
+            let v = w.vitals().get(*id).unwrap();
+            s.detail == ws_life::behavior::Detail::L1
+                && s.logical.location == ws_life::Location::AtBuilding(r.home)
+                && s.logical.activity == ws_life::Activity::Home
+                && buildings
+                    .get(r.home)
+                    .is_some_and(|home| ws_sim::slice::distance_ok(home, to))
+                && v.life() == Life::Alive
+                && v.health() == 100
+                && !state.active
+                && state.override_kind == 0
+        })
+        .map(|(id, _)| id)
+        .take(7)
+        .collect()
+}
+/// Steps one tick at a time until the gathering episode clears (bounded).
+fn until_cleared(w: &mut SliceSimulation) {
+    for _ in 0..3 * 60 * MINUTE {
+        if w.gathering().is_none() {
+            return;
+        }
+        ok(w, Operation::Steps(1));
+    }
+    panic!("gathering never cleared");
+}
+
+#[test]
+fn distance_golden() {
+    let w = world();
+    let b = w.population().world().buildings();
+    let ids = b.ids().to_vec();
+    assert_eq!(ids.len(), 4);
+    let mut rows = Vec::new();
+    for i in 0..4 {
+        for j in i + 1..4 {
+            let (x, y) = (b.get(ids[i]).unwrap(), b.get(ids[j]).unwrap());
+            let (dx, dy) = ws_sim::slice::offset_mm(x, y);
+            // Symmetric in magnitude, exactly as D2's truncating integer division.
+            assert_eq!(ws_sim::slice::offset_mm(y, x), (-dx, -dy));
+            rows.push((x.bin, y.bin, dx, dy, ws_sim::slice::distance_ok(x, y)));
+        }
+    }
+    assert_eq!(rows, GOLDEN_DISTANCES);
+    // The boundary is inclusive: exactly 150 000 mm north is within reach.
+    let a = *b.get(ids[0]).unwrap();
+    let mut c = a;
+    // ceil(150 000 * 1e9 / 111 133) pdeg is the first offset reaching 150 000 mm.
+    c.centroid.lat_pdeg += 1_349_734_103;
+    assert_eq!(ws_sim::slice::offset_mm(&a, &c).1, 150_000);
+    assert!(ws_sim::slice::distance_ok(&a, &c));
+    c.centroid.lat_pdeg += 9_000;
+    assert_eq!(ws_sim::slice::offset_mm(&a, &c).1, 150_001);
+    assert!(!ws_sim::slice::distance_ok(&a, &c));
+}
+/// (BIN a, BIN b, dx mm, dy mm, within 150 000 mm), pairs in ascending EntityId order.
+/// Rowhouse 3153708, small apartment building 3153734, two-family house 3153715,
+/// shop with apartment above 3153706. The longest pair is about 129 m.
+const GOLDEN_DISTANCES: &[(u32, u32, i64, i64, bool)] = &[
+    (3153708, 3153734, 81_007, -69_458, true),
+    (3153708, 3153715, 46_663, -16_003, true),
+    (3153708, 3153706, -22_530, 7_557, true),
+    (3153734, 3153715, -34_343, 53_454, true),
+    (3153734, 3153706, -103_537, 77_015, true),
+    (3153715, 3153706, -69_194, 23_560, true),
+];
+
+#[test]
+fn gathering_full_cycle() {
+    let mut w = gather_world();
+    let target = featured(&w, "rowhouse");
+    let expected = expected_attendees(&w, target);
+    let n = expected.len();
+    // Seven of the residents at home at 21:00 qualify: the cap binds.
+    assert_eq!(n, 7);
+    let start = w.clock().now();
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: target,
+            duration_us: GATHER_US,
+        },
+    );
+    let root = last_root(&w);
+    match w.events().get(root).unwrap().record.payload {
+        Payload::GatheringCalled {
+            building,
+            duration_us,
+            attendees,
+            ..
+        } => {
+            assert_eq!((building, duration_us), (target, GATHER_US));
+            assert_eq!(attendees as usize, n);
+        }
+        p => panic!("{p:?}"),
+    }
+    let g = *w.gathering().unwrap();
+    assert_eq!((g.building, g.root, g.start), (target, root, start));
+    assert_eq!(
+        g.end,
+        SimTime::from_micros_since_epoch(start.as_micros_since_epoch() + GATHER_US as i64)
+    );
+    let chosen: Vec<_> = g.attendees().iter().map(|(id, _)| *id).collect();
+    assert_eq!(chosen, expected);
+    for (id, phase) in g.attendees() {
+        assert_eq!(*phase, ws_sim::slice::Phase::Outbound);
+        let s = w.illness_state(*id).unwrap();
+        assert_eq!((s.override_kind, s.override_root), (3, root.0));
+    }
+    let (group, _) = w.consequences(root).unwrap();
+    assert_eq!((group.tag, group.subject), (20, Some(target)));
+    assert_eq!(group.end, Some(g.end));
+    assert_eq!(group.ids(), &[root]);
+    until_cleared(&mut w);
+    assert_eq!(count(&w, root, 21), n);
+    assert_eq!(count(&w, root, 6), n);
+    assert_eq!(count(&w, root, 22), 1);
+    let ids = w.consequences(root).unwrap().0.ids().to_vec();
+    assert_eq!(ids.len(), 2 + 2 * n);
+    assert!(ids.len() <= 16);
+    for id in &ids[1..] {
+        let e = w.events().get(*id).unwrap();
+        let causes: Vec<_> = e.record.causes.iter().copied().collect();
+        assert_eq!(causes.len(), 1);
+        assert_eq!(causes[0].target, Target::Id(root));
+        assert_eq!(
+            (causes[0].relation, causes[0].confidence),
+            (Relation::CausedBy, Confidence::Direct)
+        );
+        match e.record.payload {
+            Payload::JoinedGathering { resident, building } => {
+                assert!(chosen.contains(&resident));
+                assert_eq!(building, target);
+                assert!(e.record.time < g.end);
+            }
+            Payload::ReturnedHome { resident, home } => {
+                assert!(chosen.contains(&resident));
+                assert_eq!(home, w.population().residents().get(resident).unwrap().home);
+                assert!(e.record.time >= g.end);
+            }
+            Payload::GatheringEnded {
+                building,
+                attendees,
+            } => {
+                assert_eq!((building, attendees as usize), (target, n));
+                assert_eq!(e.record.time, g.end);
+            }
+            p => panic!("{p:?}"),
+        }
+    }
+    // Everyone is home again, and the episode no longer enters the state hash.
+    for id in &chosen {
+        let home = w.population().residents().get(*id).unwrap().home;
+        assert_eq!(
+            w.resident(*id).unwrap().logical.location,
+            ws_life::Location::AtBuilding(home)
+        );
+    }
+    assert!(w.gathering().is_none());
+}
+
+#[test]
+fn gathering_rejections() {
+    let mut w = gather_world();
+    let target = featured(&w, "rowhouse");
+    let resident = w.population().residents().ids()[0];
+    for (building, duration_us, why) in [
+        (resident, GATHER_US, Rejection::Building),
+        (target, 599_999, Rejection::Duration),
+        (target, 600_000_000 - 100_000, Rejection::Duration),
+        (target, 3_600_000_000 + 100_000, Rejection::Duration),
+        (target, 600_000_001, Rejection::Duration),
+    ] {
+        let before = w.checkpoint();
+        let r = w
+            .apply(Operation::Gather {
+                building,
+                duration_us,
+            })
+            .unwrap();
+        assert_eq!(r.error, Some(SliceError::Rejected(why)));
+        assert_eq!(w.checkpoint(), before);
+        assert!(w.gathering().is_none());
+    }
+    // Both bounds are inclusive.
+    let mut edge = w.clone();
+    ok(
+        &mut edge,
+        Operation::Gather {
+            building: target,
+            duration_us: 600_000_000,
+        },
+    );
+    let mut edge = w.clone();
+    ok(
+        &mut edge,
+        Operation::Gather {
+            building: target,
+            duration_us: 3_600_000_000,
+        },
+    );
+    // A gathering during a storm, and a storm or second gathering during a gathering.
+    let mut stormy = w.clone();
+    ok(
+        &mut stormy,
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+    );
+    let before = stormy.checkpoint();
+    let r = stormy
+        .apply(Operation::Gather {
+            building: target,
+            duration_us: GATHER_US,
+        })
+        .unwrap();
+    assert_eq!(r.error, Some(SliceError::Rejected(Rejection::Busy)));
+    assert_eq!(stormy.checkpoint(), before);
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: target,
+            duration_us: GATHER_US,
+        },
+    );
+    let before = w.checkpoint();
+    for op in [
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+        Operation::Gather {
+            building: target,
+            duration_us: GATHER_US,
+        },
+    ] {
+        let r = w.apply(op).unwrap();
+        assert_eq!(r.error, Some(SliceError::Rejected(Rejection::Busy)));
+        assert_eq!(w.checkpoint(), before);
+    }
+    // Busy until the episode clears, then accepted again.
+    until_cleared(&mut w);
+    ok(
+        &mut w,
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+    );
+}
+
+#[test]
+fn zero_eligible_accepts_with_zero() {
+    // Every resident is L2 by default, so nobody qualifies.
+    let mut w = SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(21 * 3_600_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    let target = featured(&w, "two-family house");
+    let hash = w.state_hash();
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: target,
+            duration_us: 600_000_000,
+        },
+    );
+    let root = last_root(&w);
+    assert!(matches!(
+        w.events().get(root).unwrap().record.payload,
+        Payload::GatheringCalled { attendees: 0, .. }
+    ));
+    assert!(w.gathering().unwrap().attendees().is_empty());
+    // An active episode enters the state hash.
+    assert_ne!(w.state_hash(), hash);
+    until_cleared(&mut w);
+    assert_eq!(tags(&w, root), vec![20, 22]);
+    let ended = *w.consequences(root).unwrap().0.ids().last().unwrap();
+    assert!(matches!(
+        w.events().get(ended).unwrap().record.payload,
+        Payload::GatheringEnded { attendees: 0, .. }
+    ));
+}
+
+/// Review Focus 2: an illness cast on a joined attendee ends their attendance
+/// under ADR 0034's interruption rule; their way home belongs to the illness.
+#[test]
+fn illness_interrupts_attendee_and_index_rebuilds_equal() {
+    let mut w = gather_world();
+    let target = featured(&w, "rowhouse");
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: target,
+            duration_us: GATHER_US,
+        },
+    );
+    let root = last_root(&w);
+    let g = *w.gathering().unwrap();
+    let n = g.attendees().len();
+    // An attendee who must walk back from the target.
+    let (sick, _) = *g
+        .attendees()
+        .iter()
+        .find(|(id, _)| w.population().residents().get(*id).unwrap().home != target)
+        .expect("an attendee from another building");
+    ok(&mut w, Operation::Steps(10 * MINUTE));
+    let joined = |w: &SliceSimulation| {
+        w.gathering()
+            .unwrap()
+            .attendees()
+            .iter()
+            .find(|(id, _)| *id == sick)
+            .unwrap()
+            .1
+    };
+    assert_eq!(joined(&w), ws_sim::slice::Phase::Joined);
+    let hash = w.state_hash();
+    ok(
+        &mut w,
+        Operation::Afflict {
+            resident: sick,
+            severity: 2,
+            duration_us: 2 * HOUR_US,
+        },
+    );
+    let illness_root = last_root(&w);
+    assert_eq!(joined(&w), ws_sim::slice::Phase::Interrupted);
+    assert_ne!(w.state_hash(), hash);
+    assert_eq!(w.illness_state(sick).unwrap().override_kind, 1);
+    until_cleared(&mut w);
+    ok(&mut w, Operation::Steps(10 * MINUTE));
+    let returned = |w: &SliceSimulation, r: EventId| {
+        w.consequences(r)
+            .unwrap()
+            .1
+            .iter()
+            .filter(|e| matches!(e.record.payload, Payload::ReturnedHome { resident, .. } if resident == sick))
+            .count()
+    };
+    // The gathering group lacks the interrupted row; the illness group has it.
+    assert_eq!(returned(&w, root), 0);
+    assert_eq!(returned(&w, illness_root), 1);
+    assert_eq!(count(&w, root, 21), n);
+    assert_eq!(count(&w, root, 6), n - 1);
+    let ended = w
+        .consequences(root)
+        .unwrap()
+        .1
+        .iter()
+        .find_map(|e| match e.record.payload {
+            Payload::GatheringEnded { attendees, .. } => Some(attendees),
+            _ => None,
+        })
+        .unwrap();
+    // It still counts: the interrupted attendee recorded JoinedGathering.
+    assert_eq!(ended as usize, n);
+    let live = snapshot(&w);
+    let before = w.checkpoint();
+    w.rebuild_consequence_index().unwrap();
+    assert_eq!(snapshot(&w), live);
+    assert_eq!(w.checkpoint(), before);
+}
+
+/// Per-tick state hashes of a fixed gathering scenario, with a curse mid-gathering
+/// and a second gathering at another building after the first clears.
+fn gathering_hashes() -> (Vec<u64>, u64) {
+    let mut w = gather_world();
+    let rowhouse = featured(&w, "rowhouse");
+    let apartments = featured(&w, "small apartment building");
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: rowhouse,
+            duration_us: GATHER_US,
+        },
+    );
+    let sick = w.gathering().unwrap().attendees()[0].0;
+    let mut hashes = Vec::new();
+    for k in 0..80 * MINUTE {
+        if k == 5 * MINUTE {
+            ok(
+                &mut w,
+                Operation::Afflict {
+                    resident: sick,
+                    severity: 4,
+                    duration_us: 20 * 60_000_000,
+                },
+            );
+        }
+        if k == 60 * MINUTE {
+            ok(
+                &mut w,
+                Operation::Gather {
+                    building: apartments,
+                    duration_us: 600_000_000,
+                },
+            );
+        }
+        ok(&mut w, Operation::Steps(1));
+        hashes.push(w.state_hash());
+    }
+    (hashes, w.events().digest())
+}
+const GATHER_CHILD_ENV: &str = "WS_SIM_GATHER_REPLAY_CHILD";
+
+/// Runs only inside the child process started by `gathering_replays_same_and_separate_process`.
+#[test]
+fn gathering_replay_child() {
+    if std::env::var_os(GATHER_CHILD_ENV).is_none() {
+        return;
+    }
+    let (h, e) = gathering_hashes();
+    println!("gather_digest={:016x}", digest(&h, e));
+}
+
+#[test]
+fn gathering_replays_same_and_separate_process() {
+    let (a, ea) = gathering_hashes();
+    let (b, eb) = gathering_hashes();
+    assert_eq!((&a, ea), (&b, eb));
+    // Journal replay, including journalled rejections, reproduces the same world.
+    let mut w = gather_world();
+    let rowhouse = featured(&w, "rowhouse");
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: rowhouse,
+            duration_us: GATHER_US,
+        },
+    );
+    ok(&mut w, Operation::Steps(5 * MINUTE));
+    for op in [
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+        Operation::Gather {
+            building: rowhouse,
+            duration_us: GATHER_US,
+        },
+    ] {
+        let r = w.apply(op).unwrap();
+        assert_eq!(r.error, Some(SliceError::Rejected(Rejection::Busy)));
+    }
+    ok(&mut w, Operation::Steps(55 * MINUTE));
+    let shop = featured(&w, "shop with apartment above");
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: shop,
+            duration_us: 600_000_000,
+        },
+    );
+    ok(&mut w, Operation::Steps(5 * MINUTE));
+    let (replay, stopped) = SliceSimulation::replay(w.config(), w.operations()).unwrap();
+    assert!(!stopped);
+    assert_eq!(replay.checkpoint(), w.checkpoint());
+    assert_eq!(replay.operation_digest(), w.operation_digest());
+    assert_eq!(replay.gathering(), w.gathering());
+    assert_eq!(snapshot(&replay), snapshot(&w));
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "gathering_replay_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(GATHER_CHILD_ENV, "1")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let (_, hex) = stdout
+        .split_once("gather_digest=")
+        .expect("child printed a digest");
+    assert_eq!(u64::from_str_radix(&hex[..16], 16).unwrap(), digest(&a, ea));
+}
+
+#[test]
+fn rebuilt_index_equals_live_after_gathering() {
+    let mut w = gather_world();
+    let ids = w.population().residents().ids().to_vec();
+    let (rowhouse, house) = (featured(&w, "rowhouse"), featured(&w, "two-family house"));
+    ok(
+        &mut w,
+        Operation::Afflict {
+            resident: ids[0],
+            severity: 3,
+            duration_us: HOUR_US,
+        },
+    );
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: rowhouse,
+            duration_us: GATHER_US,
+        },
+    );
+    // The resident under an illness hold is never chosen.
+    let chosen = w.gathering().unwrap().attendees().to_vec();
+    assert!(!chosen.is_empty());
+    assert!(!chosen.iter().any(|(id, _)| *id == ids[0]));
+    let attendee = chosen[0].0;
+    ok(&mut w, Operation::Steps(5 * MINUTE));
+    ok(&mut w, Operation::Bless { resident: attendee });
+    until_cleared(&mut w);
+    ok(
+        &mut w,
+        Operation::Storm {
+            duration_us: 600_000_000,
+        },
+    );
+    ok(&mut w, Operation::Steps(15 * MINUTE));
+    ok(
+        &mut w,
+        Operation::Gather {
+            building: house,
+            duration_us: 600_000_000,
+        },
+    );
+    until_cleared(&mut w);
+    let gatherings: Vec<_> = roots(&w)
+        .into_iter()
+        .filter(|r| w.consequences(*r).unwrap().0.tag == 20)
+        .collect();
+    assert_eq!(gatherings.len(), 2);
+    let live = snapshot(&w);
+    let before = w.checkpoint();
+    w.rebuild_consequence_index().unwrap();
+    assert_eq!(snapshot(&w), live);
+    assert_eq!(w.checkpoint(), before);
+}

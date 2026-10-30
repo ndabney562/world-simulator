@@ -14,7 +14,7 @@ use ws_world::slice::population::{PopulatedSlice, PopulationError};
 pub mod illness;
 #[path = "slice/powers.rs"]
 mod powers;
-pub use powers::Storm;
+pub use powers::{Gathering, MAX_ATTENDEES, Phase, REACH_MM, Storm, distance_ok, offset_mm};
 
 #[path = "slice_inspect.rs"]
 pub mod inspect;
@@ -104,7 +104,8 @@ pub enum Operation {
         /// Grid-aligned duration, one tick through one hour.
         duration_us: u64,
     },
-    /// Gathering at a featured building (ADR 0038 §4). Rejected as `Busy` until #125 Task 6.
+    /// Gathering at a featured residential building (ADR 0038 §4); rejected while
+    /// a gathering or a storm is active.
     Gather {
         /// Featured residential building.
         building: EntityId,
@@ -446,7 +447,7 @@ impl SliceSimulation {
             } => {
                 self.operation_hash
                     .write_words(&[10, building.raw(), duration_us]);
-                report.error = Some(SliceError::Rejected(illness::Rejection::Busy));
+                report.error = self.gather(building, duration_us).err();
             }
             Operation::CameraInterest(camera) => {
                 self.operation_hash.write_words(&[
@@ -629,6 +630,17 @@ impl SliceSimulation {
                             .map_err(|_| ReplayError::Record(index))?;
                         world.operation_hash.write_words(&[9, duration_us]);
                     }
+                    Operation::Gather {
+                        building,
+                        duration_us,
+                    } if record.report.committed == 0 => {
+                        world
+                            .gather_preflight(building, duration_us)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world
+                            .operation_hash
+                            .write_words(&[10, building.raw(), duration_us]);
+                    }
                     Operation::HostElapsed(elapsed) => {
                         let mut target = world.clock.clone();
                         let due = target
@@ -707,6 +719,8 @@ impl SliceSimulation {
                 ));
             }
         }
+        // Attendee routines before preparation may clear them at their rejoin.
+        let routines = powers::attendee_routines(&self.powers, &self.behavior)?;
         let mut behavior = self
             .behavior
             .prepare(clock.now())
@@ -729,6 +743,8 @@ impl SliceSimulation {
             .map_err(lod_error)?;
         let (powers, mut storm_facts) =
             powers::storm_tick(self.powers, &self.events, &behavior, clock.now())?;
+        let (powers, mut gathering_facts) =
+            powers::gathering_tick(powers, &routines, &behavior, self.clock.now(), clock.now())?;
         #[cfg(test)]
         if self.fail_controller_tick == Some(clock.steps()) {
             return Err(SliceError::Lod(LodError::Resource));
@@ -781,6 +797,10 @@ impl SliceSimulation {
             .try_reserve(storm_facts.len())
             .map_err(|_| SliceError::History(EventError::Resource))?;
         facts.append(&mut storm_facts);
+        facts
+            .try_reserve(gathering_facts.len())
+            .map_err(|_| SliceError::History(EventError::Resource))?;
+        facts.append(&mut gathering_facts);
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
         let updates = self.illness.stage_index(
             &self.events,

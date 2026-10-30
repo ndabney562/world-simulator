@@ -723,6 +723,11 @@ impl SliceSimulation {
         let mut episodes = self.illness.copied_episodes()?;
         let mut behavior = self.behavior.prepare(time).map_err(SliceError::Behavior)?;
         let old = behavior.common(resident).map_err(SliceError::Behavior)?;
+        // ADR 0038 §4: an attendee still bound for or at a gathering leaves it.
+        let powers = self.powers.interrupt(
+            resident,
+            behavior.routine(resident).map_err(SliceError::Behavior)?,
+        );
         let routine = behavior
             .afflict(resident, home, end, root.0)
             .map_err(SliceError::Behavior)?;
@@ -808,6 +813,7 @@ impl SliceSimulation {
         );
         self.illness.episodes = episodes;
         self.illness.groups.push(group);
+        self.powers = powers;
         Ok(())
     }
 }
