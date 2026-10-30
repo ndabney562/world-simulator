@@ -1,8 +1,8 @@
 # ADR 0038: Bless, storm and gathering as reversible slice powers (GP-002)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-30
-- Decided by: Product Owner (pending); proposed by Claude for issue #125
+- Decided by: Claude under the standing delegation (#122, PR #123, merged 2026-10-30); proposed by Claude for issue #125; fresh-context review recorded on PR #129; Noah can reverse
 - Issue: #125 (GP-002)
 - Supersedes: none; extends ADR 0021's effect vocabulary and ADR 0034's episode, override and consequence machinery
 
@@ -56,8 +56,8 @@ Each applies at the next committed tick boundary under the existing serializatio
 - Affected: `ws-events` (tags 14 to 22), `ws-life` (storm deferral, gathering visit), `ws-sim` (operations, episodes, index), `ws-persist` (format 5), `ws-ffi` (tags 6 to 8, validation), Unity `Bridge`, `UI`, EditMode tests, `docs/architecture/13-god-interventions.md`, this ADR's index entry.
 - Revisit if the 16-ID consequence cap proves too small for block-wide powers (an index with a `more` flag would be the next step), or if players need storms longer than one hour.
 
-## Open questions for the Product Owner
+## Decisions taken under the standing delegation
 
-1. Bless on a healthy resident: relieve needs (as proposed), or make bless illness-only and keep the HUD simpler?
-2. Gathering size: eight attendees within 150 m, or the whole building's residents?
-3. Save format 5 is required for storm and gathering state. Confirm this is acceptable under ADR 0036 (format changes are a recorded decision).
+1. Bless on a healthy resident relieves the four need deficits, as decided above, because issue #125 names both cures and lifted needs and the HUD treats both as one button.
+2. Gathering takes up to eight attendees within 150 m, in ascending ID order, so the consequence index stays bounded and the pathing cost is small on the phone.
+3. Save format 5 is accepted: storm and gathering episodes must survive a save, and ADR 0036's loader already reads earlier formats.
