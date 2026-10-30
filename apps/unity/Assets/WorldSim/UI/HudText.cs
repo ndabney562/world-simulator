@@ -30,7 +30,7 @@ namespace WorldSim.UI
         /// <summary>True once a consequence chain can produce no further events.</summary>
         public static bool Finished(SliceConsequences c)
         {
-            foreach(var e in c.Events) if(e.Tag==12||e.Tag==13&&e.E==0) return true;
+            foreach(var e in c.Events) if(e.Tag==12||(e.Tag==13&&e.E==0)) return true;
             return false;
         }
         public static string Resident(SliceInspection r)

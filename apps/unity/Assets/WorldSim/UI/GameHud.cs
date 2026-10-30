@@ -163,7 +163,9 @@ namespace WorldSim.UI
             if(settings.scale!=SliceDemo.HudUnits) settings.scale=SliceDemo.HudUnits;
             if(!built) {Build();if(!built) return;}
             double now=Time.realtimeSinceStartupAsDouble;
-            if(watches.Count>0&&now>=nextPoll) {Poll();nextPoll=now+PollSeconds;}
+            // A new cast polls once at any speed (its events are already committed); repeats
+            // wait while paused, since chains cannot progress and each poll forces a pacing boundary.
+            if(watches.Count>0&&now>=nextPoll&&(nextPoll==0||demo.CurrentFrame.Scale!=0)) {Poll();nextPoll=now+PollSeconds;}
             Refresh();
         }
         void Refresh()

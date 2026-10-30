@@ -186,7 +186,8 @@ namespace WorldSim.Rendering
         public string ResidentName(ulong id)
         {
             if(host==null) return "Someone";
-            var r=host.Inspect(id);return r.Kind==1?r.GivenName+" "+r.FamilyName:"Someone";
+            try {var r=host.Inspect(id);return r.Kind==1?r.GivenName+" "+r.FamilyName:"Someone";}
+            catch(Exception) {return "Someone";}
         }
         /// <summary>One explicit action; refresh keeps the same root and never reapplies illness.</summary>
         public bool InspectIllness()
