@@ -18,7 +18,9 @@ pub const INITIAL: Purpose = Purpose::new("ws-life/needs/initial");
 /// New independent equal-utility tie stream; address is resident and action.
 pub const TIE: Purpose = Purpose::new("ws-life/utility/tie");
 mod overrides;
+mod storm;
 pub use overrides::{Journey, RoutineOverride};
+pub use storm::{Deferral, StormHold, StormWindow};
 
 const STEP: i128 = 100_000;
 const MINUTE: i128 = 60_000_000;
@@ -222,6 +224,7 @@ struct ResidentState {
     // from hashing; a quiet tick need not re-evaluate the timetable for counts.
     logical: crate::Answer,
     routine: Option<RoutineOverride>,
+    storm_hold: Option<StormHold>,
 }
 /// Canonical persistent resident driving state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +243,8 @@ pub struct ResidentStateSnapshot {
     pub decisions: u64,
     /// Temporary routine override if active.
     pub routine: Option<RoutineOverride>,
+    /// Storm hold if deferred or not yet rejoined (D1); never an override.
+    pub storm_hold: Option<StormHold>,
 }
 /// Common current individual quantities, without reconstructing fine geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +288,9 @@ pub struct Behavior {
     navigation: Navigation,
     states: Vec<ResidentState>,
     next: Option<SimTime>,
+    // Immutable featured buildings (the LOD nodes), derived from the population.
+    featured: Vec<EntityId>,
+    storm: Option<StormWindow>,
 }
 /// Borrowed prepared domain transaction. Dropping it changes no canonical state;
 /// exclusive borrowing prevents stale/cross-world plans or mutation before commit.
@@ -290,8 +298,35 @@ pub struct Prepared<'a> {
     world: &'a mut Behavior,
     planned: Option<(Vec<ResidentState>, Option<SimTime>)>,
     time: SimTime,
+    storm: Option<StormWindow>,
+    deferrals: Vec<Deferral>,
 }
 impl Prepared<'_> {
+    /// New deferred departures in this prepare, in ascending resident order.
+    pub fn deferrals(&self) -> &[Deferral] {
+        &self.deferrals
+    }
+    /// Stages the block storm window. A storm cast now holds departures from the
+    /// next re-evaluation on; residents already in transit continue. None clears
+    /// it, or, while residents are held, ends it at the next tick (after any row
+    /// deferred at this instant) so every hold resumes by the post-storm rule.
+    pub fn set_storm(&mut self, window: Option<StormWindow>) {
+        let held = self
+            .planned
+            .as_ref()
+            .map_or(&self.world.states, |(s, _)| s)
+            .iter()
+            .any(|s| s.storm_hold.is_some());
+        let tick = micros(self.time) + STEP;
+        self.storm = match window {
+            None if held => self.storm.map(|w| StormWindow {
+                end: i64::try_from(tick)
+                    .map_or(w.end, |t| w.end.min(SimTime::from_micros_since_epoch(t))),
+                ..w
+            }),
+            w => w,
+        };
+    }
     /// Boundary whose common needs/decisions have already been prepared.
     pub const fn time(&self) -> SimTime {
         self.time
@@ -377,6 +412,8 @@ impl Prepared<'_> {
         s.logical = routine.answer(time);
         s.action = routine.action(time);
         s.routine = Some(routine);
+        // An override supersedes a storm hold; override legs are never deferred.
+        s.storm_hold = None;
         Ok(())
     }
     /// Stages a finite illness routine, preserving any current journey.
@@ -432,6 +469,7 @@ impl Prepared<'_> {
             self.world.states = states;
             self.world.next = next;
         }
+        self.world.storm = self.storm;
     }
 }
 fn micros(t: SimTime) -> i128 {
@@ -501,6 +539,7 @@ impl Behavior {
                     decisions: 1,
                     logical: p.at(schedules.epoch(), start),
                     routine: None,
+                    storm_hold: None,
                 }
             })
             .collect();
@@ -510,6 +549,8 @@ impl Behavior {
             navigation,
             states,
             next: next_minute(schedules.epoch(), start),
+            featured: population.world().buildings().ids().to_vec(),
+            storm: None,
         })
     }
     /// Canonical resident states in entity ID order, for persistence.
@@ -522,17 +563,25 @@ impl Behavior {
             action: s.action,
             decisions: s.decisions,
             routine: s.routine,
+            storm_hold: s.storm_hold,
         })
     }
+    /// Retained storm window, kept after its end until every hold has rejoined.
+    pub const fn storm(&self) -> Option<StormWindow> {
+        self.storm
+    }
     /// Restores behavior directly from canonical driving states without replay.
+    /// `storm` is the saved window; every storm hold requires it.
     ///
     /// # Errors
-    /// Invalid roster, non-grid anchor, time before anchor or navigation failure.
+    /// Invalid roster, non-grid anchor, time before anchor, navigation failure, or
+    /// (`Time`) a storm hold without a storm window or alongside an override.
     pub fn from_saved_states(
         population: &PopulatedSlice,
         schedules: &Schedules,
         states: &[ResidentStateSnapshot],
         now: SimTime,
+        storm: Option<StormWindow>,
     ) -> Result<Self, BehaviorError> {
         let seed = population.baseline().structural.seed;
         let navigation = Navigation::new(population).map_err(BehaviorError::Navigation)?;
@@ -550,12 +599,16 @@ impl Behavior {
             if !grid(saved.anchor) || saved.anchor > now {
                 return Err(BehaviorError::Grid);
             }
-            let logical = match saved
-                .routine
-                .filter(|r| saved.anchor >= r.started && r.rejoin.is_none_or(|t| saved.anchor < t))
-            {
-                Some(r) => r.answer(saved.anchor),
-                None => schedules
+            let logical = match (
+                saved.routine.filter(|r| {
+                    saved.anchor >= r.started && r.rejoin.is_none_or(|t| saved.anchor < t)
+                }),
+                saved.storm_hold,
+            ) {
+                (_, Some(_)) if saved.routine.is_some() => return Err(BehaviorError::Time),
+                (_, Some(h)) => h.answer(saved.anchor, storm.ok_or(BehaviorError::Time)?.end),
+                (Some(r), None) => r.answer(saved.anchor),
+                (None, None) => schedules
                     .get(saved.id)
                     .ok_or(BehaviorError::UnknownResident)?
                     .at(schedules.epoch(), saved.anchor),
@@ -569,6 +622,7 @@ impl Behavior {
                 decisions: saved.decisions,
                 logical,
                 routine: saved.routine,
+                storm_hold: saved.storm_hold,
             });
         }
         Ok(Self {
@@ -577,6 +631,8 @@ impl Behavior {
             navigation,
             states: restored_states,
             next: next_minute(schedules.epoch(), now),
+            featured: population.world().buildings().ids().to_vec(),
+            storm,
         })
     }
     /// Retained routine, without advancing behavior.
@@ -588,11 +644,20 @@ impl Behavior {
         id: EntityId,
         time: SimTime,
     ) -> Result<crate::Answer, BehaviorError> {
-        let routine = self.routine(id)?;
+        let s = self.states[self.index(id)?];
+        let hold = s
+            .storm_hold
+            .zip(self.storm)
+            .filter(|(h, w)| !h.rejoined(time, w.end));
         Ok(
-            match routine.filter(|r| time >= r.started && r.rejoin.is_none_or(|t| time < t)) {
-                Some(r) => r.answer(time),
-                None => self
+            match (
+                s.routine
+                    .filter(|r| time >= r.started && r.rejoin.is_none_or(|t| time < t)),
+                hold,
+            ) {
+                (Some(r), _) => r.answer(time),
+                (None, Some((h, w))) => h.answer(time, w.end),
+                (None, None) => self
                     .schedules
                     .get(id)
                     .ok_or(BehaviorError::UnknownResident)?
@@ -632,17 +697,25 @@ impl Behavior {
         if self.states.iter().any(|s| time < s.anchor) {
             return Err(BehaviorError::Time);
         }
-        let first = self
-            .states
-            .iter()
-            .filter_map(|s| s.routine.and_then(|r| r.next(s.anchor)))
-            .chain(self.next)
-            .min();
+        let storm = self.storm;
+        // Exact re-evaluation times beyond the minute grid: routine phases and holds.
+        let phase = move |s: &ResidentState| {
+            s.routine
+                .and_then(|r| r.next(s.anchor))
+                .or_else(|| storm.and_then(|w| s.storm_hold.and_then(|h| h.next(s.anchor, w.end))))
+        };
+        // An ended storm is dropped once no resident holds.
+        let retained = |states: &[ResidentState]| {
+            storm.filter(|w| time < w.end || states.iter().any(|s| s.storm_hold.is_some()))
+        };
+        let first = self.states.iter().filter_map(phase).chain(self.next).min();
         let Some(mut at) = first.filter(|t| *t <= time) else {
             return Ok(Prepared {
+                storm: retained(&self.states),
                 world: self,
                 planned: None,
                 time,
+                deferrals: Vec::new(),
             });
         };
         let mut states = Vec::new();
@@ -651,11 +724,11 @@ impl Behavior {
             .map_err(|_| BehaviorError::Resource)?;
         states.extend_from_slice(&self.states);
         let mut next = self.next;
+        let mut deferrals: Vec<Deferral> = Vec::new();
         loop {
             let minute = next == Some(at);
             for (s, p) in states.iter_mut().zip(self.schedules.profiles()) {
-                let phase = s.routine.is_some_and(|r| r.next(s.anchor) == Some(at));
-                if !minute && !phase {
+                if !minute && phase(s) != Some(at) {
                     continue;
                 }
                 let count = if minute {
@@ -669,32 +742,45 @@ impl Behavior {
                 if s.routine.is_some_and(|r| r.rejoin.is_some_and(|t| at >= t)) {
                     s.routine = None;
                 }
-                s.logical = s
-                    .routine
-                    .map_or_else(|| p.at(self.schedules.epoch(), at), |r| r.answer(at));
-                s.action = s.routine.map_or_else(
-                    || choose(self.seed, s.id, s.decisions, s.logical.activity, s.needs),
-                    |r| r.action(at),
-                );
+                if let Some(r) = s.routine {
+                    s.logical = r.answer(at);
+                    s.action = r.action(at);
+                } else {
+                    let epoch = self.schedules.epoch();
+                    s.logical = match storm {
+                        Some(w) => {
+                            let (answer, new) = storm::step(w, &self.featured, p, epoch, s, at);
+                            if let Some(d) = new {
+                                deferrals
+                                    .try_reserve(1)
+                                    .map_err(|_| BehaviorError::Resource)?;
+                                // Stable: catch-up across minutes keeps time order per resident.
+                                let i = deferrals.partition_point(|x| x.resident <= d.resident);
+                                deferrals.insert(i, d);
+                            }
+                            answer
+                        }
+                        None => p.at(epoch, at),
+                    };
+                    s.action = choose(self.seed, s.id, s.decisions, s.logical.activity, s.needs);
+                }
                 s.decisions = count;
             }
             if minute {
                 next = next_minute(self.schedules.epoch(), at);
             }
-            let due = states
-                .iter()
-                .filter_map(|s| s.routine.and_then(|r| r.next(s.anchor)))
-                .chain(next)
-                .min();
+            let due = states.iter().filter_map(phase).chain(next).min();
             match due {
                 Some(t) if t <= time => at = t,
                 _ => break,
             }
         }
         Ok(Prepared {
+            storm: retained(&states),
             world: self,
             planned: Some((states, next)),
             time,
+            deferrals,
         })
     }
     /// Standalone headless catch-up convenience. Clock ownership remains in ws-sim.
@@ -888,18 +974,37 @@ impl Behavior {
                 h.write_u64(u64::from(v));
             }
         }
-        let baseline = h.finish();
-        if self.states.iter().all(|s| s.routine.is_none()) {
-            return baseline;
-        }
-        let mut h = SipHasher24::new(baseline, Purpose::new("ws-life/overrides/v1").value());
-        for s in &self.states {
-            h.write_words(&[s.id.raw(), u64::from(s.routine.is_some())]);
-            if let Some(r) = s.routine {
-                r.hash(&mut h);
+        let mut hash = h.finish();
+        if self.states.iter().any(|s| s.routine.is_some()) {
+            let mut h = SipHasher24::new(hash, Purpose::new("ws-life/overrides/v1").value());
+            for s in &self.states {
+                h.write_words(&[s.id.raw(), u64::from(s.routine.is_some())]);
+                if let Some(r) = s.routine {
+                    r.hash(&mut h);
+                }
             }
+            hash = h.finish();
         }
-        h.finish()
+        // Appended only with a storm or a hold, so earlier hashes stay byte-identical.
+        if self.storm.is_some() || self.states.iter().any(|s| s.storm_hold.is_some()) {
+            let mut h = SipHasher24::new(hash, Purpose::new("ws-life/storm/v1").value());
+            match self.storm {
+                Some(w) => h.write_words(&[
+                    1,
+                    w.start.as_micros_since_epoch() as u64,
+                    w.end.as_micros_since_epoch() as u64,
+                ]),
+                None => h.write_u64(0),
+            }
+            for s in &self.states {
+                h.write_words(&[s.id.raw(), u64::from(s.storm_hold.is_some())]);
+                if let Some(hold) = s.storm_hold {
+                    hold.hash(&mut h);
+                }
+            }
+            hash = h.finish();
+        }
+        hash
     }
 }
 

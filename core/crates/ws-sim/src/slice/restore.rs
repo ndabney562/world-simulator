@@ -136,9 +136,14 @@ impl SliceSimulation {
         let schedules = Schedules::new(&population, config.schedule_epoch)
             .map_err(|e| SliceRestoreError::Simulation(SliceError::Destination(e)))?;
 
-        let behavior =
-            Behavior::from_saved_states(&population, &schedules, &behavior_states, clock.now())
-                .map_err(|e| SliceRestoreError::Simulation(SliceError::Behavior(e)))?;
+        let behavior = Behavior::from_saved_states(
+            &population,
+            &schedules,
+            &behavior_states,
+            clock.now(),
+            None,
+        )
+        .map_err(|e| SliceRestoreError::Simulation(SliceError::Behavior(e)))?;
 
         let lod = Controller::from_saved_parts(
             &population,

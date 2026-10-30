@@ -15,7 +15,7 @@ pub struct Journey {
     pub arrival: i128,
 }
 impl Journey {
-    fn answer(self) -> Answer {
+    pub(super) fn answer(self) -> Answer {
         Answer {
             activity: Activity::Commute,
             location: Location::InTransit {
@@ -55,13 +55,22 @@ fn place(location: Location) -> Place {
     }
 }
 fn rejoin(profile: &Schedule, epoch: SimTime, home: EntityId, at: i128) -> Option<SimTime> {
+    rejoin_at(profile, epoch, Place::Building(home), at)
+}
+/// First instant at or after `at` where the baseline is at `place` or departs it then.
+pub(super) fn rejoin_at(
+    profile: &Schedule,
+    epoch: SimTime,
+    place: Place,
+    at: i128,
+) -> Option<SimTime> {
     let mut t = SimTime::from_micros_since_epoch(i64::try_from(at).ok()?);
     // At most a week of the finite daily table; no unbounded search at extremes.
     for _ in 0..128 {
         let a = profile.at(epoch, t);
-        if a.location == Location::AtBuilding(home)
+        if a.location == Location::from(place)
             || matches!(a.location,
-            Location::InTransit{from:Place::Building(id),departure,..} if id==home&&departure==micros(t))
+            Location::InTransit{from,departure,..} if from==place&&departure==micros(t))
         {
             return Some(t);
         }

@@ -1866,6 +1866,8 @@ pub(crate) fn get_slice_resident_state(
         action,
         decisions,
         routine,
+        // Format 4 has no storm table; Task 7 (format 5) persists holds.
+        storm_hold: None,
     })
 }
 
