@@ -22,6 +22,17 @@ pub enum Rejection {
     Duration,
     /// Episode deadline outside SimTime.
     Deadline,
+    /// Not a featured residential building (ADR 0038 gathering target).
+    Building,
+    /// A storm or a gathering is already active (ADR 0038).
+    Busy,
+}
+/// Payload tags recorded in history but never indexed under any root, applied
+/// identically by the live producers and [`SliceSimulation::rebuild_consequence_index`].
+/// Tag 17 is `StayedInside` (ADR 0038 §3).
+pub const INDEX_EXCLUDED: &[u16] = &[17];
+fn excluded(payload: &Payload) -> bool {
+    u16::try_from(payload.tag()).is_ok_and(|t| INDEX_EXCLUDED.contains(&t))
 }
 /// Canonical persistent illness episode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,13 +65,16 @@ pub struct Episode {
 pub struct Group {
     /// Intervention root.
     pub root: EventId,
-    /// Target resident.
-    pub subject: EntityId,
-    /// Requested severity.
+    /// Target resident or gathering building; None for a storm (no subject).
+    pub subject: Option<EntityId>,
+    /// The root's payload tag: 13 illness, 14 bless, 16 storm, 20 gathering.
+    pub tag: u16,
+    /// Requested severity; 0 for every non-illness root.
     pub severity: u32,
     /// Applied occurrence time.
     pub applied: SimTime,
-    /// None for an accepted duplicate no-op.
+    /// Illness: episode end, None for an accepted duplicate no-op. Bless: the
+    /// applied time. Storm and gathering: the episode end.
     pub end: Option<SimTime>,
     ids: [EventId; MAX_CONSEQUENCES],
     len: usize,
@@ -70,7 +84,60 @@ impl Group {
     pub fn ids(&self) -> &[EventId] {
         &self.ids[..self.len]
     }
-    fn append(&mut self, id: EventId) -> Result<(), SliceError> {
+    /// The group a slice root starts, derived only from the root event's typed
+    /// payload and time, so the live producers and the rebuild agree. None for
+    /// a payload that is not a slice root.
+    pub(super) fn for_root(
+        id: EventId,
+        time: SimTime,
+        payload: Payload,
+    ) -> Result<Option<Self>, SliceError> {
+        let after = |duration_us: u64| {
+            i64::try_from(duration_us)
+                .ok()
+                .and_then(|d| time.as_micros_since_epoch().checked_add(d))
+                .map(SimTime::from_micros_since_epoch)
+                .ok_or(SliceError::History(EventError::Order))
+        };
+        let (subject, severity, end) = match payload {
+            Payload::SliceIllnessApplied {
+                resident,
+                severity,
+                duration_us,
+                affected,
+                ..
+            } => (
+                Some(resident),
+                severity,
+                if affected == 0 {
+                    None
+                } else {
+                    Some(after(duration_us)?)
+                },
+            ),
+            Payload::BlessApplied { resident, .. } => (Some(resident), 0, Some(time)),
+            Payload::StormApplied { duration_us, .. } => (None, 0, Some(after(duration_us)?)),
+            Payload::GatheringCalled {
+                building,
+                duration_us,
+                ..
+            } => (Some(building), 0, Some(after(duration_us)?)),
+            _ => return Ok(None),
+        };
+        let mut g = Self {
+            root: id,
+            subject,
+            tag: payload.tag() as u16,
+            severity,
+            applied: time,
+            end,
+            ids: [EventId(0); MAX_CONSEQUENCES],
+            len: 0,
+        };
+        g.append(id)?;
+        Ok(Some(g))
+    }
+    pub(super) fn append(&mut self, id: EventId) -> Result<(), SliceError> {
         if self.len == MAX_CONSEQUENCES || self.ids().last().is_some_and(|v| *v >= id) {
             return Err(SliceError::History(EventError::Limit));
         }
@@ -82,7 +149,9 @@ impl Group {
 #[derive(Debug, Clone, Default)]
 pub(super) struct Illness {
     episodes: Vec<Episode>,
-    groups: Vec<Group>,
+    /// Every slice root's consequence group (ADR 0034, generalised per root by
+    /// ADR 0038), in ascending root order.
+    pub(super) groups: Vec<Group>,
 }
 pub(super) struct Affliction {
     home: EntityId,
@@ -113,11 +182,17 @@ impl Illness {
             groups: Vec::new(),
         }
     }
-    fn episode(&self, id: EntityId) -> Option<&Episode> {
+    pub(super) fn episode(&self, id: EntityId) -> Option<&Episode> {
         self.episodes
             .binary_search_by_key(&id, |e| e.resident)
             .ok()
             .map(|i| &self.episodes[i])
+    }
+    pub(super) fn episode_mut(&mut self, id: EntityId) -> Option<&mut Episode> {
+        self.episodes
+            .binary_search_by_key(&id, |e| e.resident)
+            .ok()
+            .map(|i| &mut self.episodes[i])
     }
     pub(super) fn has_episodes(&self) -> bool {
         !self.episodes.is_empty()
@@ -331,8 +406,15 @@ impl Illness {
             health,
         })
     }
+    /// Stages index rows for one tick's facts. Each fact is placed exactly as
+    /// the rebuild places its committed event: its preferred link (the first
+    /// `CausedBy`, else the first `ContributedTo`) is walked with
+    /// `EventStore::root_intervention`, and a fact that reaches a slice root is
+    /// appended to that root's group. Excluded tags are never indexed. Tick
+    /// producers link by committed ID; an in-batch local link is refused.
     pub(super) fn stage_index(
         &self,
+        events: &EventStore,
         facts: &[Candidate],
         first: u64,
     ) -> Result<Vec<(usize, Group)>, SliceError> {
@@ -341,15 +423,32 @@ impl Illness {
             .try_reserve(facts.len())
             .map_err(|_| SliceError::History(EventError::Resource))?;
         for (offset, c) in facts.iter().enumerate() {
-            let Some(Target::Id(cause)) = c.causes.iter().next().map(|c| c.target) else {
+            if excluded(&c.payload) || c.payload.is_slice_root() {
                 continue;
+            }
+            let link = c
+                .causes
+                .iter()
+                .find(|l| l.relation == Relation::CausedBy)
+                .or_else(|| {
+                    c.causes
+                        .iter()
+                        .find(|l| l.relation == Relation::ContributedTo)
+                });
+            let cause = match link.map(|l| l.target) {
+                None => continue,
+                Some(Target::Id(id)) => id,
+                Some(Target::Local(_)) => return Err(SliceError::History(EventError::Cause)),
             };
-            let Some(e) = self.episodes.iter().find(|e| e.illness == cause) else {
+            let Some(root) = events
+                .root_intervention(cause)
+                .filter(|e| e.record.payload.is_slice_root())
+            else {
                 continue;
             };
             let i = self
                 .groups
-                .binary_search_by_key(&e.root, |g| g.root)
+                .binary_search_by_key(&root.id, |g| g.root)
                 .map_err(|_| SliceError::History(EventError::Resource))?;
             let at = match updates.iter().position(|(j, _)| *j == i) {
                 Some(at) => at,
@@ -483,6 +582,8 @@ impl SliceSimulation {
         self.illness.groups.capacity() * core::mem::size_of::<Group>()
     }
     /// Reconstructs only the derived producer index from typed roots and explicit links.
+    /// Every slice root starts a group; every other non-excluded event whose
+    /// `root_intervention` is a slice root is appended to that root's group.
     /// Canonical episodes, health, clocks and history remain untouched.
     pub fn rebuild_consequence_index(&mut self) -> Result<(), SliceError> {
         let mut groups: Vec<Group> = Vec::new();
@@ -491,53 +592,19 @@ impl SliceSimulation {
                 self.events
                     .records()
                     .iter()
-                    .filter(|e| matches!(e.record.payload, Payload::SliceIllnessApplied { .. }))
+                    .filter(|e| e.record.payload.is_slice_root())
                     .count(),
             )
             .map_err(|_| SliceError::History(EventError::Resource))?;
         for event in self.events.records() {
-            if let Payload::SliceIllnessApplied {
-                resident,
-                severity,
-                duration_us,
-                affected,
-                ..
-            } = event.record.payload
-            {
-                let end = if affected == 0 {
-                    None
-                } else {
-                    Some(SimTime::from_micros_since_epoch(
-                        event
-                            .record
-                            .time
-                            .as_micros_since_epoch()
-                            .checked_add(duration_us as i64)
-                            .ok_or(SliceError::History(EventError::Order))?,
-                    ))
-                };
-                let mut g = Group {
-                    root: event.id,
-                    subject: resident,
-                    severity,
-                    applied: event.record.time,
-                    end,
-                    ids: [EventId(0); MAX_CONSEQUENCES],
-                    len: 0,
-                };
-                g.append(event.id)?;
+            let payload = event.record.payload;
+            if let Some(g) = Group::for_root(event.id, event.record.time, payload)? {
                 groups.push(g);
-            } else if matches!(
-                event.record.payload,
-                Payload::LifeIllness { .. }
-                    | Payload::ReturnedHome { .. }
-                    | Payload::MissedDuty { .. }
-                    | Payload::NeighbourCheckIn { .. }
-                    | Payload::Recovered { .. }
-            ) && let Some(root) = self
-                .events
-                .root_intervention(event.id)
-                .filter(|e| matches!(e.record.payload, Payload::SliceIllnessApplied { .. }))
+            } else if !excluded(&payload)
+                && let Some(root) = self
+                    .events
+                    .root_intervention(event.id)
+                    .filter(|e| e.record.payload.is_slice_root())
             {
                 let i = groups
                     .binary_search_by_key(&root.id, |g| g.root)
@@ -612,7 +679,8 @@ impl SliceSimulation {
         let sequence = self.operations.len() as u64;
         let mut group = Group {
             root,
-            subject: resident,
+            subject: Some(resident),
+            tag: 13,
             severity,
             applied: time,
             end: (!duplicate).then_some(end),

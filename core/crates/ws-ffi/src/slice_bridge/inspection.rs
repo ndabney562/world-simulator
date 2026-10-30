@@ -456,7 +456,7 @@ pub unsafe extern "C" fn ws_slice_consequences(
                 (24, h.world.state_hash()),
                 (32, ws_world_dataset()),
                 (40, g.root.0),
-                (48, g.subject.raw()),
+                (48, g.subject.map_or(0, |s| s.raw())),
                 (80, g.applied.as_micros_since_epoch() as u64),
                 (88, g.end.map_or(0, |t| t.as_micros_since_epoch() as u64)),
             ] {

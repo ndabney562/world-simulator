@@ -463,6 +463,21 @@ impl Prepared<'_> {
         self.install(id, routine)?;
         Ok(routine)
     }
+    /// Stages a bless relief (ADR 0038 §2): all four need deficits become zero
+    /// through the checked constructor. Activity, action, override and hold are
+    /// unchanged; the anchor moves to the prepared time so the zero is exact now.
+    /// # Errors
+    /// Unknown resident, invalid prepared time or failed planning reservation.
+    pub fn relieve(&mut self, id: EntityId) -> Result<(), BehaviorError> {
+        let i = self.world.index(id)?;
+        self.common(id)?;
+        let zero = Needs::checked([0; 4]).ok_or(BehaviorError::Counter)?;
+        let time = self.time;
+        let s = &mut self.writable()?[i];
+        s.needs = zero;
+        s.anchor = time;
+        Ok(())
+    }
     /// Publishes already validated/reserved records with no allocation or failure.
     pub fn commit(self) {
         if let Some((states, next)) = self.planned {

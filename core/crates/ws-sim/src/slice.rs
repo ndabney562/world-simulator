@@ -12,6 +12,8 @@ use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
 #[path = "slice/illness.rs"]
 pub mod illness;
+#[path = "slice/powers.rs"]
+mod powers;
 
 #[path = "slice_inspect.rs"]
 pub mod inspect;
@@ -88,6 +90,24 @@ pub enum Operation {
         /// Integer severity,1 through10.
         severity: u32,
         /// Grid-aligned duration, one tick through24hours.
+        duration_us: u64,
+    },
+    /// Bless one living resident (ADR 0038 §2): cure an active illness episode,
+    /// otherwise zero the four need deficits; a no-op is accepted with `affected = 0`.
+    Bless {
+        /// Existing living resident.
+        resident: EntityId,
+    },
+    /// Block-wide storm (ADR 0038 §3). Rejected as `Busy` until #125 Task 5.
+    Storm {
+        /// Grid-aligned duration, one tick through one hour.
+        duration_us: u64,
+    },
+    /// Gathering at a featured building (ADR 0038 §4). Rejected as `Busy` until #125 Task 6.
+    Gather {
+        /// Featured residential building.
+        building: EntityId,
+        /// Grid-aligned duration, ten minutes through one hour.
         duration_us: u64,
     },
     /// Explicit physical steps, independent of scale. Large calls preserve a committed prefix on failure.
@@ -399,6 +419,22 @@ impl SliceSimulation {
                 ]);
                 report.error = self.afflict(resident, severity, duration_us).err();
             }
+            Operation::Bless { resident } => {
+                self.operation_hash.write_words(&[8, resident.raw()]);
+                report.error = self.bless(resident).err();
+            }
+            Operation::Storm { duration_us } => {
+                self.operation_hash.write_words(&[9, duration_us]);
+                report.error = Some(SliceError::Rejected(illness::Rejection::Busy));
+            }
+            Operation::Gather {
+                building,
+                duration_us,
+            } => {
+                self.operation_hash
+                    .write_words(&[10, building.raw(), duration_us]);
+                report.error = Some(SliceError::Rejected(illness::Rejection::Busy));
+            }
             Operation::CameraInterest(camera) => {
                 self.operation_hash.write_words(&[
                     6,
@@ -568,6 +604,12 @@ impl SliceSimulation {
                             duration_us,
                         ]);
                     }
+                    Operation::Bless { resident } if record.report.committed == 0 => {
+                        world
+                            .bless_preflight(resident)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world.operation_hash.write_words(&[8, resident.raw()]);
+                    }
                     Operation::HostElapsed(elapsed) => {
                         let mut target = world.clock.clone();
                         let due = target
@@ -716,6 +758,7 @@ impl SliceSimulation {
         facts.append(&mut illness_plan.facts);
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
         let updates = self.illness.stage_index(
+            &self.events,
             &facts,
             self.events.counters().map_err(SliceError::History)?.0,
         )?;

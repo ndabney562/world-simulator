@@ -1965,6 +1965,22 @@ pub(crate) fn put_operation_record(rec: &ws_sim::slice::OperationRecord) -> Vec<
             w.u32(severity);
             w.u64(duration_us);
         }
+        ws_sim::slice::Operation::Bless { resident } => {
+            w.u8(6);
+            w.id(resident);
+        }
+        ws_sim::slice::Operation::Storm { duration_us } => {
+            w.u8(7);
+            w.u64(duration_us);
+        }
+        ws_sim::slice::Operation::Gather {
+            building,
+            duration_us,
+        } => {
+            w.u8(8);
+            w.id(building);
+            w.u64(duration_us);
+        }
     }
     w.u64(rec.report.committed);
     match rec.report.error {
@@ -2021,13 +2037,15 @@ fn error_tag_behavior(b: ws_life::behavior::BehaviorError) -> u64 {
 }
 
 fn error_from_tag(tag: u64) -> Result<ws_sim::slice::SliceError> {
-    if (100..=104).contains(&tag) {
+    if (100..=106).contains(&tag) {
         let r = match tag - 100 {
             0 => ws_sim::slice::illness::Rejection::Target,
             1 => ws_sim::slice::illness::Rejection::Dead,
             2 => ws_sim::slice::illness::Rejection::Severity,
             3 => ws_sim::slice::illness::Rejection::Duration,
             4 => ws_sim::slice::illness::Rejection::Deadline,
+            5 => ws_sim::slice::illness::Rejection::Building,
+            6 => ws_sim::slice::illness::Rejection::Busy,
             _ => return Err(CodecError("invalid rejection tag")),
         };
         return Ok(ws_sim::slice::SliceError::Rejected(r));
@@ -2117,6 +2135,18 @@ pub(crate) fn get_operation_record(bytes: &[u8]) -> Result<ws_sim::slice::Operat
             ws_sim::slice::Operation::Afflict {
                 resident,
                 severity,
+                duration_us,
+            }
+        }
+        6 => ws_sim::slice::Operation::Bless { resident: r.id()? },
+        7 => ws_sim::slice::Operation::Storm {
+            duration_us: r.u64()?,
+        },
+        8 => {
+            let building = r.id()?;
+            let duration_us = r.u64()?;
+            ws_sim::slice::Operation::Gather {
+                building,
                 duration_us,
             }
         }
@@ -2582,5 +2612,86 @@ mod slice_vocabulary_tests {
             reader.finish().unwrap();
             assert_eq!(decoded, payload);
         }
+    }
+}
+
+#[cfg(test)]
+mod slice_operation_tests {
+    use super::*;
+    use ws_sim::slice::{
+        Checkpoint, Operation, OperationRecord, Report, SliceError, illness::Rejection,
+    };
+    #[test]
+    fn power_operations_and_rejections_round_trip() {
+        let id = EntityId::procedural(7);
+        let stop = Some(Checkpoint {
+            tick: 3,
+            state: 4,
+            events: 5,
+            pending_micros: 6,
+        });
+        let operations = [
+            Operation::Bless { resident: id },
+            Operation::Storm {
+                duration_us: 3_600_000_000,
+            },
+            Operation::Gather {
+                building: id,
+                duration_us: 600_000_000,
+            },
+        ];
+        let rejections = [
+            Rejection::Target,
+            Rejection::Dead,
+            Rejection::Severity,
+            Rejection::Duration,
+            Rejection::Deadline,
+            Rejection::Building,
+            Rejection::Busy,
+        ];
+        // Existing rejection codes keep their numbers; the new ones append.
+        assert_eq!(Rejection::Deadline as u8, 4);
+        assert_eq!((Rejection::Building as u8, Rejection::Busy as u8), (5, 6));
+        for operation in operations {
+            for error in rejections
+                .iter()
+                .map(|r| Some(SliceError::Rejected(*r)))
+                .chain([None])
+            {
+                let rec = OperationRecord {
+                    operation,
+                    report: Report {
+                        committed: 0,
+                        error,
+                    },
+                    stop: error.and(stop),
+                };
+                let bytes = put_operation_record(&rec);
+                assert_eq!(get_operation_record(&bytes).unwrap(), rec);
+            }
+        }
+        assert_eq!(
+            put_operation_record(&OperationRecord {
+                operation: operations[0],
+                report: Report {
+                    committed: 0,
+                    error: None
+                },
+                stop: None,
+            })[0],
+            6
+        );
+        let mut bytes = put_operation_record(&OperationRecord {
+            operation: operations[0],
+            report: Report {
+                committed: 0,
+                error: Some(SliceError::Rejected(Rejection::Busy)),
+            },
+            stop,
+        });
+        // Tag 107 is beyond the rejection table.
+        let at = 1 + 8 + 8 + 1;
+        bytes[at..at + 8].copy_from_slice(&107u64.to_le_bytes());
+        assert!(get_operation_record(&bytes).is_err());
     }
 }

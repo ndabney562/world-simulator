@@ -1016,15 +1016,35 @@ impl EventStore {
                     if !known(resident) {
                         return Err(EventError::UnknownActor);
                     }
-                    if c.system != 82
-                        || !matches!(c.lod, 1 | 2)
-                        || c.origin != Origin::System(82)
+                    // System 82 is the natural episode end (one cause, ADR 0034);
+                    // system 84 is a bless cure: CausedBy/Direct the bless root,
+                    // then ContributedTo/Direct the episode's illness (ADR 0038 §2).
+                    let causes_ok = match c.system {
+                        82 => slice_cause(c, Relation::CausedBy, Confidence::Direct),
+                        84 => {
+                            let mut links = c.causes.iter();
+                            c.causes.len() == 2
+                                && links.next().is_some_and(|l| {
+                                    l.relation == Relation::CausedBy
+                                        && l.confidence == Confidence::Direct
+                                })
+                                && links.next().is_some_and(|l| {
+                                    l.relation == Relation::ContributedTo
+                                        && l.confidence == Confidence::Direct
+                                })
+                                && c.related.is_empty()
+                                && c.location.is_none()
+                        }
+                        _ => false,
+                    };
+                    if !matches!(c.lod, 1 | 2)
+                        || c.origin != Origin::System(c.system)
                         || health != 100
                         || !c.actors.iter().copied().eq([Actor {
                             id: resident,
                             role: Role::Subject,
                         }])
-                        || !slice_cause(c, Relation::CausedBy, Confidence::Direct)
+                        || !causes_ok
                     {
                         return Err(EventError::Order);
                     }

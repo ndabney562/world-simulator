@@ -42,6 +42,8 @@ ADR0034 appends tag10 `life.missed_duty`, tag11 `social.neighbour_check_in`, tag
 
 GP-002 appends tags 14 through 22. Roots (tags 14, 16, 20, plus 13) carry `Origin::Command(sequence)`, no causes, and `Payload::is_slice_root()` is true for them; `root_intervention` recognises tags 4, 13, 14, 16 and 20.
 
+`life.recovered` (12) has two producers. System 82 is the natural episode end with exactly one `CausedBy/Direct` link (ADR 0034). System 84 is a bless cure with exactly two links, `CausedBy/Direct` the bless root then `ContributedTo/Direct` the illness, so `root_intervention` reaches the bless root. Any other system or link shape is refused.
+
 | Tag | Name | Fields | Importance |
 |---|---|---|---|
 | 14 | `intervention.bless_applied` (root) | resident, sequence, affected | 32768 |

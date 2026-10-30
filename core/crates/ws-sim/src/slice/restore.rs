@@ -207,6 +207,18 @@ impl SliceSimulation {
                         duration_us,
                     ]);
                 }
+                Operation::Bless { resident } => {
+                    operation_hash.write_words(&[8, resident.raw()]);
+                }
+                Operation::Storm { duration_us } => {
+                    operation_hash.write_words(&[9, duration_us]);
+                }
+                Operation::Gather {
+                    building,
+                    duration_us,
+                } => {
+                    operation_hash.write_words(&[10, building.raw(), duration_us]);
+                }
                 Operation::CameraInterest(c) => {
                     operation_hash.write_words(&[
                         6,

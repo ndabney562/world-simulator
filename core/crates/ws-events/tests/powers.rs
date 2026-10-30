@@ -175,3 +175,87 @@ fn root_intervention_finds_new_roots() {
     assert_eq!(s.root_intervention(ended_id).map(|e| e.id), Some(root_id));
     assert_eq!(s.root_intervention(root_id).map(|e| e.id), Some(root_id));
 }
+
+/// ADR 0038 §2: a bless cure is a system-84 `Recovered` with exactly two causes,
+/// `CausedBy/Direct` the bless root then `ContributedTo/Direct` the illness;
+/// the natural system-82 recovery keeps its single `CausedBy/Direct` link.
+#[test]
+fn bless_recovery_takes_two_causes_and_natural_recovery_one() {
+    let at = |s| SimTime::from_micros_since_epoch(s);
+    let link = |id, relation| Cause {
+        target: Target::Id(id),
+        relation,
+        confidence: Confidence::Direct,
+    };
+    let mut s = EventStore::new(vec![r(), b()]);
+    let ill = Candidate::new(
+        at(1_000_000),
+        12,
+        0,
+        Payload::NeedsRelieved { resident: r() },
+        Origin::System(12),
+    );
+    let bless = Candidate::new(
+        at(1_000_000),
+        10,
+        1,
+        Payload::BlessApplied {
+            resident: r(),
+            sequence: 1,
+            affected: 1,
+        },
+        Origin::Command(1),
+    );
+    s.prepare(1, &[bless, ill]).unwrap().commit();
+    let (root, ill) = (s.records()[0].id, s.records()[1].id);
+    let recovered = |system, causes: &[Cause]| {
+        let mut c = Candidate::new(
+            at(2_000_000),
+            system,
+            r().raw(),
+            Payload::Recovered {
+                resident: r(),
+                health: 100,
+            },
+            Origin::System(system),
+        );
+        c.lod = 1;
+        c.actors
+            .push(Actor {
+                id: r(),
+                role: Role::Subject,
+            })
+            .unwrap();
+        for cause in causes {
+            c.causes.push(*cause).unwrap();
+        }
+        c
+    };
+    let two = [
+        link(root, Relation::CausedBy),
+        link(ill, Relation::ContributedTo),
+    ];
+    let one = [link(ill, Relation::CausedBy)];
+    let swapped = [
+        link(ill, Relation::ContributedTo),
+        link(root, Relation::CausedBy),
+    ];
+    for (system, causes, accepted) in [
+        (84, &two[..], true),
+        (82, &one[..], true),
+        (82, &two[..], false),
+        (84, &one[..], false),
+        (84, &swapped[..], false),
+        (83, &one[..], false),
+    ] {
+        let result = s.prepare(2, &[recovered(system, causes)]).map(|_| ());
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "system {system} causes {causes:?}"
+        );
+    }
+    s.prepare(2, &[recovered(84, &two)]).unwrap().commit();
+    let id = s.records()[2].id;
+    assert_eq!(s.root_intervention(id).map(|e| e.id), Some(root));
+}
