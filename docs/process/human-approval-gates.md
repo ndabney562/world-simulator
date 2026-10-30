@@ -1,6 +1,6 @@
 # Human Approval Gates
 
-These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to the assigned assistant and then recorded on the relevant issue or PR. The [standing delegation](#standing-delegation-2026-10-29) below delegates some of these gates to assistants.
+These decisions belong to the Product Owner unless the standing delegation below delegates them. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to the assigned assistant and then recorded on the relevant issue or PR. The [standing delegation](#standing-delegation-2026-10-29) below delegates some of these gates to assistants.
 
 | Gate | Examples |
 |---|---|

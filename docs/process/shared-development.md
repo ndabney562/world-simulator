@@ -4,7 +4,7 @@ This is the practical entry point; [AGENTS.md](../../AGENTS.md) and the existing
 
 ## Daily loop
 
-1. **Assign:** Noah picks an open issue, checks its dependencies, and names the implementer and a different reviewer. Record owner, intended branch, likely files, acceptance criteria, and status in the issue. A GitHub issue alone does not start an assistant: give its URL to that assistant and explicitly authorize the run.
+1. **Assign:** Noah, or an assistant under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29), picks an open issue, checks its dependencies, and names the implementer and a different reviewer. Record owner, intended branch, likely files, acceptance criteria, and status in the issue. A GitHub issue alone does not start an assistant: give its URL to that assistant and authorize the run (the standing delegation counts).
 2. **Start:** The implementer reads AGENTS.md, the issue and its comments, relevant accepted ADRs, and any latest handoff. Confirm repository access, working directory, branch, base SHA, and available tools. Fetch current `main`; use a dedicated environment or worktree.
 3. **Build:** One writer owns each branch. Keep the issue scope; update tests and docs. For parallel issues, compare file ownership first. Serialize shared API, Cargo manifest/lockfile, scene, ProjectSettings, and common CI/doc changes when they overlap. Agree on interfaces in an accepted ADR where required before dependent code starts.
 4. **Publish:** Push the branch, open a draft PR using the existing template, link the issue, and write the handoff below. Record actual checks and unavailable checks separately. Never treat static Unity checks as an Editor run.

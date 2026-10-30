@@ -4,7 +4,7 @@
 
 - Owns the product vision, priorities, and stage scope.
 - Sets priorities; under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29) assistants open and start issues that serve them.
-- Authorizes engineering work explicitly, either per issue or as a recorded named workstream.
+- Authorizes engineering work through the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29) or a direct instruction.
 - Has delegated merging to implementers under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29); may merge personally.
 - Decides the items in [human-approval-gates.md](human-approval-gates.md) that the standing delegation keeps for Noah.
 - Settles disagreements between the AI collaborators.
