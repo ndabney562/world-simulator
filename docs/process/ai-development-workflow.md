@@ -9,8 +9,8 @@ Product Owner
   → Different assistant reviews the diff
   → Implementer fixes
   → CI
-  → Product Owner approval (when required)
-  → merge (Product Owner or explicitly delegated implementer)
+  → Product Owner approval (only gates kept for Noah)
+  → merge (implementer, under the standing delegation)
 ```
 
 ## 1. Issue
@@ -18,7 +18,7 @@ Product Owner
 - Every change starts from an **open GitHub issue** created from a template in [`.github/ISSUE_TEMPLATE/`](../../.github/ISSUE_TEMPLATE/): implementation, bug, or architecture change.
 - An implementation issue states its objective, architectural references, exact scope, excluded scope, implementation requirements, acceptance criteria, required tests, performance considerations, dependencies, expected artifacts, and Definition of Done.
 - An issue is small enough that its PR can be reviewed meaningfully in one sitting. If an issue grows during implementation, the extra work becomes a new issue.
-- Work starts only after the Product Owner has authorized it, and only when the issue's dependencies are merged.
+- Work starts under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29) or a Product Owner instruction, and only when the issue's dependencies are merged.
 
 ## 2. Branch
 
@@ -46,7 +46,7 @@ Product Owner
 
 ## 6. Review
 
-- The assigned reviewer (a different assistant from the author) reviews the **actual diff** on GitHub. Findings are recorded on the PR with a severity ([code-review.md](code-review.md)).
+- The assigned reviewer (a different assistant from the author, or a fresh-context review agent when none is available) reviews the **actual diff** on GitHub. Findings are recorded on the PR with a severity ([code-review.md](code-review.md)).
 - Blocker and Major findings must be resolved before merge. Minor findings are fixed or turned into a follow-up issue linked from the PR. Nits are optional.
 
 ## 7. Fixes
@@ -56,14 +56,14 @@ Product Owner
 
 ## 8. Approval and merge
 
-- The Product Owner approves where [human-approval-gates.md](human-approval-gates.md) requires it. The Product Owner merges, or the implementer merges within recorded named-workstream delegation after independent review and latest-head green CI.
+- The Product Owner approves only the gates [human-approval-gates.md](human-approval-gates.md) keeps for Noah. The implementer merges under the standing delegation after its review and latest-head green CI.
 - Merge method: **squash and merge** for normal issue PRs, so each issue lands as one commit on `main` whose message references the issue. Use **create a merge commit** only when the branch history itself must be preserved (as with the Architecture V1 freeze).
 - After merge, the issue closes automatically through `Closes #N`; the implementer confirms it closed and updates any tracking issue.
 
 ## 9. Stop
 
-After opening the PR, the implementer waits for independent review and owns fixes, CI, readiness and the next handoff. When technical merging and dependent starts are already delegated, finish that loop and continue from updated `main` without asking again. Otherwise record the concrete decision needed and stop only the work dependent on it. A CI monitor reporting recovery does not transfer ownership. See [current-workstream.md](current-workstream.md).
+After opening the PR, the implementer gets the required review and owns fixes, CI, readiness, merge and the next handoff under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29), continuing from updated `main` without asking again. Stop only at a gate kept for Noah, recording the concrete decision needed. A CI monitor reporting recovery does not transfer ownership. See [current-workstream.md](current-workstream.md).
 
 ## Isolated work and handoffs
 
-Use the [shared development guide](shared-development.md) for task ownership, separate checkouts, phone/Mac responsibilities, and the handoff format. Assign implementation to one assistant and review to another; the Product Owner authorizes work and either performs merges or explicitly delegates them.
+Use the [shared development guide](shared-development.md) for task ownership, separate checkouts, phone/Mac responsibilities, and the handoff format. Assign implementation to one assistant and review to another (or a fresh-context review agent when none is available); the implementer merges under the standing delegation.

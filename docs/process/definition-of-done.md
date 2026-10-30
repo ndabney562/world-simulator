@@ -37,7 +37,7 @@ An issue is done when **all** of the following are true. Issues may add items; t
 ## Review and merge
 
 - [ ] The PR template is filled in completely.
-- [ ] An assistant other than the author has reviewed the diff (ChatGPT by default for Claude-authored changes); no Blocker or Major findings remain open.
+- [ ] An assistant other than the author, or a fresh-context review agent when none is available, has reviewed the diff; no Blocker or Major findings remain open.
 - [ ] Minor findings are fixed or tracked in a linked follow-up issue.
-- [ ] The Product Owner has approved where required; the Product Owner or explicitly delegated implementer has merged after independent review and latest-head green CI.
+- [ ] The Product Owner has approved any gate kept for Noah; the implementer has merged under the standing delegation after review and latest-head green CI.
 - [ ] The issue is closed only when all acceptance criteria are met, and the applicable stage tracker is updated. Merged engineering with remaining device acceptance stays open and names the owner of that evidence.
