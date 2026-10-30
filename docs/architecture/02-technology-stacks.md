@@ -92,7 +92,7 @@ Commitments:
 - Build the core with Cargo for `aarch64-apple-ios` as a static library placed in Unity's `Plugins/iOS`; Unity generates the Xcode project, which links it.
 - CI: Linux runners for all core tests; a macOS job builds the static library and runs core tests on arm64; a Unity iOS build job (Unity in CI needs a licence activation for Personal, which is set up in the Technical Prototype) or local builds on Noah's Mac if CI activation proves impractical.
 - On-device testing from the first prototype: free 7-day provisioning with a personal Apple ID, and TestFlight once the Apple Developer Program membership exists (the one known cost, ADR 0007).
-- The minimum device is the iPhone 15 Pro (ADR 0004).
+- The minimum device is the iPhone 16 Pro (ADR 0037, superseding ADR 0004).
 
 ### Browser deployment specifics (Proposed ADR 0035)
 

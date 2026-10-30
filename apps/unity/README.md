@@ -26,7 +26,7 @@ Changing the editor version is a deliberate change: update `ProjectVersion.txt` 
 | Setting | Value | Why |
 |---|---|---|
 | Render pipeline | `Rendering/Pipeline/UrpMobile.asset` (URP, Forward renderer) | ADR 0005 |
-| URP defaults | HDR off, MSAA off, render scale 1, one shadow cascade at 50 m (1024 px, hard shadows), no additional-light shadows, no depth or opaque texture, SRP Batcher on | Conservative mobile defaults that keep 30 fps on an iPhone 15 Pro possible. Tuning on device is TP-011. |
+| URP defaults | HDR off, MSAA off, render scale 1, one shadow cascade at 50 m (1024 px, hard shadows), no additional-light shadows, no depth or opaque texture, SRP Batcher on | Conservative mobile defaults that keep 30 fps on an iPhone 16 Pro possible. Tuning on device is TP-011. |
 | Colour space | Linear | Physically based lighting (§4.4) |
 | iOS scripting backend | IL2CPP | The only backend iOS supports |
 | iOS architecture | arm64 | The only architecture Unity 6 builds for iOS |

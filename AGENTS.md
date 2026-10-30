@@ -42,7 +42,7 @@ Unless superseded by an accepted ADR:
 - Procedural identity and structural baseline decisions follow Tier 1 determinism requirements (ADR 0010, [25-determinism-policy](docs/architecture/25-determinism-policy.md)).
 - Events, history, and causal provenance are first-class (ADRs 0011, 0012).
 - Player interventions are structured commands, never arbitrary code execution.
-- Mobile performance (iPhone 15 Pro, ADR 0004) is a design constraint from the beginning.
+- Mobile performance (iPhone 16 Pro, ADR 0037) is a design constraint from the beginning.
 - Geospatial and visual-provider work does not block the core Rust → FFI → Unity → iPhone path (ADR 0013).
 - Do not prematurely implement the city, planet, solar system, LLM NPCs, detailed economics, or polished graphics.
 

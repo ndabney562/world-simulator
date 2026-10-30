@@ -1,16 +1,16 @@
 # 16. Performance and Memory Strategy for Modern iPhones
 
-Covers point 16. Platform: iPhone 15 Pro and newer (ADR 0004); front end Unity 6 / URP with Cesium for Unity; simulation in the Rust core (ADR 0005).
+Covers point 16. Platform: iPhone 16 Pro and newer (ADR 0037); front end Unity 6 / URP with Cesium for Unity; simulation in the Rust core (ADR 0005).
 
 ## 16.1 Target devices
 
-- **Minimum:** iPhone 15 Pro (A17 Pro, 8 GB RAM). All later iPhones meet or exceed it.
+- **Minimum:** iPhone 16 Pro (A18 Pro, 8 GB RAM). All later iPhones meet or exceed it.
 - **OS:** the current major iOS version and the one before it.
 - Per-device capabilities (memory limit, sustained GPU performance, upscaler behaviour) are **measured on hardware in the Technical Prototype**, not assumed from documentation.
 
 ## 16.2 The real constraints
 
-1. **Memory limit, not memory size.** iOS terminates apps that exceed a per-app limit (jetsam) well below physical RAM. The increased-memory-limit entitlement raises it on supported devices. Budgets assume we stay comfortably inside the limit measured on an iPhone 15 Pro, including Unity's and Cesium's own overhead.
+1. **Memory limit, not memory size.** iOS terminates apps that exceed a per-app limit (jetsam) well below physical RAM. The increased-memory-limit entitlement raises it on supported devices. Budgets assume we stay comfortably inside the limit measured on an iPhone 16 Pro, including Unity's and Cesium's own overhead.
 2. **Sustained thermals.** Phones throttle after minutes of heavy load. Budgets are calibrated after 15–20 minutes of continuous play.
 3. **Unified memory.** CPU and GPU share RAM and bandwidth, so duplicated data wastes both.
 4. **Heterogeneous CPU.** Unity's main and render threads, Cesium's tile loading, and the core's simulation jobs compete for a small number of performance cores. Background simulation, generation, and saving run on efficiency cores at lower priority.

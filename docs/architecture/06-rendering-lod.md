@@ -58,7 +58,7 @@ When the simulation is at L3 or coarser for an area ([05](05-simulation-lod.md))
 - Requests are prioritised by screen-space error reduction per byte and by predicted camera motion: during a fast zoom, the next coarser or finer band is prefetched.
 - Eviction is least-recently-visible. Simulation geometry is regenerable from data and core state. Backdrop tiles follow each provider's caching rules (Google tiles are never kept beyond its terms).
 
-## 7.7 Budgets (initial targets, validated on an iPhone 15 Pro during the Technical Prototype)
+## 7.7 Budgets (initial targets, validated on an iPhone 16 Pro (ADR 0037) during the Technical Prototype)
 
 | Budget | Target |
 |---|---|

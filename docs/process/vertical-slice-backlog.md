@@ -55,7 +55,7 @@ graph LR
 | 3. Save, quit, load reproduce the state hash | VS-011 |
 | 4. Consequences of the intervention are listed with confidence classes | VS-010 |
 | 5. Toggling the Google backdrop does not change the state hash | Needs the optional TP-012 ([#13](https://github.com/ndabney562/world-simulator/issues/13)) first, or a Product Owner waiver at VS-012 |
-| 6. Stable frame rate on the iPhone 15 Pro for 20 minutes | VS-012 |
+| 6. Stable frame rate on the iPhone 16 Pro for 20 minutes | VS-012 |
 
 ## Decisions locked in along the way
 
