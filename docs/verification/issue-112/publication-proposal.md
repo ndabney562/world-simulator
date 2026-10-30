@@ -1,6 +1,14 @@
-# Desktop preview publication proposal (#112)
+# Desktop preview publication record (#112)
 
-Status: **prepared locally; not approved or published**. This is a limited desktop
+Status: **published through GitHub Pages on 2026-10-28**.
+
+Play: [https://ndabney562.github.io/world-simulator/](https://ndabney562.github.io/world-simulator/). Publication commit
+`bf1493399c5149183757646c2b4ce0bd1f70c83b` on `gh-pages`; Pages serves its root
+with HTTPS enforced. On 2026-10-30, public HTTPS verification confirmed the pinned manifest and all
+nine player file sizes/hashes, plus matching publication provenance. `.nojekyll`
+is the branch hosting marker.
+
+The record below describes the bounded action that was authorized and performed. This is a limited desktop
 preview, not all-device support or native iPhone stage acceptance.
 
 ## Concrete artifact
@@ -19,25 +27,30 @@ then copies only the player into a new local candidate directory. It adds an emp
 cache, raw test log or source checkout is included. Candidate preparation never
 uploads, pushes or changes repository settings.
 
-## Proposed publication action after the remaining gate
+## Publication action and settings
 
-With explicit owner publication/settings approval, upload only that candidate to
-a dedicated `gh-pages` branch of this public repository. That branch currently
-does not exist. Existing Git authentication passed a push dry run; no new account,
+Publication/settings approval covered uploading only that candidate to the new
+`gh-pages` branch of this public repository. The remote branch now points to the
+publication commit above. Existing Git authentication passed a push dry run; no new account,
 secret or credential is proposed. Retain original-code MIT text and collected
 third-party/data/Rust/Unity notices exactly as verified in the player.
 
-Select repository **Settings → Pages → Deploy from a branch → gh-pages → /(root)**.
-This one-time repository setting is separate from technical merge delegation.
+Pages configuration: **Settings → Pages → Deploy from a branch → gh-pages → /(root)**.
+This one-time publication/settings approval was separate from technical merge delegation.
 No cloud Unity build or licence secret is needed; the already-verified local
-export is the deployed artifact. Do not push the branch or enable Pages until
-approval is recorded.
+export is the deployed artifact. No other repository setting, new account or
+secret was introduced.
 
-Expected project URL: `https://ndabney562.github.io/world-simulator/`.
-It is a proposed URL, not a claimed working link. After deployment, verify HTTPS,
-HTTP statuses and every deployed file hash, gzip fallback under the repository
-prefix, real rendered game, save/reload/import, credits and the deployment's
-provenance file. Share the link only after this public smoke test succeeds.
+Publication approval and the deployment commit are recorded on
+[issue #112](https://github.com/ndabney562/world-simulator/issues/112#issuecomment-6484964072).
+On 2026-10-30, the Pages API reported `built`, HTTPS enforced and source
+`gh-pages` / root; the remote branch still matched the publication commit.
+Public HTTPS checks under the repository prefix verified the manifest SHA-256,
+all nine player sizes/hashes and the runtime commit/tree in `publication-info.json`.
+These HTTP/hash checks do not exercise rendering or browser persistence.
+Prepublication rendering/save/reload/import evidence remains in the
+[release checks](release-checks.md); a completed public-origin browser smoke test
+is not yet recorded on #112.
 
 ## What stays separate
 
@@ -47,9 +60,10 @@ FPS or native-picker guarantee is claimed. Another physical desktop/Windows/Linu
 graphics, phone browsers, cold-start offline caching and native iPhone criteria
 remain explicit preview limits. [Release evidence](release-checks.md) records exact
 engine results and their measurement limits. Browser saves belong to each origin
-and device: download a local backup and import it on the eventual public origin.
+and device: download a local backup and import it on the public origin.
 There is no multiplayer/cloud save service or paid runtime API introduced here.
 
-The owner approves publication only after remaining QA, independent actual-diff
-review and latest-head checks are complete. No PR/code review is requested from
-the owner; the engineer handles technical review and delegated merges.
+The prepublication QA, independent actual-diff review and all seven required CI
+checks passed before publication. No PR/code review was requested from the owner;
+the engineer handled technical review and delegated merges. This publication does
+not declare a native iPhone stage complete.
