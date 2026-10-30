@@ -68,7 +68,7 @@ impl SliceSimulation {
             Group::for_root(root, time, payload)?.ok_or(SliceError::History(EventError::Order))?;
         let mut facts = Vec::new();
         facts
-            .try_reserve(2)
+            .try_reserve(2 + self.lod.nodes().len())
             .map_err(|_| SliceError::History(EventError::Resource))?;
         let mut c = Candidate::new(time, 10, sequence, payload, Origin::Command(sequence));
         c.actors
@@ -84,14 +84,33 @@ impl SliceSimulation {
             .map_err(SliceError::Behavior)?
             .detail;
         let mut behavior = None;
+        let mut lod = None;
         match blessing {
             Blessing::Noop => {}
             Blessing::Cure => {
-                let illness = self
+                let e = self
                     .illness
                     .episode(resident)
-                    .ok_or(SliceError::Lod(LodError::Invariant))?
-                    .illness;
+                    .ok_or(SliceError::Lod(LodError::Invariant))?;
+                let (illness, episode_root) = (e.illness, e.root);
+                // ADR 0034 recovery, brought forward: the home hold ends now and
+                // the resident rejoins the baseline by the continuity rule. A
+                // started homeward leg and its pending return-home are kept.
+                let mut prepared = self.behavior.prepare(time).map_err(SliceError::Behavior)?;
+                prepared
+                    .end_illness(resident, episode_root.0)
+                    .map_err(SliceError::Behavior)?;
+                let plan = self
+                    .lod
+                    .prepare(&mut prepared, self.clock.scale().multiplier())
+                    .map_err(lod_error)?;
+                facts.extend(
+                    plan.changes()
+                        .enumerate()
+                        .map(|(i, c)| c.fact(time, i as u64)),
+                );
+                behavior = Some(prepared);
+                lod = Some(plan);
                 facts.push(effect(
                     time,
                     Payload::Recovered {
@@ -116,8 +135,12 @@ impl SliceSimulation {
                 )?);
             }
         }
-        for i in 1..facts.len() {
-            group.append(EventId(first + i as u64))?;
+        // The root (system 10) stays first, so the effects' Local(0) link holds.
+        facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        for (i, c) in facts.iter().enumerate().skip(1) {
+            if c.system != 70 {
+                group.append(EventId(first + i as u64))?;
+            }
         }
         self.events
             .prepare(self.clock.steps(), &facts)
@@ -126,13 +149,15 @@ impl SliceSimulation {
         if let Some(prepared) = behavior {
             prepared.commit();
         }
+        if let Some(plan) = lod {
+            plan.commit();
+        }
         if blessing == Blessing::Cure {
             let e = self
                 .illness
                 .episode_mut(resident)
                 .expect("validated active episode");
-            // The natural recovery at the original end must not fire again; the
-            // ADR 0034 home hold and any pending return-home stay as they are.
+            // The natural recovery at the original end must not fire again.
             e.end = time;
             e.recovered = true;
             assert!(self.vitals.set_living_health(resident, 100));

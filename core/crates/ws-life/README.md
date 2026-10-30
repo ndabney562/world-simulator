@@ -55,6 +55,8 @@ GP-002 (ADR0038) adds override kind 3, a gathering: `Prepared::gather` walks a r
 
 `Prepared::relieve(id)` (ADR0038 §2 bless) sets a resident's four deficits to `Needs::checked([0; 4])` and moves its anchor to the prepared time; activity, action, override and storm hold are unchanged.
 
+`Prepared::end_illness(id, root)` (ADR0038 §2 bless cure) ends a kind-1 routine from `root` at the prepared time as natural recovery would: `until` = now, journeys kept, rejoin searched by the ADR0034 rule from `max(home arrival, now)`. A rejoin due now re-evaluates the resident at once, exactly as a routine phase does (baseline or storm rule, no new decision).
+
 ## GP-002 storm deferral
 
 ADR0038 §3 adds one block-level `StormWindow { start, end }` (`Behavior::storm`, staged by `Prepared::set_storm`) and a saved per-resident `StormHold` (`ResidentStateSnapshot::storm_hold`). Both are canonical state. Featured buildings are the four population buildings (the LOD nodes), derived at construction.

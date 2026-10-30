@@ -44,6 +44,39 @@ fn tags(w: &SliceSimulation, root: EventId) -> Vec<u32> {
         .map(|e| e.record.payload.tag())
         .collect()
 }
+fn baseline(w: &SliceSimulation, id: EntityId, t: SimTime) -> ws_life::Answer {
+    w.schedules().get(id).unwrap().at(w.schedules().epoch(), t)
+}
+/// ADR 0034 rejoin: first instant at or after `from` where the baseline is at
+/// home or departs home at that instant.
+fn expected_rejoin(w: &SliceSimulation, id: EntityId, from: i128) -> Option<SimTime> {
+    let home = w.population().residents().get(id).unwrap().home;
+    let profile = w.schedules().get(id).unwrap();
+    let epoch = w.schedules().epoch();
+    let mut t = SimTime::from_micros_since_epoch(i64::try_from(from).unwrap());
+    for _ in 0..128 {
+        let a = profile.at(epoch, t);
+        if a.location == ws_life::Location::AtBuilding(home)
+            || matches!(a.location, ws_life::Location::InTransit { from, departure, .. }
+                if from == ws_life::Place::Building(home)
+                    && departure == i128::from(t.as_micros_since_epoch()))
+        {
+            return Some(t);
+        }
+        t = profile.next_change(epoch, t)?;
+    }
+    None
+}
+fn missed_after(w: &SliceSimulation, id: EntityId, t: SimTime) -> usize {
+    w.events()
+        .records()
+        .iter()
+        .filter(|e| {
+            e.record.time > t
+                && matches!(e.record.payload, Payload::MissedDuty { resident, .. } if resident == id)
+        })
+        .count()
+}
 fn snapshot(w: &SliceSimulation) -> Vec<(ws_sim::slice::illness::Group, Vec<u64>)> {
     roots(w)
         .into_iter()
@@ -88,10 +121,15 @@ fn bless_cures_once_and_illness_group_lacks_recovery() {
     assert!(!state.active);
     assert_eq!(state.end, None);
     assert_eq!(state.own_root, illness_root.0);
-    // The ADR 0034 home hold is left exactly as it was.
+    // Home at midnight with the baseline also at home: ADR 0034 rejoins at once.
     assert_eq!(
-        (state.override_kind, state.override_root),
-        (routine.override_kind, routine.override_root)
+        (routine.override_kind, routine.override_root),
+        (1, illness_root.0)
+    );
+    assert_eq!((state.override_kind, state.override_root), (0, 0));
+    assert_eq!(
+        w.resident(id).unwrap().logical,
+        baseline(&w, id, w.clock().now())
     );
     // Step past the original end: the natural recovery must not fire again.
     ok(&mut w, Operation::Steps(6 * MINUTE));
@@ -259,11 +297,15 @@ fn bless_keeps_pending_return_home_under_the_illness_root() {
     let illness_root = last_root(&w);
     let j = w.behavior().routine(id).unwrap().unwrap().homeward.unwrap();
     ok(&mut w, Operation::Steps(MINUTE));
-    let routine = w.behavior().routine(id).unwrap();
+    let routine = w.behavior().routine(id).unwrap().unwrap();
     ok(&mut w, Operation::Bless { resident: id });
     let bless_root = last_root(&w);
-    // The ADR 0034 routine, including its homeward leg, is untouched.
-    assert_eq!(w.behavior().routine(id).unwrap(), routine);
+    // The homeward leg is kept; the hold ends now and rejoins by the ADR 0034 rule.
+    let ended = w.behavior().routine(id).unwrap().unwrap();
+    assert_eq!(ended.homeward, routine.homeward);
+    assert_eq!(ended.original, routine.original);
+    assert_eq!(ended.until, w.clock().now());
+    assert_eq!(ended.rejoin, expected_rejoin(&w, id, j.arrival));
     let steps =
         ((j.arrival - i128::from(w.clock().now().as_micros_since_epoch())) / 100_000) as u64;
     ok(&mut w, Operation::Steps(steps));
@@ -301,4 +343,106 @@ fn environmental_stop_replay_runs_bless_preflight() {
     let (replay, stopped) = SliceSimulation::replay(w.config(), &[forged(id)]).unwrap();
     assert!(stopped);
     assert_eq!(replay.checkpoint(), w.checkpoint());
+}
+
+/// ADR 0038 §2 with the ADR 0034 recovery rule: a cure ends the home hold now.
+/// An off-map worker, cursed for 12 hours and blessed once home, rejoins at the
+/// baseline's next home instant (the evening return), not after the original
+/// end, and records no duty missed after the cure.
+#[test]
+fn bless_cure_rejoins_baseline_at_the_next_home_instant() {
+    let mut w = SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(9 * 3_600_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    let id = *w
+        .population()
+        .residents()
+        .ids()
+        .iter()
+        .find(|&&id| {
+            matches!(
+                w.resident(id).unwrap().logical.location,
+                ws_life::Location::OffMap(..)
+            )
+        })
+        .unwrap();
+    ok(
+        &mut w,
+        Operation::Afflict {
+            resident: id,
+            severity: 6,
+            duration_us: 12 * 3_600_000_000,
+        },
+    );
+    let illness_root = last_root(&w);
+    let routine = w.behavior().routine(id).unwrap().unwrap();
+    let arrival = routine.homeward.unwrap().arrival;
+    let steps = ((arrival - i128::from(w.clock().now().as_micros_since_epoch())) / 100_000) as u64;
+    ok(&mut w, Operation::Steps(steps + 10 * MINUTE));
+    let home = w.population().residents().get(id).unwrap().home;
+    assert_eq!(
+        w.resident(id).unwrap().logical.location,
+        ws_life::Location::AtBuilding(home)
+    );
+    ok(&mut w, Operation::Bless { resident: id });
+    let cured = w.clock().now();
+    let expected = expected_rejoin(&w, id, i128::from(cured.as_micros_since_epoch())).unwrap();
+    assert!(expected > cured);
+    // The original hold would have lasted at least until the 12-hour end.
+    assert!(routine.rejoin.unwrap() > expected);
+    let ended = w.behavior().routine(id).unwrap().unwrap();
+    assert_eq!((ended.until, ended.rejoin), (cured, Some(expected)));
+    let to_rejoin =
+        ((expected.as_micros_since_epoch() - cured.as_micros_since_epoch()) / 100_000) as u64;
+    ok(&mut w, Operation::Steps(to_rejoin - 1));
+    assert!(w.behavior().routine(id).unwrap().is_some());
+    ok(&mut w, Operation::Steps(1));
+    assert_eq!(w.clock().now(), expected);
+    assert_eq!(w.behavior().routine(id).unwrap(), None);
+    assert_eq!(w.resident(id).unwrap().logical, baseline(&w, id, expected));
+    ok(&mut w, Operation::Steps(60 * MINUTE));
+    assert_eq!(missed_after(&w, id, cured), 0);
+    assert!(!tags(&w, illness_root).contains(&12));
+    let live = snapshot(&w);
+    w.rebuild_consequence_index().unwrap();
+    assert_eq!(snapshot(&w), live);
+    let (replay, stopped) = SliceSimulation::replay(w.config(), w.operations()).unwrap();
+    assert!(!stopped);
+    assert_eq!(replay.checkpoint(), w.checkpoint());
+}
+
+/// Save/restore after a relieve and after a cure: equal hashes, equal futures
+/// and a rebuilt index equal to the live one.
+#[test]
+fn bless_survives_save_and_restore() {
+    let mut w = world();
+    let ids = w.population().residents().ids().to_vec();
+    ok(&mut w, Operation::Steps(MINUTE));
+    ok(&mut w, Operation::Bless { resident: ids[1] });
+    let check = |w: &mut SliceSimulation| {
+        let mut restored = SliceSimulation::from_parts(w.to_parts()).unwrap();
+        assert_eq!(restored.state_hash(), w.state_hash());
+        assert_eq!(restored.checkpoint(), w.checkpoint());
+        assert_eq!(snapshot(&restored), snapshot(w));
+        ok(w, Operation::Steps(60 * MINUTE));
+        ok(&mut restored, Operation::Steps(60 * MINUTE));
+        assert_eq!(restored.state_hash(), w.state_hash());
+        assert_eq!(restored.checkpoint(), w.checkpoint());
+        assert_eq!(snapshot(&restored), snapshot(w));
+    };
+    check(&mut w);
+    ok(
+        &mut w,
+        Operation::Afflict {
+            resident: ids[0],
+            severity: 5,
+            duration_us: 2 * 3_600_000_000,
+        },
+    );
+    ok(&mut w, Operation::Steps(10 * MINUTE));
+    ok(&mut w, Operation::Bless { resident: ids[0] });
+    check(&mut w);
 }

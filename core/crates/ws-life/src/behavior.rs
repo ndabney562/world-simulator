@@ -478,6 +478,57 @@ impl Prepared<'_> {
         s.anchor = time;
         Ok(())
     }
+    /// Ends a kind-1 illness routine produced by `root` at the prepared time, as
+    /// natural recovery would (ADR 0038 §2 bless cure, ADR 0034 rejoin rule):
+    /// an already-started leg and the homeward leg are kept, `until` becomes now
+    /// and the rejoin is the first continuous baseline rejoin from the later of
+    /// the home arrival and now. A rejoin due now re-evaluates the resident here,
+    /// exactly as preparation does at a routine phase. Returns whether a routine
+    /// was ended; any other routine is left untouched.
+    /// # Errors
+    /// Unknown resident, invalid prepared time, storm rule or reservation failure.
+    pub fn end_illness(&mut self, id: EntityId, root: u64) -> Result<bool, BehaviorError> {
+        let i = self.world.index(id)?;
+        let common = self.common(id)?;
+        let Some(r) = self.routine(id)?.filter(|r| r.kind == 1 && r.root == root) else {
+            return Ok(false);
+        };
+        let time = self.time;
+        let ended = r.ended_at(self.world, id, time)?;
+        let mut s = self
+            .planned
+            .as_ref()
+            .map_or(self.world.states[i], |(states, _)| states[i]);
+        if ended.rejoin.is_some_and(|t| t <= time) {
+            let world: &Behavior = self.world;
+            let profile = world
+                .schedules
+                .get(id)
+                .ok_or(BehaviorError::UnknownResident)?;
+            s.needs = common.needs;
+            s.anchor = time;
+            s.routine = None;
+            s.logical = match self.storm {
+                Some(w) => {
+                    let (answer, new) = storm::step(world, w, profile, &mut s, time)?;
+                    if let Some(d) = new {
+                        self.deferrals
+                            .try_reserve(1)
+                            .map_err(|_| BehaviorError::Resource)?;
+                        let at = self.deferrals.partition_point(|x| x.resident <= d.resident);
+                        self.deferrals.insert(at, d);
+                    }
+                    answer
+                }
+                None => profile.at(world.schedules.epoch(), time),
+            };
+            s.action = choose(world.seed, s.id, s.decisions, s.logical.activity, s.needs);
+        } else {
+            s.routine = Some(ended);
+        }
+        self.writable()?[i] = s;
+        Ok(true)
+    }
     /// Publishes already validated/reserved records with no allocation or failure.
     pub fn commit(self) {
         if let Some((states, next)) = self.planned {

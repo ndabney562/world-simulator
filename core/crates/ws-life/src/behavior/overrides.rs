@@ -145,6 +145,33 @@ impl RoutineOverride {
             ),
         })
     }
+    /// The same illness routine ended early at `time` (ADR 0038 §2 bless cure):
+    /// `until = time`, and the rejoin is searched exactly as at natural recovery,
+    /// from the later of the home arrival and `time`. Journeys are unchanged.
+    pub(super) fn ended_at(
+        self,
+        world: &Behavior,
+        id: EntityId,
+        time: SimTime,
+    ) -> Result<Self, BehaviorError> {
+        let home_at = self
+            .homeward
+            .or(self.original)
+            .map_or(micros(self.started), |j| j.arrival);
+        Ok(Self {
+            until: time,
+            rejoin: rejoin(
+                world
+                    .schedules
+                    .get(id)
+                    .ok_or(BehaviorError::UnknownResident)?,
+                world.schedules.epoch(),
+                self.home,
+                home_at.max(micros(time)),
+            ),
+            ..self
+        })
+    }
     pub(super) fn visit(
         world: &Behavior,
         id: EntityId,
