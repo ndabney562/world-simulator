@@ -410,6 +410,22 @@ impl Prepared<'_> {
         let routine = RoutineOverride::visit(self.world, id, self.time, until, root, home)?;
         self.install(id, routine)
     }
+    /// Stages a gathering routine: walk to `target`, stay until `until`, walk home.
+    /// # Errors
+    /// Unknown resident, no route, or `until` not after the prepared time.
+    pub fn gather(
+        &mut self,
+        id: EntityId,
+        home: EntityId,
+        target: EntityId,
+        until: SimTime,
+        root: u64,
+    ) -> Result<RoutineOverride, BehaviorError> {
+        let routine =
+            RoutineOverride::gathering(self.world, id, self.time, until, root, home, target)?;
+        self.install(id, routine)?;
+        Ok(routine)
+    }
     /// Publishes already validated/reserved records with no allocation or failure.
     pub fn commit(self) {
         if let Some((states, next)) = self.planned {

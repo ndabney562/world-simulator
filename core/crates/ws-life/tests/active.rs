@@ -3,7 +3,7 @@ use proptest::prelude::*;
 use std::fmt::Write;
 use ws_ecs::EntityId;
 use ws_life::{
-    Activity, Place, Schedules,
+    Activity, Location, Place, Schedules,
     behavior::{Action, Behavior, BehaviorError, Detail, FineLocation, Needs},
     navigation::{Graph, NavError, Navigation, Point},
 };
@@ -447,5 +447,150 @@ proptest! {
         let id=ids[slot%ids.len()];b.set_detail(id,Detail::L1,t(now)).unwrap();let before=b.snapshot(id,t(now)).unwrap();let hash=b.state_hash();
         b.set_detail(id,Detail::L2,t(now)).unwrap();b.set_detail(id,Detail::L1,t(now)).unwrap();
         prop_assert_eq!(b.state_hash(),hash);prop_assert_eq!(b.snapshot(id,t(now)).unwrap(),before);prop_assert_eq!(b.residents().collect::<Vec<_>>(),ids);
+    }
+}
+
+/// A resident at home at 03:00, a distinct target building and the walk between them.
+fn gathering_setup() -> (Behavior, EntityId, EntityId, EntityId, i64) {
+    let start = 3 * 60 * MINUTE;
+    let b = body(7, start, 0);
+    for id in b.residents().collect::<Vec<_>>() {
+        let Location::AtBuilding(home) = b.snapshot(id, t(start)).unwrap().logical.location else {
+            continue;
+        };
+        for &(place, _) in b.navigation().places() {
+            if let Place::Building(target) = place {
+                let ticks = b
+                    .navigation()
+                    .route(Place::Building(home), place)
+                    .unwrap()
+                    .walking_ticks() as i64;
+                if target != home && ticks > 0 {
+                    return (b, id, home, target, ticks * STEP);
+                }
+            }
+        }
+    }
+    panic!("no resident home with a distinct target");
+}
+#[test]
+fn gathering_override_walks_stays_and_returns() {
+    let (mut b, id, home, target, walk) = gathering_setup();
+    let start = 3 * 60 * MINUTE;
+    let until = start + walk + 10 * MINUTE;
+    let mut p = b.prepare(t(start)).unwrap();
+    let r = p.gather(id, home, target, t(until), 9).unwrap();
+    p.commit();
+    assert_eq!(r.kind, 3);
+    let (out, back) = (r.original.unwrap(), r.homeward.unwrap());
+    assert_eq!(out.to, Place::Building(target));
+    assert_eq!(
+        (out.departure, out.arrival),
+        (start.into(), (start + walk).into())
+    );
+    assert_eq!(
+        (back.departure, back.arrival),
+        (until.into(), (until + walk).into())
+    );
+    let at = |b: &mut Behavior, us: i64| {
+        b.advance_to(t(us)).unwrap();
+        let s = b.snapshot(id, t(us)).unwrap();
+        (
+            s.logical.activity,
+            s.logical.location,
+            s.action,
+            b.routine(id).unwrap(),
+        )
+    };
+    let (a, l, act, _) = at(&mut b, start + MINUTE);
+    assert_eq!((a, act), (Activity::Commute, Action::Travel));
+    assert!(matches!(l, Location::InTransit { to: Place::Building(x), .. } if x == target));
+    let (a, l, act, _) = at(&mut b, start + walk + MINUTE);
+    assert_eq!(
+        (a, l, act),
+        (
+            Activity::Home,
+            Location::AtBuilding(target),
+            Action::Socialize
+        )
+    );
+    let (a, l, act, _) = at(&mut b, until - MINUTE);
+    assert_eq!(
+        (a, l, act),
+        (
+            Activity::Home,
+            Location::AtBuilding(target),
+            Action::Socialize
+        )
+    );
+    let (a, l, act, _) = at(&mut b, until + MINUTE);
+    assert_eq!((a, act), (Activity::Commute, Action::Travel));
+    assert!(matches!(l, Location::InTransit { to: Place::Building(x), .. } if x == home));
+    let home_at = until + walk;
+    let rejoin = r.rejoin.expect("baseline returns home within the horizon");
+    let rejoin_us = rejoin.as_micros_since_epoch();
+    assert!(rejoin_us >= home_at);
+    if rejoin_us > home_at + MINUTE {
+        // Held at home by the routine until the baseline rejoin.
+        let (a, l, act, routine) = at(&mut b, home_at + MINUTE);
+        assert_eq!(
+            (a, l, act),
+            (Activity::Home, Location::AtBuilding(home), Action::Rest)
+        );
+        assert!(routine.is_some());
+    }
+    let (_, l, _, routine) = at(&mut b, rejoin_us);
+    assert_eq!((l, routine), (Location::AtBuilding(home), None));
+}
+#[test]
+fn late_arrival_skips_the_stay() {
+    let (mut b, id, home, target, walk) = gathering_setup();
+    let start = 3 * 60 * MINUTE;
+    let until = start + MINUTE;
+    assert!(walk > MINUTE, "fixture walk must outlast the gathering");
+    let mut p = b.prepare(t(start)).unwrap();
+    let r = p.gather(id, home, target, t(until), 9).unwrap();
+    p.commit();
+    let (out, back) = (r.original.unwrap(), r.homeward.unwrap());
+    assert_eq!(back.departure, out.arrival);
+    for us in (start..start + 2 * walk + 5 * MINUTE).step_by(MINUTE as usize) {
+        b.advance_to(t(us)).unwrap();
+        assert_ne!(b.snapshot(id, t(us)).unwrap().action, Action::Socialize);
+    }
+}
+#[test]
+fn gathering_rejects_an_empty_stay() {
+    let (mut b, id, home, target, _) = gathering_setup();
+    let start = 3 * 60 * MINUTE;
+    let mut p = b.prepare(t(start)).unwrap();
+    assert_eq!(
+        p.gather(id, home, target, t(start), 1).unwrap_err(),
+        BehaviorError::Time
+    );
+}
+#[test]
+fn illness_and_visit_hashes_unchanged() {
+    // The generalised answer must not alter kind 1/2 states: the pinned
+    // intervention goldens in ws-sim/ws-persist cover whole-world hashes;
+    // here, kind 1/2 never take the stay branch (no gap between journeys).
+    let (mut b, id, home, _, _) = gathering_setup();
+    let start = 3 * 60 * MINUTE;
+    let mut p = b.prepare(t(start)).unwrap();
+    p.visit(id, home, t(start + 10 * MINUTE), 3).unwrap();
+    p.commit();
+    for us in (start..start + 30 * MINUTE).step_by(MINUTE as usize) {
+        let r = b.routine(id).unwrap();
+        if let Some(r) = r {
+            assert!(r.original.is_none() && r.homeward.is_none());
+            let snap = b.snapshot(id, t(us)).unwrap();
+            let want = if us < start + 10 * MINUTE {
+                Action::Socialize
+            } else {
+                Action::Rest
+            };
+            assert_eq!(snap.action, want);
+            assert_eq!(snap.logical.location, Location::AtBuilding(home));
+        }
+        b.advance_to(t(us + MINUTE)).unwrap();
     }
 }

@@ -30,7 +30,7 @@ impl Journey {
 /// Retained temporary routine, independent of detail membership.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoutineOverride {
-    /// 1: illness/home hold, 2: neighbour visit.
+    /// 1: illness/home hold, 2: neighbour visit, 3: gathering (target is `original.to`).
     pub kind: u32,
     /// Producing intervention EventId, represented without a history dependency.
     pub root: u64,
@@ -166,11 +166,71 @@ impl RoutineOverride {
             ),
         })
     }
+    /// Home to `target` now, stay until `until` (or arrival if later), then walk home.
+    pub(super) fn gathering(
+        world: &Behavior,
+        id: EntityId,
+        time: SimTime,
+        until: SimTime,
+        root: u64,
+        home: EntityId,
+        target: EntityId,
+    ) -> Result<Self, BehaviorError> {
+        if micros(until) <= micros(time) {
+            return Err(BehaviorError::Time);
+        }
+        let leg =
+            |from: EntityId, to: EntityId, departure: i128| -> Result<Journey, BehaviorError> {
+                let walking = i128::from(
+                    world
+                        .navigation
+                        .route(Place::Building(from), Place::Building(to))?
+                        .walking_ticks(),
+                ) * STEP;
+                Ok(Journey {
+                    from: Place::Building(from),
+                    to: Place::Building(to),
+                    departure,
+                    arrival: departure + walking,
+                })
+            };
+        let outbound = leg(home, target, micros(time))?;
+        let homeward = leg(target, home, outbound.arrival.max(micros(until)))?;
+        Ok(Self {
+            started: time,
+            kind: 3,
+            root,
+            home,
+            original: Some(outbound),
+            homeward: Some(homeward),
+            until,
+            rejoin: rejoin(
+                world
+                    .schedules
+                    .get(id)
+                    .ok_or(BehaviorError::UnknownResident)?,
+                world.schedules.epoch(),
+                home,
+                homeward.arrival,
+            ),
+        })
+    }
     pub(super) fn answer(self, time: SimTime) -> Answer {
+        let mut previous: Option<Journey> = None;
         for journey in [self.original, self.homeward].into_iter().flatten() {
+            if let Some(stay) = previous.filter(|_| micros(time) < journey.departure) {
+                return Answer {
+                    activity: Activity::Home,
+                    location: Location::AtBuilding(match stay.to {
+                        Place::Building(id) => id,
+                        Place::OffMap(..) => self.home,
+                    }),
+                };
+            }
             if micros(time) < journey.arrival {
                 return journey.answer();
             }
+            previous = Some(journey);
         }
         Answer {
             activity: Activity::Home,
@@ -180,7 +240,7 @@ impl RoutineOverride {
     pub(super) fn action(self, time: SimTime) -> Action {
         if self.answer(time).activity == Activity::Commute {
             Action::Travel
-        } else if self.kind == 2 && time < self.until {
+        } else if matches!(self.kind, 2 | 3) && time < self.until {
             Action::Socialize
         } else {
             Action::Rest
@@ -190,6 +250,9 @@ impl RoutineOverride {
         [
             self.original.map(|j| j.arrival),
             self.homeward.map(|j| j.arrival),
+            self.homeward
+                .filter(|_| self.kind == 3)
+                .map(|j| j.departure),
             Some(micros(self.until)),
             self.rejoin.map(micros),
         ]
