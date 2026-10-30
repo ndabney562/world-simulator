@@ -8,7 +8,7 @@ GitHub is canonical. Specifications live in issues, decisions in ADRs (`docs/adr
 
 ## Roles
 
-- **Noah (Product Owner):** priorities, approvals, and merges personally or through recorded, bounded delegation. See [human-approval-gates](docs/process/human-approval-gates.md).
+- **Noah (Product Owner):** priorities, approvals, and merges personally or through recorded delegation, including the [standing delegation](docs/process/human-approval-gates.md#standing-delegation-2026-10-29). See [human-approval-gates](docs/process/human-approval-gates.md).
 - **Codex or Claude:** implementation engineer for the issue Noah assigns; one writer per branch.
 - **ChatGPT/Codex or Claude:** reviewer of the other assistant’s actual GitHub diff; an author’s self-review is not independent review. When no other assistant is available, a fresh-context review agent reviews instead ([standing delegation](docs/process/human-approval-gates.md#standing-delegation-2026-10-29)).
 - Existing defaults remain Claude implementing and ChatGPT reviewing when Noah has not assigned different roles.

@@ -20,4 +20,4 @@ How World Simulator is built from Architecture V1 onwards. GitHub is the canonic
 
 Templates live in [`.github/ISSUE_TEMPLATE/`](../../.github/ISSUE_TEMPLATE/) and [`.github/pull_request_template.md`](../../.github/pull_request_template.md). AI collaborators start from [`AGENTS.md`](../../AGENTS.md).
 
-Changes to these documents follow the same PR workflow and need Product Owner approval.
+Changes to these documents follow the same PR workflow and are merged under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29).

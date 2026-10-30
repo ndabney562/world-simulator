@@ -20,8 +20,8 @@ Routine implementation choices inside an issue's scope do not need an ADR; they 
 1. **Open an architecture-change issue** from the template, describing the problem, the options, and the proposed decision.
 2. **Draft the ADR** as `docs/adr/NNNN-short-title.md` from [`docs/adr/0000-template.md`](../adr/0000-template.md), with status **Proposed**, and update the affected architecture docs in the same PR.
 3. **Open an ADR PR** that changes only docs. Architecture changes are never mixed into an implementation PR.
-4. **ChatGPT reviews** the ADR PR like any other diff.
-5. **The Product Owner accepts** by approving and merging. The ADR's status is set to **Accepted** in the PR before merge, and the ADR index in [`docs/adr/README.md`](../adr/README.md) is updated.
+4. **A different assistant reviews** the ADR PR like any other diff, or a fresh-context review agent when none is available ([standing delegation](human-approval-gates.md#standing-delegation-2026-10-29)).
+5. **The implementer accepts and merges** under the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29); Noah can reverse any ADR. The ADR's status is set to **Accepted** in the PR before merge, and the ADR index in [`docs/adr/README.md`](../adr/README.md) is updated.
 6. **Implementation follows** in separate issues that cite the ADR.
 
 ## Superseding

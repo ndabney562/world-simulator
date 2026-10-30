@@ -1,12 +1,12 @@
 # Human Approval Gates
 
-These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to the assigned assistant and then recorded on the relevant issue or PR.
+These decisions belong to the Product Owner alone. An AI collaborator may propose them, but never acts on them without the Product Owner's explicit approval, written on GitHub (a PR approval, merge, or comment) or given directly to the assigned assistant and then recorded on the relevant issue or PR. The [standing delegation](#standing-delegation-2026-10-29) below delegates some of these gates to assistants.
 
 | Gate | Examples |
 |---|---|
 | **Merging into `main`** | Delegated by the [standing delegation](#standing-delegation-2026-10-29): assistants merge their own PRs after latest-head green CI and a clean review. |
 | **Starting an engineering run** | Delegated by the [standing delegation](#standing-delegation-2026-10-29) for work that serves its priority. |
-| **Architecture changes** | Delegated by the [standing delegation](#standing-delegation-2026-10-29): assistants may accept or supersede ADRs, recording the reason; Noah can reverse any of them. |
+| **Architecture changes** | Delegated by the [standing delegation](#standing-delegation-2026-10-29): assistants may accept ADRs (superseding one counts as accepting its replacement), recording the reason; Noah can reverse any of them. |
 | **Scope changes** | Delegated by the [standing delegation](#standing-delegation-2026-10-29), except declaring a stage complete. |
 | **Test and CI weakening** | Deleting, skipping, disabling, or loosening a test or CI check; lowering a performance budget or tolerance; updating Tier 1 golden values. |
 | **Cost** | Anything that may cost money: paid services, paid tiers, API usage above free tiers, paid assets or plugins (ADR 0007). |
@@ -21,7 +21,7 @@ These decisions belong to the Product Owner alone. An AI collaborator may propos
 
 Noah, 2026-10-29 ([#122](https://github.com/ndabney562/world-simulator/issues/122)): "i shouldnt have to review this in the future. I just want a playable god simulator with a fun interface." This delegation applies to all work until Noah narrows or withdraws it.
 
-- **Priority:** a playable, fun god simulator with a good interface comes before device-acceptance paperwork.
+- **Priority:** a playable god simulator with a fun interface.
 - **Work:** assistants open issues, start work and propose or accept ADRs and scope changes that serve that priority, recording the reason on the issue or PR.
 - **Review:** a different assistant reviews the actual diff when one is available. When none is (for example usage limits), a fresh-context review agent that sees only the issue and the diff reviews it instead. The PR states which review was used.
 - **Merge:** the implementer squash-merges once latest-head CI is green and no Blocker or Major finding is open.
@@ -30,7 +30,7 @@ Noah, 2026-10-29 ([#122](https://github.com/ndabney562/world-simulator/issues/12
 
 ## Recorded delegation
 
-Check [current-workstream.md](current-workstream.md) and the linked issue/PR authorization before requesting approval. A direct Product Owner instruction may authorize multiple named issues, dependent starts or technical merges; record its scope and exclusions once. Do not reimpose per-issue/per-merge stops already superseded by that delegation. Do not extend delegation to new issues, architecture decisions, spending or excluded gates by inference.
+Check [current-workstream.md](current-workstream.md) and the linked issue/PR authorization before requesting approval. A direct Product Owner instruction may authorize multiple named issues, dependent starts or technical merges; record its scope and exclusions once. Do not reimpose per-issue/per-merge stops already superseded by that delegation. Do not extend delegation to new issues, architecture decisions, spending or excluded gates by inference; the standing delegation above is explicit, not inferred.
 
 ## What does not need a gate
 
