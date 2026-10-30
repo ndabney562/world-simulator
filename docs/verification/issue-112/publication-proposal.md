@@ -29,8 +29,9 @@ uploads, pushes or changes repository settings.
 
 ## Publication action and settings
 
-Publication/settings approval covered uploading only that candidate to the new
-`gh-pages` branch of this public repository. The remote branch now points to the
+Noah approved GitHub Pages publication on 2026-10-28 and reconfirmed that
+approval on 2026-10-30. Publication/settings approval covered uploading only
+that candidate to the new `gh-pages` branch of this public repository. The remote branch now points to the
 publication commit above. Existing Git authentication passed a push dry run; no new account,
 secret or credential is proposed. Retain original-code MIT text and collected
 third-party/data/Rust/Unity notices exactly as verified in the player.
@@ -49,8 +50,13 @@ Public HTTPS checks under the repository prefix verified the manifest SHA-256,
 all nine player sizes/hashes and the runtime commit/tree in `publication-info.json`.
 These HTTP/hash checks do not exercise rendering or browser persistence.
 Prepublication rendering/save/reload/import evidence remains in the
-[release checks](release-checks.md); a completed public-origin browser smoke test
-is not yet recorded on #112.
+[release checks](release-checks.md).
+
+Noah reported a public-origin smoke test on 2026-10-30 in his desktop browser at
+[the live preview](https://ndabney562.github.io/world-simulator/): saving worked, and the saved world
+loaded after a page reload. Backup export/import on the live site was **not
+tested**. Other devices were **not tested** in this smoke test. This owner-reported
+result does not extend the prepublication export/import or device evidence.
 
 ## What stays separate
 
