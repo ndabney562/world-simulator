@@ -10,7 +10,7 @@ world-simulator/
 ├── CLAUDE.md / AGENTS.md         Conventions for AI collaborators (Technical Prototype)
 ├── docs/
 │   ├── vision/                   Project instructions / vision (source of truth for intent)
-│   ├── architecture/             This proposal, kept current; CHANGELOG.md per revision
+│   ├── architecture/             This proposal, kept current
 │   ├── adr/                      Architecture Decision Records: NNNN-title.md
 │   ├── design/                   Gameplay and content design notes
 │   ├── data/                     Data-source register: licences, attribution, versions

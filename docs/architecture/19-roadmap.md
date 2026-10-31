@@ -83,6 +83,6 @@ Richer social, political, and cultural models; optional LLM features ([16](16-ai
 ## Cross-cutting tracks (all stages)
 
 - Device performance measurement every stage.
-- ADRs and `docs/architecture/` kept current; a changelog entry per revision ([CHANGELOG](CHANGELOG.md)).
+- ADRs and `docs/architecture/` kept current; git history records each revision.
 - Tooling (`ws-inspector`, debug overlays, event and causality browser) grows with every simulation feature.
 - Licence and attribution compliance for every new data source and provider.

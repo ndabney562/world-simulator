@@ -47,6 +47,7 @@ Product Owner
 ## 6. Review
 
 - The assigned reviewer (a different assistant from the author, or a fresh-context review agent when none is available) reviews the **actual diff** on GitHub. Findings are recorded on the PR with a severity ([code-review.md](code-review.md)).
+- **Review scope** (decided by Noah on 2026-10-31, #144). In plan-driven work, the logic-heavy task gets its own fresh-context review and the whole branch gets one final review. Small mechanical tasks (docs, wiring, under about 150 changed lines) skip their own task review. Review inputs point at `git diff BASE..HEAD` ranges rather than diffs copied into files.
 - Blocker and Major findings must be resolved before merge. Minor findings are fixed or turned into a follow-up issue linked from the PR. Nits are optional.
 
 ## 7. Fixes
