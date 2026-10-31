@@ -967,11 +967,14 @@ fn god_pass(
     facts
         .try_reserve(completed.len())
         .map_err(|_| SliceError::History(EventError::Resource))?;
-    for g in completed {
+    // Sequences follow append (trigger) order, not slot order: two goals
+    // completed by different triggers may have descending slots, and
+    // `EventStore::prepare` needs strictly ascending (system, sequence).
+    for (sequence, g) in completed.into_iter().enumerate() {
         let mut c = Candidate::new(
             now,
             GOAL_SYSTEM,
-            u64::from(g.slot),
+            sequence as u64,
             Payload::GoalCompleted {
                 day,
                 slot: g.slot,

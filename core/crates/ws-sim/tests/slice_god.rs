@@ -454,3 +454,50 @@ fn god_replays_same_and_separate_process() {
         digest(&a, ea, &fa)
     );
 }
+
+/// Two goals completing in one batch from different triggers: the bless
+/// root completes the distinct-bless goal, then its `Recovered` completes
+/// the cure goal in a lower slot. Both events commit, in trigger order.
+#[test]
+fn two_goals_complete_in_one_batch() {
+    let caps = world_at(0).caps();
+    let (day, bless, cure, target) = (0..400)
+        .find_map(|d| {
+            let g = generate_goals(SEED, d, caps);
+            let gs = g.goals();
+            let b = gs.iter().position(|g| g.kind == GoalKind::BlessDistinct)?;
+            let c = gs.iter().position(|g| g.kind == GoalKind::Cure)?;
+            (b > c).then(|| (d, b, c, gs[b].target))
+        })
+        .expect("a day with the cure slot before the bless slot");
+    let mut w = world_at(day * DAY + 12 * HOUR);
+    let ids = w.population().residents().ids().to_vec();
+    ok(
+        &mut w,
+        Operation::Afflict {
+            resident: ids[0],
+            severity: 5,
+            duration_us: 15 * 60_000_000,
+        },
+    );
+    for id in &ids[1..usize::from(target)] {
+        ok(&mut w, Operation::Bless { resident: *id });
+    }
+    ok(&mut w, Operation::Steps(MINUTE));
+    assert!(goals(&w).is_empty());
+    ok(&mut w, Operation::Bless { resident: ids[0] });
+    let g = goals(&w);
+    assert_eq!(g.len(), 2);
+    let root = last(&w, |p| matches!(p, Payload::BlessApplied { .. }));
+    let recovered = last(&w, |p| matches!(p, Payload::Recovered { .. }));
+    assert_goal(&g[0], day, bless, GoalKind::BlessDistinct, target, root);
+    assert_goal(&g[1], day, cure, GoalKind::Cure, 1, recovered);
+    assert!(g[0].id < g[1].id);
+    let state = w.god().goals().goals();
+    assert!(state[bless].done && state[cure].done);
+    // Two rewards on top of -20 + 15 for the cured resident.
+    assert_eq!(faith(&w, ids[0]), 15);
+    assert_never_indexed(&mut w);
+    let (replay, _) = SliceSimulation::replay(w.config(), w.operations()).unwrap();
+    assert_eq!(replay.checkpoint(), w.checkpoint());
+}
