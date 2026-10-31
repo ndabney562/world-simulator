@@ -1786,8 +1786,14 @@ fn put_routine(w: &mut Writer, r: ws_life::behavior::RoutineOverride) {
     }
 }
 
-fn get_routine(r: &mut Reader) -> Result<ws_life::behavior::RoutineOverride> {
+/// Override kinds 1 (illness) and 2 (visit) in format 4; format 5 adds 3
+/// (gathering, ADR 0038 §6).
+fn get_routine(r: &mut Reader, format: u32) -> Result<ws_life::behavior::RoutineOverride> {
     let kind = r.u32()?;
+    let last = if format >= 5 { 3 } else { 2 };
+    if !(1..=last).contains(&kind) {
+        return Err(CodecError("invalid routine kind"));
+    }
     let root = r.u64()?;
     let home = r.id()?;
     let original = match r.u8()? {
@@ -1819,7 +1825,74 @@ fn get_routine(r: &mut Reader) -> Result<ws_life::behavior::RoutineOverride> {
     })
 }
 
-pub(crate) fn put_slice_resident_state(st: &ws_life::behavior::ResidentStateSnapshot) -> Vec<u8> {
+fn put_opt_journey(w: &mut Writer, j: Option<ws_life::behavior::Journey>) {
+    match j {
+        Some(j) => {
+            w.u8(1);
+            put_journey(w, j);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn get_opt_journey(r: &mut Reader) -> Result<Option<ws_life::behavior::Journey>> {
+    Ok(if r.flag()? {
+        Some(get_journey(r)?)
+    } else {
+        None
+    })
+}
+
+fn put_opt_time(w: &mut Writer, t: Option<SimTime>) {
+    match t {
+        Some(t) => {
+            w.u8(1);
+            w.time(t);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn get_opt_time(r: &mut Reader) -> Result<Option<SimTime>> {
+    Ok(if r.flag()? { Some(r.time()?) } else { None })
+}
+
+/// The format-5 storm hold block (plan decision D1): every field, with the
+/// phase stored explicitly.
+fn put_storm_hold(w: &mut Writer, h: ws_life::behavior::StormHold) {
+    w.id(h.building);
+    w.u8(h.activity as u8);
+    put_opt_journey(w, h.resume);
+    put_opt_time(w, h.rejoin);
+    w.u8(h.phase as u8);
+}
+
+fn get_storm_hold(r: &mut Reader) -> Result<ws_life::behavior::StormHold> {
+    let building = r.id()?;
+    let activity =
+        ws_events::Activity::from_tag(r.u8()?).ok_or(CodecError("invalid activity tag"))?;
+    let resume = get_opt_journey(r)?;
+    let rejoin = get_opt_time(r)?;
+    let phase = match r.u8()? {
+        0 => ws_life::behavior::HoldPhase::Deferring,
+        1 => ws_life::behavior::HoldPhase::Resuming,
+        _ => return Err(CodecError("invalid storm hold phase")),
+    };
+    Ok(ws_life::behavior::StormHold {
+        building,
+        activity,
+        resume,
+        rejoin,
+        phase,
+    })
+}
+
+/// A `slice_behavior` row. Format 5 appends the storm hold block; format 4
+/// has none, and its writer refuses a resident with a hold.
+pub(crate) fn put_slice_resident_state(
+    st: &ws_life::behavior::ResidentStateSnapshot,
+    format: u32,
+) -> Vec<u8> {
     let mut w = Writer::new();
     w.id(st.id);
     w.u8(st.detail as u8);
@@ -1836,11 +1909,21 @@ pub(crate) fn put_slice_resident_state(st: &ws_life::behavior::ResidentStateSnap
         }
         None => w.u8(0),
     }
+    if format >= 5 {
+        match st.storm_hold {
+            Some(h) => {
+                w.u8(1);
+                put_storm_hold(&mut w, h);
+            }
+            None => w.u8(0),
+        }
+    }
     w.0
 }
 
 pub(crate) fn get_slice_resident_state(
     bytes: &[u8],
+    format: u32,
 ) -> Result<ws_life::behavior::ResidentStateSnapshot> {
     let mut r = Reader::new(bytes);
     let id = r.id()?;
@@ -1854,8 +1937,13 @@ pub(crate) fn get_slice_resident_state(
     let decisions = r.u64()?;
     let routine = match r.u8()? {
         0 => None,
-        1 => Some(get_routine(&mut r)?),
+        1 => Some(get_routine(&mut r, format)?),
         _ => return Err(CodecError("invalid routine flag")),
+    };
+    let storm_hold = if format >= 5 && r.flag()? {
+        Some(get_storm_hold(&mut r)?)
+    } else {
+        None
     };
     r.finish()?;
     Ok(ws_life::behavior::ResidentStateSnapshot {
@@ -1866,9 +1954,109 @@ pub(crate) fn get_slice_resident_state(
         action,
         decisions,
         routine,
-        // Format 4 has no storm table; Task 7 (format 5) persists holds.
-        storm_hold: None,
+        storm_hold,
     })
+}
+
+/// The format-5 `slice_storm` row: the storm episode and the `ws-life`
+/// window, each optional (the window outlives the episode until every hold
+/// has rejoined).
+pub(crate) fn put_slice_storm(
+    storm: Option<ws_sim::slice::Storm>,
+    window: Option<ws_life::behavior::StormWindow>,
+) -> Vec<u8> {
+    let mut w = Writer::new();
+    match storm {
+        Some(s) => {
+            w.u8(1);
+            w.u64(s.root.0);
+            w.time(s.start);
+            w.time(s.end);
+            w.u32(s.kept);
+        }
+        None => w.u8(0),
+    }
+    match window {
+        Some(x) => {
+            w.u8(1);
+            w.time(x.start);
+            w.time(x.end);
+        }
+        None => w.u8(0),
+    }
+    w.0
+}
+
+pub(crate) type DecodedStorm = (
+    Option<ws_sim::slice::Storm>,
+    Option<ws_life::behavior::StormWindow>,
+);
+
+pub(crate) fn get_slice_storm(bytes: &[u8]) -> Result<DecodedStorm> {
+    let mut r = Reader::new(bytes);
+    let storm = if r.flag()? {
+        Some(ws_sim::slice::Storm {
+            root: EventId(r.u64()?),
+            start: r.time()?,
+            end: r.time()?,
+            kept: r.u32()?,
+        })
+    } else {
+        None
+    };
+    let window = if r.flag()? {
+        Some(ws_life::behavior::StormWindow {
+            start: r.time()?,
+            end: r.time()?,
+        })
+    } else {
+        None
+    };
+    r.finish()?;
+    if storm.is_none() && window.is_none() {
+        return Err(CodecError("empty storm row"));
+    }
+    Ok((storm, window))
+}
+
+/// The format-5 `slice_gathering` row: the episode, its `joined` count, then
+/// up to seven attendees of resident ID and phase.
+pub(crate) fn put_slice_gathering(g: &ws_sim::slice::Gathering) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.id(g.building);
+    w.u64(g.root.0);
+    w.time(g.start);
+    w.time(g.end);
+    w.u32(g.joined);
+    w.u8(g.attendees().len() as u8);
+    for (id, phase) in g.attendees() {
+        w.id(*id);
+        w.u8(*phase as u8);
+    }
+    w.0
+}
+
+pub(crate) fn get_slice_gathering(bytes: &[u8]) -> Result<ws_sim::slice::Gathering> {
+    let mut r = Reader::new(bytes);
+    let building = r.id()?;
+    let root = EventId(r.u64()?);
+    let start = r.time()?;
+    let end = r.time()?;
+    let joined = r.u32()?;
+    let count = usize::from(r.u8()?);
+    if count > ws_sim::slice::MAX_ATTENDEES {
+        return Err(CodecError("too many attendees"));
+    }
+    let mut attendees = [(building, ws_sim::slice::Phase::Outbound); ws_sim::slice::MAX_ATTENDEES];
+    for slot in &mut attendees[..count] {
+        let id = r.id()?;
+        let phase =
+            ws_sim::slice::Phase::from_tag(r.u8()?).ok_or(CodecError("invalid attendee phase"))?;
+        *slot = (id, phase);
+    }
+    r.finish()?;
+    ws_sim::slice::Gathering::restore(building, root, start, end, joined, &attendees[..count])
+        .ok_or(CodecError("too many attendees"))
 }
 
 pub(crate) fn put_slice_lod(
@@ -2693,5 +2881,197 @@ mod slice_operation_tests {
         let at = 1 + 8 + 8 + 1;
         bytes[at..at + 8].copy_from_slice(&107u64.to_le_bytes());
         assert!(get_operation_record(&bytes).is_err());
+    }
+}
+
+#[cfg(test)]
+mod format5_tests {
+    use super::*;
+    use ws_life::behavior::{
+        Action, Detail, HoldPhase, Journey, Needs, ResidentStateSnapshot, RoutineOverride,
+        StormHold, StormWindow,
+    };
+    use ws_sim::slice::{Gathering, Phase, Storm};
+
+    fn t(us: i64) -> SimTime {
+        SimTime::from_micros_since_epoch(us)
+    }
+
+    fn state(
+        routine: Option<RoutineOverride>,
+        storm_hold: Option<StormHold>,
+    ) -> ResidentStateSnapshot {
+        ResidentStateSnapshot {
+            id: EntityId::procedural(3),
+            detail: Detail::L1,
+            needs: Needs::checked([1, 2, 3, 4]).unwrap(),
+            anchor: t(600_000_000),
+            action: Action::from_tag(0).unwrap(),
+            decisions: 9,
+            routine,
+            storm_hold,
+        }
+    }
+
+    fn routine(kind: u32) -> RoutineOverride {
+        RoutineOverride {
+            kind,
+            root: 12,
+            home: EntityId::procedural(4),
+            original: None,
+            homeward: None,
+            started: t(100_000),
+            until: t(200_000),
+            rejoin: Some(t(300_000)),
+        }
+    }
+
+    #[test]
+    fn storm_hold_block_is_format5_only_and_round_trips_every_field() {
+        let walk = Journey {
+            from: ws_life::Place::Building(EntityId::procedural(5)),
+            to: ws_life::Place::OffMap(EntityId::procedural(6), 2),
+            departure: 7_200_000_000,
+            arrival: 7_260_000_000,
+        };
+        for hold in [
+            StormHold {
+                building: EntityId::procedural(5),
+                activity: ws_events::Activity::Work,
+                resume: Some(walk),
+                rejoin: None,
+                phase: HoldPhase::Deferring,
+            },
+            StormHold {
+                building: EntityId::procedural(5),
+                activity: ws_events::Activity::Home,
+                resume: None,
+                rejoin: Some(t(9_000_000)),
+                phase: HoldPhase::Resuming,
+            },
+        ] {
+            let st = state(None, Some(hold));
+            let bytes = put_slice_resident_state(&st, 5);
+            assert_eq!(get_slice_resident_state(&bytes, 5), Ok(st));
+            // The phase is the last byte; an unknown phase is an error.
+            let mut bad = bytes.clone();
+            *bad.last_mut().unwrap() = 2;
+            assert!(get_slice_resident_state(&bad, 5).is_err());
+            // Format 4 never reads the block, so its bytes are trailing.
+            assert!(get_slice_resident_state(&bytes, 4).is_err());
+        }
+        // Without a hold, format 4 bytes are unchanged and format 5 adds one flag.
+        let st = state(Some(routine(1)), None);
+        let v4 = put_slice_resident_state(&st, 4);
+        let v5 = put_slice_resident_state(&st, 5);
+        assert_eq!(&v5[..v4.len()], &v4[..]);
+        assert_eq!(&v5[v4.len()..], &[0]);
+        assert_eq!(get_slice_resident_state(&v4, 4), Ok(st));
+        assert_eq!(get_slice_resident_state(&v5, 5), Ok(st));
+    }
+
+    #[test]
+    fn routine_kind_range_widens_to_three_in_format5() {
+        for (kind, v4_ok, v5_ok) in [
+            (0, false, false),
+            (1, true, true),
+            (2, true, true),
+            (3, false, true),
+            (4, false, false),
+        ] {
+            let st = state(Some(routine(kind)), None);
+            assert_eq!(
+                get_slice_resident_state(&put_slice_resident_state(&st, 4), 4).is_ok(),
+                v4_ok,
+                "kind {kind} in format 4"
+            );
+            assert_eq!(
+                get_slice_resident_state(&put_slice_resident_state(&st, 5), 5).is_ok(),
+                v5_ok,
+                "kind {kind} in format 5"
+            );
+        }
+    }
+
+    #[test]
+    fn storm_and_gathering_rows_round_trip_and_reject_malformed() {
+        let storm = Storm {
+            root: EventId(41),
+            start: t(1_000_000),
+            end: t(3_601_000_000),
+            kept: 5,
+        };
+        let window = StormWindow {
+            start: t(1_000_000),
+            end: t(3_601_000_000),
+        };
+        for row in [
+            (Some(storm), Some(window)),
+            (None, Some(window)),
+            (Some(storm), None),
+        ] {
+            assert_eq!(get_slice_storm(&put_slice_storm(row.0, row.1)), Ok(row));
+        }
+        assert!(get_slice_storm(&put_slice_storm(None, None)).is_err());
+        let mut trailing = put_slice_storm(Some(storm), Some(window));
+        trailing.push(0);
+        assert!(get_slice_storm(&trailing).is_err());
+
+        let attendees: Vec<_> = (0..7)
+            .map(|i| {
+                (
+                    EntityId::procedural(10 + i),
+                    Phase::from_tag((i % 4) as u8).unwrap(),
+                )
+            })
+            .collect();
+        for n in [0, 3, 7] {
+            let g = Gathering::restore(
+                EntityId::procedural(2),
+                EventId(50),
+                t(10_000_000),
+                t(1_810_000_000),
+                2,
+                &attendees[..n],
+            )
+            .unwrap();
+            let bytes = put_slice_gathering(&g);
+            let back = get_slice_gathering(&bytes).unwrap();
+            assert_eq!(back, g);
+            assert_eq!(back.attendees(), &attendees[..n]);
+            assert_eq!(back.joined, 2);
+        }
+        let g = Gathering::restore(
+            EntityId::procedural(2),
+            EventId(50),
+            t(10_000_000),
+            t(1_810_000_000),
+            1,
+            &attendees[..1],
+        )
+        .unwrap();
+        let bytes = put_slice_gathering(&g);
+        // Count byte after building, root, start, end and joined.
+        let at = 8 + 8 + 8 + 8 + 4;
+        let mut many = bytes.clone();
+        many[at] = 8;
+        assert!(get_slice_gathering(&many).is_err());
+        let mut phase = bytes.clone();
+        *phase.last_mut().unwrap() = 4;
+        assert!(get_slice_gathering(&phase).is_err());
+        assert!(Phase::from_tag(4).is_none());
+        let mut overfull = attendees.clone();
+        overfull.push((EntityId::procedural(99), Phase::Outbound));
+        assert!(
+            Gathering::restore(
+                EntityId::procedural(2),
+                EventId(50),
+                t(0),
+                t(1),
+                0,
+                &overfull
+            )
+            .is_none()
+        );
     }
 }

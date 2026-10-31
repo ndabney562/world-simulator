@@ -53,6 +53,18 @@ pub enum Phase {
     /// the way home belongs to the illness root.
     Interrupted = 3,
 }
+impl Phase {
+    /// The phase for a saved tag, if any (ADR 0038 §6).
+    pub const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Outbound),
+            1 => Some(Self::Joined),
+            2 => Some(Self::Returned),
+            3 => Some(Self::Interrupted),
+            _ => None,
+        }
+    }
+}
 
 /// Block-level gathering episode (ADR 0038 §4). Present from the call until
 /// `GatheringEnded` has been recorded (the first tick at or after `end`) and
@@ -74,6 +86,28 @@ pub struct Gathering {
     len: usize,
 }
 impl Gathering {
+    /// A saved gathering for restore (ADR 0038 §6). None if `attendees` holds
+    /// more than [`MAX_ATTENDEES`]; semantic coherence is checked by the caller.
+    pub fn restore(
+        building: EntityId,
+        root: EventId,
+        start: SimTime,
+        end: SimTime,
+        joined: u32,
+        attendees: &[(EntityId, Phase)],
+    ) -> Option<Self> {
+        let mut slots = [(building, Phase::Outbound); MAX_ATTENDEES];
+        slots.get_mut(..attendees.len())?.copy_from_slice(attendees);
+        Some(Self {
+            building,
+            root,
+            start,
+            end,
+            joined,
+            attendees: slots,
+            len: attendees.len(),
+        })
+    }
     /// Attendees in ascending resident ID order, at most seven.
     pub fn attendees(&self) -> &[(EntityId, Phase)] {
         &self.attendees[..self.len]
@@ -339,7 +373,7 @@ impl SliceSimulation {
 }
 
 impl SliceSimulation {
-    /// The active storm, if any; persisted by `ws-persist` (#125 Task 7).
+    /// The active storm, if any; persisted by `ws-persist` format 5.
     pub fn storm(&self) -> Option<&Storm> {
         self.powers.storm.as_ref()
     }
@@ -426,7 +460,7 @@ impl SliceSimulation {
 }
 
 impl SliceSimulation {
-    /// The active gathering, if any; persisted by `ws-persist` (#125 Task 7).
+    /// The active gathering, if any; persisted by `ws-persist` format 5.
     pub fn gathering(&self) -> Option<&Gathering> {
         self.powers.gathering.as_ref()
     }

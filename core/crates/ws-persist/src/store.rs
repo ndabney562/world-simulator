@@ -269,6 +269,37 @@ const TABLES_V4_SLICE: [&str; 10] = [
     "slice_operations",
 ];
 
+/// Tables in format 5 for the real slice: format 4 plus the ADR 0038 §6
+/// block-power episodes, each holding at most one row (`id = 1`).
+const TABLES_V5_SLICE: [&str; 12] = [
+    "header",
+    "slice_config",
+    "clock",
+    "slice_vitals",
+    "slice_illness",
+    "slice_behavior",
+    "slice_lod",
+    "events",
+    "event_links",
+    "slice_operations",
+    "slice_storm",
+    "slice_gathering",
+];
+
+/// Tables format 5 adds to [`SCHEMA_V4_SLICE`] (ADR 0038 §6).
+const SCHEMA_V5_SLICE_EXTRA: &str = "
+CREATE TABLE slice_storm (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+CREATE TABLE slice_gathering (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    schema INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+";
+
 const SCHEMA_V4_SLICE: &str = "
 CREATE TABLE header (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -464,23 +495,39 @@ fn save_with_registry_version(
     Ok(())
 }
 
-/// Saves `sim` to `path` as a format-4 slice save, replacing any file there atomically.
+/// Saves `sim` to `path` as a format-5 slice save, replacing any file there atomically.
 ///
 /// # Errors
 ///
 /// Returns [`SaveError`] on SQLite, I/O or unsaveable state.
 pub fn save_slice(sim: &SliceSimulation, path: &Path) -> Result<(), SaveError> {
-    let parts = sim.to_parts();
-    save_slice_parts(
-        parts,
+    save_slice_with_version(sim, path, FORMAT_VERSION)
+}
+
+/// Saves `sim` as slice format `format_version` (4 or 5). Writers use
+/// [`save_slice`]; this exists so tests can build format-4 fixtures.
+///
+/// # Errors
+///
+/// As [`save_slice`]; [`SaveError::Unsaveable`] for another version, or for
+/// format 4 while a storm, a storm hold or a gathering is active.
+#[doc(hidden)]
+pub fn save_slice_with_version(
+    sim: &SliceSimulation,
+    path: &Path,
+    format_version: u32,
+) -> Result<(), SaveError> {
+    save_slice_parts_version(
+        sim.to_parts(),
         sim.state_hash(),
         sim.operation_digest(),
         sim.events().digest(),
         path,
+        format_version,
     )
 }
 
-/// Writes `parts` to `path` as a format-4 slice save, replacing any file there atomically.
+/// Writes `parts` to `path` as a format-5 slice save, replacing any file there atomically.
 ///
 /// # Errors
 ///
@@ -492,7 +539,39 @@ pub fn save_slice_parts(
     events_digest: u64,
     path: &Path,
 ) -> Result<(), SaveError> {
-    let header = header_of_slice(&parts, state_hash, op_digest, events_digest)?;
+    save_slice_parts_version(
+        parts,
+        state_hash,
+        op_digest,
+        events_digest,
+        path,
+        FORMAT_VERSION,
+    )
+}
+
+fn save_slice_parts_version(
+    parts: SliceParts,
+    state_hash: u64,
+    op_digest: u64,
+    events_digest: u64,
+    path: &Path,
+    format_version: u32,
+) -> Result<(), SaveError> {
+    match format_version {
+        5 => {}
+        4 if parts.storm.is_some()
+            || parts.storm_window.is_some()
+            || parts.gathering.is_some()
+            || parts.behavior_states.iter().any(|s| s.storm_hold.is_some()) =>
+        {
+            return Err(SaveError::Unsaveable(
+                "format 4 cannot hold a storm or a gathering",
+            ));
+        }
+        4 => {}
+        _ => return Err(SaveError::Unsaveable("slice saves are format 4 or 5")),
+    }
+    let header = header_of_slice(&parts, state_hash, op_digest, events_digest, format_version)?;
     let links = parts
         .events
         .iter()
@@ -518,7 +597,7 @@ pub fn save_slice_parts(
     Ok(())
 }
 
-/// Spawns a background thread to write `parts` to `path` as a format-4 slice save.
+/// Spawns a background thread to write `parts` to `path` as a format-5 slice save.
 pub fn save_slice_background(
     parts: SliceParts,
     state_hash: u64,
@@ -963,9 +1042,10 @@ fn header_of_slice(
     state_hash: u64,
     op_digest: u64,
     events_digest: u64,
+    format_version: u32,
 ) -> Result<Header, SaveError> {
     Ok(Header {
-        format_version: FORMAT_VERSION,
+        format_version,
         build: build_id(),
         seed: parts.config.seed,
         dataset_version: ws_world::slice::DATASET_VERSION,
@@ -995,9 +1075,13 @@ fn write_slice_file(
     conn.pragma_update(None, "journal_mode", "OFF")?;
     conn.pragma_update(None, "synchronous", "OFF")?;
     conn.pragma_update(None, "application_id", APPLICATION_ID)?;
-    conn.pragma_update(None, "user_version", FORMAT_VERSION)?;
+    conn.pragma_update(None, "user_version", h.format_version)?;
     let tx = conn.transaction()?;
     tx.execute_batch(SCHEMA_V4_SLICE)?;
+    let v5 = h.format_version >= 5;
+    if v5 {
+        tx.execute_batch(SCHEMA_V5_SLICE_EXTRA)?;
+    }
     tx.execute(
         "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
@@ -1060,7 +1144,7 @@ fn write_slice_file(
             st.execute(params![
                 key(st_snap.id.raw()),
                 RECORD_SCHEMA,
-                codec::put_slice_resident_state(st_snap),
+                codec::put_slice_resident_state(st_snap, h.format_version),
             ])?;
         }
     }
@@ -1110,6 +1194,21 @@ fn write_slice_file(
             ])?;
         }
     }
+    if v5 && (parts.storm.is_some() || parts.storm_window.is_some()) {
+        tx.execute(
+            "INSERT INTO slice_storm VALUES (1, ?, ?)",
+            params![
+                RECORD_SCHEMA,
+                codec::put_slice_storm(parts.storm, parts.storm_window)
+            ],
+        )?;
+    }
+    if let Some(g) = parts.gathering.filter(|_| v5) {
+        tx.execute(
+            "INSERT INTO slice_gathering VALUES (1, ?, ?)",
+            params![RECORD_SCHEMA, codec::put_slice_gathering(&g)],
+        )?;
+    }
     tx.commit()?;
     conn.close().map_err(|(_, e)| e)?;
     Ok(())
@@ -1149,13 +1248,15 @@ fn open(path: &Path) -> Result<Connection, LoadError> {
         1 => Box::new(TABLES_V1.iter()),
         2 => Box::new(TABLES_V1.iter().chain(TABLES_V2.iter())),
         3 => Box::new(TABLES_V3.iter()),
-        4 => {
+        4 | 5 => {
             let is_slice: bool = conn.query_row(
                 "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'slice_config')",
                 [],
                 |r| r.get(0),
             )?;
-            if is_slice {
+            if is_slice && found == 5 {
+                Box::new(TABLES_V5_SLICE.iter())
+            } else if is_slice {
                 Box::new(TABLES_V4_SLICE.iter())
             } else {
                 Box::new(TABLES_V3.iter())
@@ -1325,26 +1426,28 @@ pub fn load_with_registry(path: &Path, registry: &BaselineRegistry) -> Result<Wo
             "save file is a slice simulation; use load_slice",
         ));
     }
-    if header.format_version == 3 || header.format_version == 4 {
+    if (3..=5).contains(&header.format_version) {
         load_v3(&conn, &header, registry)
     } else {
         load_v1_v2(&conn, &header)
     }
 }
 
-/// Loads the raw parts and header of a format-4 slice save.
+/// Loads the raw parts and header of a format-4 or format-5 slice save. A
+/// format-4 file holds no storm, storm hold or gathering (ADR 0038 §6).
 ///
 /// # Errors
 ///
 /// Returns [`LoadError`] if the file cannot be opened, is not a valid format-4
-/// slice save, has missing tables, or contains undecodable records.
+/// or format-5 slice save, has missing tables, or contains undecodable records.
 pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> {
     let conn = open(path)?;
     let header = header_row(&conn)?;
-    if !header.is_slice() && header.format_version != 4 {
+    let format = header.format_version;
+    if !header.is_slice() && !matches!(format, 4 | 5) {
         return Err(bad("header", "save file is not a slice simulation"));
     }
-    if header.format_version != 4 {
+    if !matches!(format, 4 | 5) {
         return Err(LoadError::UnsupportedVersion {
             found: header.format_version,
             supported: FORMAT_VERSION,
@@ -1414,8 +1517,8 @@ pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> 
         "SELECT resident_id, 0, schema, data FROM slice_behavior ORDER BY resident_id",
     )? {
         let ent = entity("slice_behavior", id)?;
-        let st_snap =
-            codec::get_slice_resident_state(&data).map_err(|e| corrupt("slice_behavior", e))?;
+        let st_snap = codec::get_slice_resident_state(&data, format)
+            .map_err(|e| corrupt("slice_behavior", e))?;
         if st_snap.id != ent {
             return Err(bad(
                 "slice_behavior",
@@ -1457,6 +1560,14 @@ pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> 
         operations.push(op);
     }
 
+    let (storm, storm_window) = match single_row(&conn, "slice_storm", format)? {
+        Some(data) => codec::get_slice_storm(&data).map_err(|e| corrupt("slice_storm", e))?,
+        None => (None, None),
+    };
+    let gathering = single_row(&conn, "slice_gathering", format)?
+        .map(|data| codec::get_slice_gathering(&data).map_err(|e| corrupt("slice_gathering", e)))
+        .transpose()?;
+
     let parts = SliceParts {
         config,
         clock: clock.clock,
@@ -1467,11 +1578,37 @@ pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> 
         nodes,
         events,
         operations,
+        storm,
+        storm_window,
+        gathering,
     };
     Ok((header, parts))
 }
 
-/// Loads a [`SliceSimulation`] from a format-4 save file.
+/// The optional `id = 1` row of a format-5 episode table; None in format 4.
+fn single_row(
+    conn: &Connection,
+    table: &'static str,
+    format: u32,
+) -> Result<Option<Vec<u8>>, LoadError> {
+    if format < 5 {
+        return Ok(None);
+    }
+    let mut out = None;
+    for (id, _, data) in rows(
+        conn,
+        table,
+        &format!("SELECT id, 0, schema, data FROM {table} ORDER BY id"),
+    )? {
+        if id != 1 || out.is_some() {
+            return Err(bad(table, "episode row is not id 1"));
+        }
+        out = Some(data);
+    }
+    Ok(out)
+}
+
+/// Loads a [`SliceSimulation`] from a format-4 or format-5 save file.
 ///
 /// # Errors
 ///

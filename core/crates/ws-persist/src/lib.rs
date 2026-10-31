@@ -30,5 +30,5 @@ pub use header::{
 pub use store::{
     load, load_slice, load_slice_parts, load_with_registry, migrate_to_v3,
     migrate_to_v3_with_registry, read_baseline, read_header, save, save_slice,
-    save_slice_background, save_slice_parts, save_with_registry,
+    save_slice_background, save_slice_parts, save_slice_with_version, save_with_registry,
 };
