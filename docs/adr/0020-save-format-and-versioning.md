@@ -1,6 +1,6 @@
 # ADR 0020: Save container, component serialization (S-2), and version header (D-14)
 
-- Status: Accepted
+- Status: Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md)
 - Date: 2026-10-17
 - Decided by: Noah (accepted 2026-10-17 in the project thread); proposal by Claude for TP-009
 - Issue: #10 (TP-009; the ADR PR lands first, per its scope)

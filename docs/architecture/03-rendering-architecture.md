@@ -81,7 +81,7 @@ Lighting uses the **real sun position** for the simulation date and time at the 
 
 ## Proposed core calendar and light input
 
-[Accepted ADR0030](../adr/0030-calendar-sun-and-sky-query.md) describes a coherent read-only native calendar/sun record paired with the render tick, an explicitly transformed direction in the snapshot's ENU basis, and a Unity HUD/light that only presents core output. Its ABI migration preserves prior behavioral checks and old-client refusal. VS-007 implements ABI4 calendar/render pairing and the core-driven HUD/sun light with100× control. Bootstrap retains its toy geometry; VS-008 supplies the separate real-slice adapter below.
+[Accepted ADR0030](../adr/0030-calendar-sun-and-sky-query.md) describes a coherent read-only native calendar/sun record paired with the render tick, an explicitly transformed direction in the snapshot's ENU basis, and a Unity HUD/light that only presents core output. Its ABI migration preserves prior behavioral checks and old-client refusal. VS-007 implements ABI4 calendar/render pairing and the core-driven HUD/sun light with100× control. The toy Bootstrap host was removed in #139 (ADR 0040); the real-slice adapter below is the only one.
 
 ## Accepted real-slice footprint and camera boundary
 

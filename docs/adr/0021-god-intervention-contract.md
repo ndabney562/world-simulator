@@ -1,6 +1,6 @@
 # ADR 0021: The first structured god intervention (TP-010)
 
-- Status: Accepted
+- Status: Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md)
 - Date: 2026-10-17
 - Decided by: Claude, under Noah's standing merge authority for ADR PRs (2026-10-17); product scope is fixed by issue #11
 - Issue: #11 (TP-010; the ADR PR lands first)
