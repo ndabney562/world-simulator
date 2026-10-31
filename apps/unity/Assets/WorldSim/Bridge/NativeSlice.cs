@@ -46,6 +46,8 @@ namespace WorldSim.Bridge
         internal static extern uint Consequences(SliceHandle handle,ulong root,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_last_root")]
         internal static extern uint LastRoot(SliceHandle handle,out ulong root);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_god")]
+        internal static extern uint God(SliceHandle handle,IntPtr output);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save")]
         internal static extern uint Save(SliceHandle handle,byte[] path);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save_background")]
@@ -282,6 +284,22 @@ namespace WorldSim.Bridge
                 if(consequences.Tick!=sky.Tick||consequences.Time!=sky.SimTimeMicroseconds||consequences.StateHash!=sky.StateHash||consequences.Dataset!=sky.SiteDatasetVersion)
                     throw new InvalidOperationException("Incoherent consequences/sky pair.");
                 return consequences;
+            }
+        }
+        /// <summary>ADR0039 §5: faith and the day's goals; pure read under the shared gate, validated before publication.</summary>
+        public unsafe SliceGod God()
+        {
+            lock(gate)
+            {
+                RequireLive();
+                using(var output=new NativeArray<byte>(SliceGodDecoder.Size,Allocator.Temp,NativeArrayOptions.ClearMemory))
+                {
+                    var pointer=(IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(output);
+                    // The core checks struct_size on input.
+                    Marshal.WriteInt32(pointer,0,SliceGodDecoder.Size);
+                    Check(NativeSliceMethods.God(handle,pointer));
+                    return SliceGodDecoder.Decode(output);
+                }
             }
         }
         public void Save(string path)

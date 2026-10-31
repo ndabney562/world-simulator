@@ -17,6 +17,7 @@ use ws_time::SimTime;
 use ws_world::slice::population::PopulatedSlice;
 use ws_world::slice::vitals::VitalState;
 
+use super::god::God;
 use super::illness::{Episode, Illness};
 use super::powers::{Gathering, Powers, Storm};
 use super::{
@@ -52,6 +53,9 @@ pub struct SliceParts {
     pub storm_window: Option<StormWindow>,
     /// Active gathering episode (ADR 0038 §4); always None in format 4.
     pub gathering: Option<Gathering>,
+    /// Resident faith and the day's goals (ADR 0039 §4). None in formats 4
+    /// and 5, which restore faith 0 and the restored day's generated goals.
+    pub god: Option<God>,
 }
 
 /// Why saved slice parts do not form a valid slice simulation.
@@ -109,6 +113,7 @@ impl SliceSimulation {
             storm: self.powers.storm,
             storm_window: self.behavior.storm(),
             gathering: self.powers.gathering,
+            god: Some(self.god.clone()),
         }
     }
 
@@ -131,6 +136,7 @@ impl SliceSimulation {
             storm,
             storm_window,
             gathering,
+            god,
         } = parts;
 
         if !clock.base_step().is_tick_start(config.start)
@@ -334,6 +340,37 @@ impl SliceSimulation {
             ));
         }
 
+        let god = match god {
+            // Formats 4 and 5: faith 0 and the restored day's goals (ADR 0039 §4).
+            None => super::fresh_god(config, &population, &vitals, clock.now()),
+            Some(god) => {
+                let ids = population.residents().ids();
+                if god.faith().len() != ids.len()
+                    || god.faith().iter().any(|(id, _)| !ids.contains(id))
+                {
+                    return Err(SliceRestoreError::Corrupt(
+                        "saved faith does not match the resident roster",
+                    ));
+                }
+                if god.goals().day != super::god::day_of(clock.now(), config.schedule_epoch) {
+                    return Err(SliceRestoreError::Corrupt(
+                        "saved goal day disagrees with the clock",
+                    ));
+                }
+                if god.gathering().is_some_and(|(b, _)| {
+                    population
+                        .world()
+                        .buildings()
+                        .get(b)
+                        .is_none_or(|b| b.residential_units == 0)
+                }) {
+                    return Err(SliceRestoreError::Corrupt(
+                        "saved goal gathering is not a featured residential building",
+                    ));
+                }
+                god
+            }
+        };
         let mut sim = Self {
             config,
             population,
@@ -341,6 +378,7 @@ impl SliceSimulation {
             illness,
             // Format 4 holds no block power, so both are None there.
             powers: Powers { storm, gathering },
+            god,
             schedules,
             behavior,
             lod,

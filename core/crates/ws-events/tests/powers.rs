@@ -259,3 +259,32 @@ fn bless_recovery_takes_two_causes_and_natural_recovery_one() {
     let id = s.records()[2].id;
     assert_eq!(s.root_intervention(id).map(|e| e.id), Some(root));
 }
+
+#[test]
+fn goal_completed_tag_name_and_words() {
+    for day in [-1i64, 7] {
+        let p = Payload::GoalCompleted {
+            day,
+            slot: 2,
+            kind: 3,
+            target: 4,
+        };
+        assert_eq!(p.tag(), 23);
+        assert_eq!(p.name(), "god.goal_completed");
+        assert_eq!(p.importance(), 8192);
+        assert!(!p.is_slice_root());
+        assert_eq!(payload_words(p), vec![day as u64, 2, 3, 4]);
+
+        let mut s = EventStore::new(vec![r(), b()]);
+        let c = Candidate::new(
+            SimTime::from_micros_since_epoch(1_000_000),
+            87,
+            0,
+            p,
+            Origin::System(87),
+        );
+        s.prepare(1, &[c]).unwrap().commit();
+        let id = s.records()[0].id;
+        assert!(s.root_intervention(id).is_none());
+    }
+}

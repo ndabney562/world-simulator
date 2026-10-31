@@ -1,5 +1,6 @@
 //! Integration tests for slice persistence: format 4 (ADR 0036, Issue #75) and
-//! format 5 with storm and gathering episodes (ADR 0038 §6, Issue #125).
+//! format 5 with storm and gathering episodes (ADR 0038 §6, Issue #125), and
+//! format 6 with faith and daily goals (ADR 0039 §4, Issue #127).
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +10,7 @@ use ws_persist::{
     FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, MODEL_KIND_TOY, SaveError, load, load_slice,
     read_header, save_slice, save_slice_background, save_slice_with_version,
 };
-use ws_sim::slice::{Operation, SliceConfig, SliceSimulation};
+use ws_sim::slice::{GoalKind, Operation, SliceConfig, SliceSimulation, generate_goals};
 use ws_sim::ws_events::EventId;
 use ws_sim::{EntityId, SimTime};
 
@@ -58,7 +59,7 @@ fn fresh_slice_at_tick_zero_round_trips() {
 
     let h = read_header(&path).unwrap();
     assert_eq!(h.format_version, FORMAT_VERSION);
-    assert_eq!(FORMAT_VERSION, 5);
+    assert_eq!(FORMAT_VERSION, 6);
     assert_eq!(h.model_kind, MODEL_KIND_SLICE);
     assert!(h.is_slice());
     assert!(!h.is_toy());
@@ -115,7 +116,7 @@ fn slice_advanced_with_illness_and_lod_round_trips_and_steps_identically() {
 
     // Header inspection
     let h = read_header(&path).unwrap();
-    assert_eq!(h.format_version, 5);
+    assert_eq!(h.format_version, 6);
     assert_eq!(h.model_kind, MODEL_KIND_SLICE);
     assert_eq!(h.tick, 70);
     assert_eq!(h.state_hash, sim.state_hash());
@@ -468,13 +469,13 @@ fn rowhouse(w: &SliceSimulation) -> EntityId {
         .0
 }
 
-/// Saves `sim` as format 5, loads it, and checks equal hashes, equal episodes,
+/// Saves `sim` in the current format, loads it, and checks equal hashes, equal episodes,
 /// a rebuilt index equal to the live producer's, and equal futures for an hour.
 fn save_load_and_step(sim: &mut SliceSimulation, name: &str) {
     let dir = Scratch::new(name);
     let path = dir.path("p.wssave");
     save_slice(sim, &path).unwrap();
-    assert_eq!(read_header(&path).unwrap().format_version, 5);
+    assert_eq!(read_header(&path).unwrap().format_version, FORMAT_VERSION);
     let mut loaded = load_slice(&path).unwrap();
     assert_eq!(loaded.state_hash(), sim.state_hash());
     assert_eq!(loaded.checkpoint(), sim.checkpoint());
@@ -585,7 +586,10 @@ fn format4_save_loads_without_episodes() {
         }
     }
     let mut loaded = load_slice(&path).unwrap();
-    assert_eq!(loaded.state_hash(), sim.state_hash());
+    // Format 4 holds no faith (ADR 0039 §4): the curse's -20 is not restored,
+    // so the reload equals the live world apart from the god block.
+    assert_eq!(loaded.state_hash(), sim.state_hash_without_god());
+    assert!(!loaded.god().touched());
     assert_eq!(loaded.storm(), None);
     assert_eq!(loaded.gathering(), None);
     assert_eq!(holds(&loaded), 0);
@@ -593,7 +597,7 @@ fn format4_save_loads_without_episodes() {
     for _ in 0..50 {
         sim.step().unwrap();
         loaded.step().unwrap();
-        assert_eq!(loaded.state_hash(), sim.state_hash());
+        assert_eq!(loaded.state_hash(), sim.state_hash_without_god());
     }
 
     // The golden format-4 fixture loads with no episodes either.
@@ -710,4 +714,262 @@ fn each_power_saved_after_completion_rebuilds_equal() {
     assert_eq!(tags.iter().filter(|t| **t == 22).count(), 1);
     assert_eq!(tags.iter().filter(|t| **t == 6).count(), 7);
     check(&mut gather, "done-gather");
+}
+
+const DAY_US: i64 = 86_400_000_000;
+
+/// A world at `hour` on the first day at or after `from` (stepping by `step`)
+/// whose goals include `kind`, with that goal's slot and target.
+fn goal_world(kind: GoalKind, from: i64, step: i64, hour: i64) -> (SliceSimulation, usize, u8) {
+    let caps = sample_slice(42).caps();
+    let (day, slot, target) = (0..60)
+        .map(|k| from + k * step)
+        .find_map(|d| {
+            generate_goals(42, d, caps)
+                .goals()
+                .iter()
+                .position(|g| g.kind == kind)
+                .map(|s| (d, s, generate_goals(42, d, caps).goals()[s].target))
+        })
+        .unwrap();
+    let w = SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(day * DAY_US + hour * 3_600_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    (w, slot, target)
+}
+
+fn table_rows(path: &Path, table: &str) -> i64 {
+    Connection::open(path)
+        .unwrap()
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+        .unwrap()
+}
+
+#[test]
+fn format6_round_trips_partial_goal_and_faith() {
+    let dir = Scratch::new("f6-god");
+    // 21:00 on a day asking for both a gathering and distinct blessings.
+    let caps = sample_slice(42).caps();
+    let day = (0..60)
+        .find(|d| {
+            let g = generate_goals(42, *d, caps);
+            let has = |k| g.goals().iter().any(|g| g.kind == k);
+            has(GoalKind::Gathering) && has(GoalKind::BlessDistinct)
+        })
+        .unwrap();
+    let mut sim = SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(day * DAY_US + 21 * 3_600_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    let slot_of = |w: &SliceSimulation, k| {
+        w.god()
+            .goals()
+            .goals()
+            .iter()
+            .position(|g| g.kind == k)
+            .unwrap()
+    };
+    let (gathering, bless) = (
+        slot_of(&sim, GoalKind::Gathering),
+        slot_of(&sim, GoalKind::BlessDistinct),
+    );
+    for id in sim.population().residents().ids().to_vec() {
+        ok(
+            &mut sim,
+            Operation::SetDetail {
+                resident: id,
+                level: ws_life::behavior::Detail::L1,
+            },
+        );
+    }
+    let ids = sim.population().residents().ids().to_vec();
+    ok(
+        &mut sim,
+        Operation::Afflict {
+            resident: ids[19],
+            severity: 3,
+            duration_us: 30 * 60_000_000,
+        },
+    );
+    let building = rowhouse(&sim);
+    ok(
+        &mut sim,
+        Operation::Gather {
+            building,
+            duration_us: 30 * 60_000_000,
+        },
+    );
+    // Save mid-gathering: joins counted toward the gathering goal, the
+    // gathering not yet ended, and the bless goal only part way.
+    while sim.god().gathering().is_none() {
+        ok(&mut sim, Operation::Steps(1));
+    }
+    ok(&mut sim, Operation::Bless { resident: ids[18] });
+    let goals = sim.god().goals().goals().to_vec();
+    let joined = sim.god().gathering().unwrap().1;
+    assert!(joined > 0);
+    assert_eq!(
+        goals[gathering].progress,
+        joined.min(goals[gathering].target)
+    );
+    assert!(!goals[bless].done && goals[bless].progress == 1);
+    assert!(sim.god().gathering().is_some());
+    assert!(sim.god().touched());
+    let path = dir.path("f6.wssave");
+    save_slice(&sim, &path).unwrap();
+    let h = read_header(&path).unwrap();
+    assert_eq!(h.format_version, 6);
+    assert_eq!(h.state_hash, sim.state_hash());
+    assert_eq!(table_rows(&path, "slice_faith"), ids.len() as i64);
+    assert_eq!(table_rows(&path, "slice_goals"), 1);
+
+    let mut loaded = load_slice(&path).unwrap();
+    assert_eq!(loaded.god(), sim.god());
+    assert_eq!(loaded.state_hash(), sim.state_hash());
+    assert_eq!(loaded.checkpoint(), sim.checkpoint());
+    assert_eq!(loaded.to_parts(), sim.to_parts());
+    // The reload continues identically through the completion.
+    for _ in 0..40 {
+        ok(&mut sim, Operation::Steps(MINUTE));
+        ok(&mut loaded, Operation::Steps(MINUTE));
+        assert_eq!(loaded.state_hash(), sim.state_hash());
+    }
+    // Completing the bless goal after the reload behaves identically.
+    ok(&mut sim, Operation::Bless { resident: ids[17] });
+    ok(&mut loaded, Operation::Bless { resident: ids[17] });
+    assert!(sim.god().goals().goals()[bless].done);
+    assert_eq!(sim.god().gathering(), None, "the gathering ended");
+    assert_eq!(loaded.god(), sim.god());
+    assert_eq!(loaded.state_hash(), sim.state_hash());
+    assert_eq!(loaded.events().digest(), sim.events().digest());
+    assert_eq!(index(&loaded), index(&sim));
+    // A save after the completion holds the tag-23 event and reloads too.
+    save_slice(&sim, &path).unwrap();
+    let again = load_slice(&path).unwrap();
+    assert!(
+        again
+            .events()
+            .records()
+            .iter()
+            .any(|e| e.record.payload.tag() == 23)
+    );
+    assert_eq!(again.checkpoint(), sim.checkpoint());
+}
+
+#[test]
+fn format5_save_loads_with_fresh_goals() {
+    let dir = Scratch::new("f5-fresh-goals");
+    let (mut sim, slot, _) = goal_world(GoalKind::BlessDistinct, 0, 1, 12);
+    let caps = sim.caps();
+    let ids = sim.population().residents().ids().to_vec();
+    ok(&mut sim, Operation::Bless { resident: ids[0] });
+    assert_eq!(sim.god().goals().goals()[slot].progress, 1);
+    let path = dir.path("f5.wssave");
+    save_slice_with_version(&sim, &path, 5).unwrap();
+    let h = read_header(&path).unwrap();
+    assert_eq!(h.format_version, 5);
+    assert_eq!(h.state_hash, sim.state_hash_without_god());
+    let present: bool = Connection::open(&path)
+        .unwrap()
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'slice_faith')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!present, "format 5 has no faith table");
+
+    let loaded = load_slice(&path).unwrap();
+    let day = sim.god().goals().day;
+    assert_eq!(loaded.god().goals(), &generate_goals(42, day, caps));
+    assert!(loaded.god().faith().iter().all(|(_, f)| *f == 0));
+    assert!(!loaded.god().touched());
+    assert_eq!(loaded.state_hash(), h.state_hash);
+    assert_eq!(loaded.events().digest(), sim.events().digest());
+}
+
+#[test]
+fn rejects_corrupt_goal_blob() {
+    let dir = Scratch::new("f6-corrupt");
+    let (mut sim, _, _) = goal_world(GoalKind::BlessDistinct, 0, 1, 12);
+    let ids = sim.population().residents().ids().to_vec();
+    ok(&mut sim, Operation::Bless { resident: ids[0] });
+    let path = dir.path("good.wssave");
+    save_slice(&sim, &path).unwrap();
+    load_slice(&path).unwrap();
+    let id = ids[0].raw().to_le_bytes();
+    // (blob, why it is invalid)
+    let cases: Vec<(Vec<u8>, &str)> = vec![
+        (vec![1, 0, 2, 0, 0, 0, 0], "kind 0"),
+        (vec![1, 5, 2, 0, 0, 0, 0], "kind 5"),
+        (
+            vec![4, 1, 3, 0, 0, 2, 2, 0, 0, 3, 1, 0, 0, 4, 3, 0, 0, 0, 0],
+            "len 4",
+        ),
+        (vec![1, 2, 2, 1, 2, 0, 0], "done 2"),
+        (vec![2, 2, 2, 0, 0, 2, 3, 0, 0, 0, 0], "duplicate kinds"),
+        (vec![1, 4, 3, 4, 0, 0, 0], "progress past an open target"),
+        (vec![1, 4, 3, 3, 0, 0, 0], "progress at an open target"),
+        (vec![1, 4, 3, 2, 1, 0, 0], "done below its target"),
+        (
+            [&[1, 2, 3, 2, 0, 2][..], &id, &id, &[0]].concat(),
+            "duplicate blessed",
+        ),
+        (vec![1, 2, 3, 0, 0, 4, 0], "blessed_len 4"),
+        (vec![1, 2, 3, 0, 0, 0, 0, 9], "trailing bytes"),
+        (vec![1, 2, 3, 0, 0, 0, 2], "has_gathering 2"),
+        (vec![1, 2, 3, 0, 0], "truncated"),
+    ];
+    for (blob, why) in cases {
+        let bad = dir.path("bad.wssave");
+        std::fs::copy(&path, &bad).unwrap();
+        Connection::open(&bad)
+            .unwrap()
+            .execute("UPDATE slice_goals SET data = ? WHERE id = 0", [&blob])
+            .unwrap();
+        assert!(
+            matches!(
+                load_slice(&bad),
+                Err(LoadError::Corrupt {
+                    table: "slice_goals",
+                    ..
+                })
+            ),
+            "{why}"
+        );
+    }
+    // Faith rows: out of range, and a roster that is not the slice's.
+    for (sql, table) in [
+        (
+            "UPDATE slice_faith SET faith = 101 WHERE resident_id = (SELECT MIN(resident_id) FROM slice_faith)",
+            "slice_faith",
+        ),
+        (
+            "UPDATE slice_faith SET faith = -101 WHERE resident_id = (SELECT MIN(resident_id) FROM slice_faith)",
+            "slice_faith",
+        ),
+        (
+            "DELETE FROM slice_faith WHERE resident_id = (SELECT MIN(resident_id) FROM slice_faith)",
+            "restore",
+        ),
+        ("UPDATE slice_goals SET day = day + 1", "restore"),
+        ("DELETE FROM slice_goals", "slice_goals"),
+    ] {
+        let bad = dir.path("bad.wssave");
+        std::fs::copy(&path, &bad).unwrap();
+        Connection::open(&bad).unwrap().execute(sql, []).unwrap();
+        let got = load_slice(&bad);
+        match table {
+            "restore" => assert!(matches!(got, Err(LoadError::Slice(_))), "{sql}: {got:?}"),
+            t => assert!(
+                matches!(got, Err(LoadError::Corrupt { table, .. }) if table == t),
+                "{sql}: {got:?}"
+            ),
+        }
+    }
 }

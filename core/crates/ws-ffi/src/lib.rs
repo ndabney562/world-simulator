@@ -1,4 +1,4 @@
-//! Synchronous C ABI v9; see ADRs 0018/0019/0022/0030/0031/0034/0038 and this crate's README for ownership.
+//! Synchronous C ABI v10; see ADRs 0018/0019/0022/0030/0031/0034/0038 and this crate's README for ownership.
 #![allow(unsafe_code)] // The only native-pointer boundary in the workspace.
 
 use std::{
@@ -11,12 +11,13 @@ use ws_sim::{
 };
 
 /// Exact native/managed contract version.
-pub const ABI_VERSION: u32 = 9;
+pub const ABI_VERSION: u32 = 10;
 mod slice_bridge;
 pub use slice_bridge::{
-    WsSliceConfig, WsSliceHandle, WsSliceOperation, ws_slice_apply, ws_slice_consequences,
-    ws_slice_create, ws_slice_destroy, ws_slice_fill_geometry, ws_slice_fill_snapshot,
-    ws_slice_get_calendar_sky, ws_slice_inspect, ws_slice_last_error, ws_slice_last_root,
+    WsSliceConfig, WsSliceFaith, WsSliceGoal, WsSliceGod, WsSliceHandle, WsSliceOperation,
+    ws_slice_apply, ws_slice_consequences, ws_slice_create, ws_slice_destroy,
+    ws_slice_fill_geometry, ws_slice_fill_snapshot, ws_slice_get_calendar_sky, ws_slice_god,
+    ws_slice_inspect, ws_slice_last_error, ws_slice_last_root,
 };
 mod calendar;
 pub use calendar::{WsCalendarSky, WsUtcLabel, ws_get_calendar_sky, ws_utc_to_sim};

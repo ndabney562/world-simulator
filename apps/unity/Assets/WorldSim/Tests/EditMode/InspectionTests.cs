@@ -21,7 +21,7 @@ namespace WorldSim.Tests.EditMode
         static ulong Id(byte[] b)=>BitConverter.ToUInt64(b,40);
         static void U32(byte[] b,int at,uint value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,4);
         static void U64(byte[] b,int at,ulong value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,8);
-        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v9"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
+        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v10"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
         [Test]
         public void ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies()
         {
@@ -67,7 +67,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication()
         {
-            var geometry=Geometry();byte[] raw=Fixture("consequences-v9");ulong root=BitConverter.ToUInt64(raw,40);SliceConsequences published;
+            var geometry=Geometry();byte[] raw=Fixture("consequences-v10");ulong root=BitConverter.ToUInt64(raw,40);SliceConsequences published;
             using(var b=new NativeArray<byte>(raw,Allocator.Temp)) published=ConsequencesDecoder.Decode(b,b.Length,geometry,root);
             Assert.That(published.Events.Length,Is.GreaterThanOrEqualTo(2));
             foreach(Action<byte[]> corrupt in new Action<byte[]>[] {
@@ -85,7 +85,7 @@ namespace WorldSim.Tests.EditMode
             using(var b=new NativeArray<byte>(missing,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
             byte[] old=(byte[])raw.Clone();U32(old,0,8);using(var b=new NativeArray<byte>(old,Allocator.Temp)) Assert.Throws<InvalidOperationException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
             Assert.That(published.Root,Is.EqualTo(root));
-            byte[] ill=Fixture("inspect-ill-v9");int state=96+(int)BitConverter.ToUInt32(ill,64);
+            byte[] ill=Fixture("inspect-ill-v10");int state=96+(int)BitConverter.ToUInt32(ill,64);
             using(var b=new NativeArray<byte>(ill,Allocator.Temp)) Assert.That(InspectionDecoder.Decode(b,b.Length,geometry,Id(ill)).IllnessActive,Is.True);
             foreach(Action<byte[]> corrupt in new Action<byte[]>[] {
                 b=>U32(b,state+8,6),b=>U64(b,state+32,ulong.MaxValue),b=>U32(b,state+80,3),b=>U32(b,state+84,2),b=>U64(b,state+88,0),b=>U64(b,state+96,0),b=>U64(b,state+104,0),b=>U32(b,state+56,100),b=>U32(b,state+60,1)
@@ -115,7 +115,7 @@ namespace WorldSim.Tests.EditMode
         public void RejectsUnknownRootTag()
         {
             var geometry=Geometry();
-            foreach(string name in new[]{"consequences-v9","consequences-bless-v9","consequences-storm-v9","consequences-gathering-v9"})
+            foreach(string name in new[]{"consequences-v10","consequences-bless-v10","consequences-storm-v10","consequences-gathering-v10"})
             {
                 byte[] raw=Fixture(name);ulong root=BitConverter.ToUInt64(raw,40);
                 using(var b=new NativeArray<byte>(raw,Allocator.Temp)) Assert.That(ConsequencesDecoder.Decode(b,b.Length,geometry,root).RootTag,Is.EqualTo(BitConverter.ToUInt32(raw,96+32)));
@@ -126,13 +126,13 @@ namespace WorldSim.Tests.EditMode
                 }
             }
             // A known tag under another root's header rules is still refused.
-            foreach(var (name,tag) in new[]{("consequences-v9",14u),("consequences-bless-v9",13u),("consequences-bless-v9",16u),("consequences-storm-v9",14u),("consequences-gathering-v9",16u)})
+            foreach(var (name,tag) in new[]{("consequences-v10",14u),("consequences-bless-v10",13u),("consequences-bless-v10",16u),("consequences-storm-v10",14u),("consequences-gathering-v10",16u)})
             {
                 byte[] copy=Fixture(name);ulong root=BitConverter.ToUInt64(copy,40);U32(copy,96+32,tag);
                 using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root),name+" as "+tag);
             }
             // Per-root header and row rules on real native bytes.
-            byte[] bless=Fixture("consequences-bless-v9"),storm=Fixture("consequences-storm-v9"),gathering=Fixture("consequences-gathering-v9");
+            byte[] bless=Fixture("consequences-bless-v10"),storm=Fixture("consequences-storm-v10"),gathering=Fixture("consequences-gathering-v10");
             foreach(var (raw,corrupt) in new (byte[],Action<byte[]>)[] {
                 (bless,b=>U64(b,48,0)),(bless,b=>U64(b,48,BitConverter.ToUInt64(gathering,48))),(bless,b=>U32(b,76,1)),(bless,b=>U64(b,88,BitConverter.ToUInt64(b,88)+100000)),
                 (bless,b=>U64(b,96+56,0)),(bless,b=>U32(b,96+128+32,15)),(bless,b=>U32(b,96+128+112,0)),(bless,b=>U32(b,96+128+80,1)),(bless,b=>U64(b,96+128+104,BitConverter.ToUInt64(b,40))),
@@ -149,7 +149,7 @@ namespace WorldSim.Tests.EditMode
         {
             // Schema3 (ADR0038 §4): kind3 may stand away from home only with the Home activity and
             // Socialize at a featured building; kind4 has its own storm-hold rule.
-            var geometry=Geometry();byte[] raw=Fixture("inspect-resident-v9");ulong id=Id(raw);int state=96+(int)BitConverter.ToUInt32(raw,64);
+            var geometry=Geometry();byte[] raw=Fixture("inspect-resident-v10");ulong id=Id(raw);int state=96+(int)BitConverter.ToUInt32(raw,64);
             ulong home=BitConverter.ToUInt64(raw,104),elsewhere=0;foreach(ulong f in geometry.FeaturedIds) if(f!=home) {elsewhere=f;break;}
             byte[] Variant(uint kind,uint action,ulong at)
             {
@@ -172,7 +172,7 @@ namespace WorldSim.Tests.EditMode
             {
                 world.SetCamera(Vector3.zero,500);world.Steps(20);var frame=new SliceFrame();world.Fill(frame,out _);
                 ulong hash=frame.StateHash;
-                foreach(string name in new[]{"inspect-resident-v9","inspect-building-v9"})
+                foreach(string name in new[]{"inspect-resident-v10","inspect-building-v10"})
                 {
                     byte[] raw=Fixture(name);SliceInspection expected;
                     using(var b=new NativeArray<byte>(raw,Allocator.Temp)) expected=InspectionDecoder.Decode(b,b.Length,world.Geometry,Id(raw));
@@ -194,7 +194,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void MalformedInspectionNeverReplacesThePreviousCompleteRecord()
         {
-            byte[] original=Fixture("inspect-resident-v9");var geometry=Geometry();SliceInspection published;
+            byte[] original=Fixture("inspect-resident-v10");var geometry=Geometry();SliceInspection published;
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) published=InspectionDecoder.Decode(bytes,bytes.Length,geometry,Id(original));
             var saved=published;
             int state=96+(int)BitConverter.ToUInt32(original,64);

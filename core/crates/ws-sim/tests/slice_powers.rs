@@ -183,6 +183,10 @@ fn bless_relieves_needs_or_is_noop() {
         Payload::NeedsRelieved { resident } if resident == id
     ));
     let hash = w.state_hash();
+    let faith = |w: &SliceSimulation| w.god().faith().iter().find(|(r, _)| *r == id).unwrap().1;
+    let before = faith(&w);
+    let needs = w.resident(id).unwrap().needs;
+    let health = w.vitals().get(id).unwrap().health();
     ok(&mut w, Operation::Bless { resident: id });
     let again = last_root(&w);
     assert!(matches!(
@@ -190,7 +194,12 @@ fn bless_relieves_needs_or_is_noop() {
         Payload::BlessApplied { affected: 0, .. }
     ));
     assert_eq!(w.consequences(again).unwrap().0.ids(), &[again]);
-    assert_eq!(w.state_hash(), hash);
+    assert_eq!(w.resident(id).unwrap().needs, needs);
+    assert_eq!(w.vitals().get(id).unwrap().health(), health);
+    // ADR 0039 §1: a bless raises faith by 15 whether or not it affected
+    // anything, so the no-op still changes canonical state.
+    assert_eq!(faith(&w), before + 15);
+    assert_ne!(w.state_hash(), hash);
     ok(&mut w, Operation::Steps(MINUTE));
     let (replay, stopped) = SliceSimulation::replay(w.config(), w.operations()).unwrap();
     assert!(!stopped);

@@ -22,6 +22,7 @@ Costs, new credentials/accounts, repository settings, test weakening, Apple sign
 | Desktop browser #112 | Player #114, runner fallback #118 and release checks #119 merged; verified candidate published from `gh-pages` | [Play desktop preview](https://ndabney562.github.io/world-simulator/); phone/other-device evidence remains separate |
 | God powers GP-002 #125 | ADR 0038 accepted; bless, storm and gathering implemented on `claude/125-god-powers-impl` (save format 5, ABI 9, HUD); decisions D1 to D4 in [architecture 13](../architecture/13-god-interventions.md) | Merged in #131 |
 | Visible reactions GP-003 #126 | Cast effects, status icons, camera ease and follow on `claude/126-visible-reactions` (Unity only) | Review, CI, merge under the standing delegation |
+| Faith and daily goals GP-004 #127 | ADR 0039 accepted; faith, daily goals and `GoalCompleted` implemented on `claude/127-faith-goals` (save format 6, ABI 10, HUD); decisions D1, R1, R2 in [architecture 13](../architecture/13-god-interventions.md) | Review, CI, merge under the standing delegation |
 | Final run #76 | Open | Noah: iPhone evidence and stage declaration |
 
 #53 delivered baseline/delta storage; #75 delivered slice state, background saving and Unity controls under accepted ADR0036. Do not repeat completed persistence work. #76 records every criterion as met, explicitly waived by Noah, or open with a follow-up. Neither engineering integration nor a desktop benchmark closes device criteria.

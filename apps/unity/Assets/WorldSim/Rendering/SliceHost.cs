@@ -87,6 +87,8 @@ namespace WorldSim.Rendering
             }
         }
         public SliceInspection Inspect(ulong id)=>world.Inspect(id);
+        /// <summary>ADR0039 §5 pass-through; a pure read, so no pacing flush.</summary>
+        public SliceGod God()=>world.God();
         public SliceIllnessSample Illness(ulong id,ulong root=0)
         {
             lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Illness(id,root);}

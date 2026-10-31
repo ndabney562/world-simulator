@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicitly generate new ABI9 slice transport samples from a built native library.
+"""Explicitly generate new ABI10 slice transport samples from a built native library.
 
 Not run by CI. The shared samples pin transport interpretation, with Tier3
 coordinate tolerances and a zero hash sentinel, not cross-platform world hashes.
@@ -9,7 +9,7 @@ from pathlib import Path
 import struct
 import sys
 
-ABI = 9
+ABI = 10
 SUFFIX = "-v%d" % ABI
 
 

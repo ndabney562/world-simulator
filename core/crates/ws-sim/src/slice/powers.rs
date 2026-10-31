@@ -341,6 +341,14 @@ impl SliceSimulation {
         }
         // The root (system 10) stays first, so the effects' Local(0) link holds.
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        let god = super::god_pass(
+            &self.god,
+            self.config,
+            &self.population,
+            &self.vitals,
+            &mut facts,
+            time,
+        )?;
         for (i, c) in facts.iter().enumerate().skip(1) {
             if c.system != 70 && !excluded(&c.payload) {
                 group.append(EventId(first + i as u64))?;
@@ -357,6 +365,7 @@ impl SliceSimulation {
             plan.commit();
         }
         self.powers = powers;
+        self.god = god;
         if blessing == Blessing::Cure {
             let e = self
                 .illness
@@ -446,12 +455,21 @@ impl SliceSimulation {
                 .map(|(i, c)| c.fact(time, i as u64)),
         );
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        let god = super::god_pass(
+            &self.god,
+            self.config,
+            &self.population,
+            &self.vitals,
+            &mut facts,
+            time,
+        )?;
         self.events
             .prepare(self.clock.steps(), &facts)
             .map_err(SliceError::History)?
             .commit();
         prepared.commit();
         plan.commit();
+        self.god = god;
         self.powers.storm = Some(Storm {
             root,
             start: time,
@@ -601,12 +619,21 @@ impl SliceSimulation {
                 .map(|(i, c)| c.fact(time, i as u64)),
         );
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        let god = super::god_pass(
+            &self.god,
+            self.config,
+            &self.population,
+            &self.vitals,
+            &mut facts,
+            time,
+        )?;
         self.events
             .prepare(self.clock.steps(), &facts)
             .map_err(SliceError::History)?
             .commit();
         prepared.commit();
         plan.commit();
+        self.god = god;
         self.powers.gathering = Some(gathering);
         self.illness.groups.push(group);
         Ok(())

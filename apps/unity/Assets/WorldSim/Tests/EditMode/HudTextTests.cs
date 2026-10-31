@@ -153,6 +153,80 @@ namespace WorldSim.Tests.EditMode
             // Resident powers are not blocked by a block power.
             Assert.That(HudCasts.Try(watches,HudCasts.BlessTag,5,()=>53),Is.Null);Assert.That(watches.Count,Is.EqualTo(2));
         }
+        static SliceGoal G(uint kind,uint target,uint progress=0,bool done=false)=>new SliceGoal {Kind=kind,Target=target,Progress=progress,Done=done};
+        [Test]
+        public void GoalAndFaithTextIsExact()
+        {
+            Assert.That(HudText.Faith(12),Is.EqualTo("Faith +12"));Assert.That(HudText.Faith(0),Is.EqualTo("Faith 0"));Assert.That(HudText.Faith(-7),Is.EqualTo("Faith -7"));
+            Assert.That(HudText.Goal(G(1,3)),Is.EqualTo("Bring 3 people to a gathering"));
+            Assert.That(HudText.Goal(G(2,2)),Is.EqualTo("Bless 2 different people"));
+            Assert.That(HudText.Goal(G(3,1)),Is.EqualTo("Cure someone with a blessing"));
+            Assert.That(HudText.Goal(G(4,4)),Is.EqualTo("Keep 4 people inside during a storm"));
+            Assert.That(HudText.Goal(G(1,1)),Is.EqualTo("Bring 1 person to a gathering"));
+            Assert.That(HudText.Goal(G(2,1)),Is.EqualTo("Bless 1 person"));
+            Assert.That(HudText.Goal(G(4,1)),Is.EqualTo("Keep 1 person inside during a storm"));
+            Assert.That(HudText.GoalLine(G(2,2,1)),Is.EqualTo("Bless 2 different people \u2014 1/2"));
+            Assert.That(HudText.GoalLine(G(2,2,2,true)),Is.EqualTo("Done: Bless 2 different people"));
+            Assert.That(HudText.GoalComplete(G(3,1,1,true)),Is.EqualTo("Goal complete: Cure someone with a blessing"));
+        }
+        static SliceGod Day(long day,params SliceGoal[] goals)=>new SliceGod {Day=day,Goals=goals};
+        [Test]
+        public void GoalWatchReportsOnlySameDayFlips()
+        {
+            var w=new GoalWatch();var got=new System.Collections.Generic.List<SliceGoal>();
+            w.Update(Day(1,G(2,2,2,true),G(1,3)),got);Assert.That(got,Is.Empty,"first poll");
+            w.Update(Day(1,G(2,2,2,true),G(1,3,3,true)),got);Assert.That(got.Count,Is.EqualTo(1));Assert.That(got[0].Kind,Is.EqualTo(1u));
+            got.Clear();w.Update(Day(1,G(2,2,2,true),G(1,3,3,true)),got);Assert.That(got,Is.Empty,"repeat poll");
+            w.Update(Day(2,G(2,2),G(1,3),G(4,2)),got);Assert.That(got,Is.Empty,"day change");
+            w.Update(Day(2,G(2,2),G(1,3),G(4,2,2,true)),got);Assert.That(got.Count,Is.EqualTo(1));
+            got.Clear();w.Reset();w.Update(Day(2,G(2,2,2,true),G(1,3),G(4,2,2,true)),got);Assert.That(got,Is.Empty,"after reset");
+        }
+        [Test]
+        public void GoalWatchClearsStaleFlagsWhenGoalCountShrinks()
+        {
+            var w=new GoalWatch();var got=new System.Collections.Generic.List<SliceGoal>();
+            w.Update(Day(1,G(2,2),G(1,3),G(4,2,2,true)),got);
+            w.Update(Day(2,G(2,2)),got);
+            w.Update(Day(2,G(2,2),G(1,3),G(4,2,2,true)),got);
+            Assert.That(got.Count,Is.EqualTo(1),"slot 2 is a new completion, not a stale flag");
+        }
+        [Test]
+        public void FaithWordBoundaries()
+        {
+            Assert.That(HudText.FaithWord(40),Is.EqualTo("devoted"));Assert.That(HudText.FaithWord(39),Is.EqualTo("trusting"));
+            Assert.That(HudText.FaithWord(10),Is.EqualTo("trusting"));Assert.That(HudText.FaithWord(9),Is.EqualTo("unsure"));
+            Assert.That(HudText.FaithWord(-9),Is.EqualTo("unsure"));Assert.That(HudText.FaithWord(-10),Is.EqualTo("wary"));
+            Assert.That(HudText.FaithWord(-39),Is.EqualTo("wary"));Assert.That(HudText.FaithWord(-40),Is.EqualTo("fearful"));
+            Assert.That(HudText.CardFaith(15),Is.EqualTo("Faith: trusting"));
+        }
+        [UnityTest]
+        public IEnumerator BlessUpdatesMeterAndCard()
+        {
+            yield return new EnterPlayMode();
+            var loading=EditorSceneManager.LoadSceneAsyncInPlayMode("Assets/WorldSim/Scenes/RealBlock.unity",new LoadSceneParameters(LoadSceneMode.Single));
+            while(!loading.isDone) yield return null;
+            var demo=Object.FindFirstObjectByType<SliceDemo>();var hud=Object.FindFirstObjectByType<GameHud>();
+            Assert.That(hud,Is.Not.Null);
+            for(int i=0;i<3;i++) yield return null;
+            demo.SetSpeed(1);demo.RequestStreetView();double deadline=Time.realtimeSinceStartupAsDouble+8;
+            while(demo.WaitingForStreet&&Time.realtimeSinceStartupAsDouble<deadline) yield return null;
+            demo.SetSpeed(0);yield return null;
+            var mesh=ToyMeshes.Capsule();var picker=new SlicePicker(demo.Geometry,mesh);
+            hud.ToggleBless();bool cast=false;
+            for(int i=0;i<demo.CurrentFrame.RenderedResidents&&!cast;i++)
+            {
+                Vector3 point=demo.SceneCamera.WorldToScreenPoint(demo.CurrentFrame.ResidentMatrices[i].MultiplyPoint3x4(Vector3.zero));
+                if(point.z<=0||!picker.TryPick(demo.SceneCamera.ScreenPointToRay(point),demo.CurrentFrame,out var hit)||!hit.Resident) continue;
+                if(demo.InspectScreenPoint(point)) cast=true;
+            }
+            Object.DestroyImmediate(mesh);
+            Assert.That(cast,Is.True,"A visible resident must be tappable.");
+            double until=Time.realtimeSinceStartupAsDouble+2;
+            while(Time.realtimeSinceStartupAsDouble<until&&hud.CardFaithText!="Faith: trusting") yield return null;
+            Assert.That(hud.CardFaithText,Is.EqualTo("Faith: trusting"));
+            Assert.That(hud.MeterText,Is.EqualTo(HudText.Faith(demo.God().BlockFaith)));
+            yield return new ExitPlayMode();
+        }
         [UnityTest]
         public IEnumerator SecondStormIsRefusedAndKeepsThePowerArmed()
         {

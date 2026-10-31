@@ -55,5 +55,8 @@ GP-002 appends tags 14 through 22. Roots (tags 14, 16, 20, plus 13) carry `Origi
 | 20 | `intervention.gathering_called` (root) | building, sequence, duration_us, attendees | 32768 |
 | 21 | `social.joined_gathering` | resident, building | 8192 |
 | 22 | `social.gathering_ended` | building, attendees | 8192 |
+| 23 | `god.goal_completed` | day, slot, kind, target | 8192 |
 
 Digest words are the fields in the order above; unknown resident or building IDs are rejected. Producer system numbers (D4): roots use system 10; bless effects 84, storm effects 85, gathering effects 86; `ReturnedHome` keeps 50. Importance: roots 32768; `StayedInside` matches `MissedDuty`, `JoinedGathering` matches `NeighbourCheckIn`, and `NeedsRelieved`, `StormKeptInside`, `StormEnded` and `GatheringEnded` match `Recovered`. Participants and cause links are enforced by the `ws-sim` producers. Existing tags, layouts and goldens are unchanged.
+
+GP-004 ([ADR 0039](../../../docs/adr/0039-faith-and-daily-goals.md)) appends tag 23 `god.goal_completed { day: i64, slot: u8, kind: u8, target: u8 }`, produced by `ws-sim` system 87 with `Origin::System(87)` and importance 8192 (as the other non-root notices). Its sequence is its position among the batch's completions, not its slot (the slot is in the payload). It has no actor or location, is linked `ContributedTo/Direct` the triggering event, is never indexed in consequence groups, and is not shown by building or resident inspection. Recent-event projection words are day, slot, kind, target, 0. Existing tags, layouts and goldens are unchanged.
