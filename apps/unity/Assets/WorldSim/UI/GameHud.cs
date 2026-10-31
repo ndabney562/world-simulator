@@ -17,7 +17,7 @@ namespace WorldSim.UI
         public const ulong StormUs=3600000000,GatherUs=1800000000;
         const int FeedLines=8;
         const double PollSeconds=1;
-        const int GoalRows=4;
+        const int GoalRows=GoalWatch.MaxGoals;
         static readonly Color Panel=new Color(0.07f,0.08f,0.11f,0.92f),Accent=new Color(0.95f,0.7f,0.25f),Text=new Color(0.92f,0.92f,0.9f),Dim=new Color(0.62f,0.64f,0.68f);
         SliceDemo demo;
         UIDocument document;
@@ -39,8 +39,9 @@ namespace WorldSim.UI
         double nextPoll,warningUntil;
         string warning="";
         // Faith and goals: polled at most once a real second; strings are built on the poll only.
-        SliceGod god;double nextGod;long godDay;bool haveGod;
-        readonly bool[] goalDone=new bool[GoalRows];
+        SliceGod god;double nextGod;bool godWarned;
+        readonly GoalWatch goalWatch=new GoalWatch();
+        readonly List<SliceGoal> completedGoals=new List<SliceGoal>();
         public string MeterText=>faithMeter!=null?faithMeter.text:"";
         public string CardFaithText=>cardFaith!=null&&cardFaith.resolvedStyle.display!=DisplayStyle.None?cardFaith.text:"";
         public bool PowerArmed=>armed!=Power.None;
@@ -86,7 +87,7 @@ namespace WorldSim.UI
             if(demo!=null) {if(demo.UiHitTest==OverHud) demo.UiHitTest=null;demo.Inspected-=OnInspected;demo.Cast-=OnCast;demo.WorldReplaced-=OnWorldReplaced;}
             if(document!=null) Destroy(document);document=null;root=null;built=false;
             if(settings!=null) Destroy(settings);if(theme!=null) Destroy(theme);settings=null;theme=null;
-            watches.Clear();seen.Clear();names.Clear();god=null;haveGod=false;nextGod=0;feed.Clear();feedLabels.Clear();speeds.Clear();shown=null;armed=Power.None;
+            watches.Clear();seen.Clear();names.Clear();god=null;goalWatch.Reset();nextGod=0;feed.Clear();feedLabels.Clear();speeds.Clear();shown=null;armed=Power.None;
         }
         bool OverHud(Vector2 screen)
         {
@@ -189,7 +190,7 @@ namespace WorldSim.UI
         }
         void OnWorldReplaced()
         {
-            watches.Clear();seen.Clear();names.Clear();haveGod=false;god=null;nextGod=0;Add("Loaded a saved world.");
+            watches.Clear();seen.Clear();names.Clear();goalWatch.Reset();god=null;nextGod=0;Add("Loaded a saved world.");
         }
         string NameOf(ulong id)
         {
@@ -222,15 +223,12 @@ namespace WorldSim.UI
         void PollGod(double now)
         {
             SliceGod g;
-            try {g=demo.God();} catch(System.Exception) {nextGod=now+PollSeconds;return;}
+            try {g=demo.God();} catch(System.Exception e) {nextGod=now+PollSeconds;if(!godWarned) {godWarned=true;Debug.LogWarning("Faith poll failed: "+e.Message);}return;}
             nextGod=now+PollSeconds;
             int n=System.Math.Min(g.Goals.Length,GoalRows);
-            for(int i=0;i<n;i++)
-            {
-                if(haveGod&&g.Day==godDay&&g.Goals[i].Done&&!goalDone[i]) Add(HudText.GoalComplete(g.Goals[i]));
-                goalDone[i]=g.Goals[i].Done;
-            }
-            god=g;godDay=g.Day;haveGod=true;
+            completedGoals.Clear();goalWatch.Update(g,completedGoals);
+            foreach(var c in completedGoals) Add(HudText.GoalComplete(c));
+            god=g;
             faithMeter.text=HudText.Faith(g.BlockFaith);
             for(int i=0;i<GoalRows;i++)
             {

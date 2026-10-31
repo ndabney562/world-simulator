@@ -169,6 +169,27 @@ namespace WorldSim.Tests.EditMode
             Assert.That(HudText.GoalLine(G(2,2,2,true)),Is.EqualTo("Done: Bless 2 different people"));
             Assert.That(HudText.GoalComplete(G(3,1,1,true)),Is.EqualTo("Goal complete: Cure someone with a blessing"));
         }
+        static SliceGod Day(long day,params SliceGoal[] goals)=>new SliceGod {Day=day,Goals=goals};
+        [Test]
+        public void GoalWatchReportsOnlySameDayFlips()
+        {
+            var w=new GoalWatch();var got=new System.Collections.Generic.List<SliceGoal>();
+            w.Update(Day(1,G(2,2,2,true),G(1,3)),got);Assert.That(got,Is.Empty,"first poll");
+            w.Update(Day(1,G(2,2,2,true),G(1,3,3,true)),got);Assert.That(got.Count,Is.EqualTo(1));Assert.That(got[0].Kind,Is.EqualTo(1u));
+            got.Clear();w.Update(Day(1,G(2,2,2,true),G(1,3,3,true)),got);Assert.That(got,Is.Empty,"repeat poll");
+            w.Update(Day(2,G(2,2),G(1,3),G(4,2)),got);Assert.That(got,Is.Empty,"day change");
+            w.Update(Day(2,G(2,2),G(1,3),G(4,2,2,true)),got);Assert.That(got.Count,Is.EqualTo(1));
+            got.Clear();w.Reset();w.Update(Day(2,G(2,2,2,true),G(1,3),G(4,2,2,true)),got);Assert.That(got,Is.Empty,"after reset");
+        }
+        [Test]
+        public void GoalWatchClearsStaleFlagsWhenGoalCountShrinks()
+        {
+            var w=new GoalWatch();var got=new System.Collections.Generic.List<SliceGoal>();
+            w.Update(Day(1,G(2,2),G(1,3),G(4,2,2,true)),got);
+            w.Update(Day(2,G(2,2)),got);
+            w.Update(Day(2,G(2,2),G(1,3),G(4,2,2,true)),got);
+            Assert.That(got.Count,Is.EqualTo(1),"slot 2 is a new completion, not a stale flag");
+        }
         [Test]
         public void FaithWordBoundaries()
         {
