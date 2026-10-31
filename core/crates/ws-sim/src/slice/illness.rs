@@ -161,7 +161,8 @@ pub(super) struct Affliction {
 /// Current authoritative inspection extension; no query changes the episode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct State {
-    /// Routine kind: 0 none, 1 illness/home hold, 2 visit.
+    /// Override kind: 0 none, 1 illness/home hold, 2 visit, 3 gathering, 4 storm
+    /// hold (ADR 0038 D1 as amended). A routine (1..=3) and a hold never coexist.
     pub override_kind: u32,
     /// Whether health is currently affected.
     pub active: bool,
@@ -171,6 +172,8 @@ pub struct State {
     pub own_root: u64,
     /// Active deadline, None after recovery.
     pub end: Option<SimTime>,
+    /// The storm hold driving the answer, exactly when `override_kind` is 4.
+    pub hold: Option<ws_life::behavior::StormHold>,
 }
 impl Illness {
     pub(super) fn episodes(&self) -> &[Episode] {
@@ -547,10 +550,16 @@ impl SliceSimulation {
     /// Pure bounded illness extension to the selected resident's state.
     pub fn illness_state(&self, id: EntityId) -> Result<State, SliceError> {
         let routine = self.behavior.routine(id).map_err(SliceError::Behavior)?;
+        // A routine wins; `storm_hold` is None whenever one is retained.
+        let hold = self
+            .behavior
+            .storm_hold(id, self.clock.now())
+            .map_err(SliceError::Behavior)?;
         let e = self.illness.episode(id);
         Ok(State {
-            override_kind: routine.map_or(0, |r| r.kind),
-            override_root: routine.map_or(0, |r| r.root),
+            override_kind: routine.map_or(hold.map_or(0, |_| 4), |r| r.kind),
+            override_root: routine.map_or(hold.map_or(0, |h| h.root), |r| r.root),
+            hold,
             active: e.is_some_and(|e| !e.recovered),
             own_root: e.map_or(0, |e| e.root.0),
             end: e.filter(|e| !e.recovered).map(|e| e.end),

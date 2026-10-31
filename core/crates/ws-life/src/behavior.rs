@@ -641,7 +641,8 @@ impl Behavior {
     ///
     /// # Errors
     /// Invalid roster, non-grid anchor, time before anchor, navigation failure, or
-    /// (`Time`) a storm hold without a storm window or alongside an override.
+    /// (`Time`) a storm hold without a storm window or alongside an override, or a
+    /// deferring hold whose root is not the window's.
     pub fn from_saved_states(
         population: &PopulatedSlice,
         schedules: &Schedules,
@@ -673,6 +674,13 @@ impl Behavior {
             ) {
                 (_, Some(_)) if saved.routine.is_some() => return Err(BehaviorError::Time),
                 (_, Some(_)) if storm.is_none() => return Err(BehaviorError::Time),
+                // A deferring hold belongs to the retained window's storm.
+                (_, Some(h))
+                    if h.phase == HoldPhase::Deferring
+                        && storm.is_some_and(|w| w.root != h.root) =>
+                {
+                    return Err(BehaviorError::Time);
+                }
                 (_, Some(h)) => h.answer(saved.anchor),
                 (Some(r), None) => r.answer(saved.anchor),
                 (None, None) => schedules
@@ -705,6 +713,20 @@ impl Behavior {
     /// Retained routine, without advancing behavior.
     pub fn routine(&self, id: EntityId) -> Result<Option<RoutineOverride>, BehaviorError> {
         Ok(self.states[self.index(id)?].routine)
+    }
+    /// The storm hold driving the resident's answer at `time`, if any: the same
+    /// hold `effective_answer` applies (a window is retained and the hold has not
+    /// rejoined). None whenever a routine override is retained, which wins.
+    /// # Errors
+    /// Unknown identity.
+    pub fn storm_hold(
+        &self,
+        id: EntityId,
+        time: SimTime,
+    ) -> Result<Option<StormHold>, BehaviorError> {
+        let s = self.states[self.index(id)?];
+        Ok(s.storm_hold
+            .filter(|h| s.routine.is_none() && self.storm.is_some() && !h.rejoined(time)))
     }
     fn effective_answer(
         &self,
@@ -1060,6 +1082,7 @@ impl Behavior {
                     1,
                     w.start.as_micros_since_epoch() as u64,
                     w.end.as_micros_since_epoch() as u64,
+                    w.root,
                 ]),
                 None => h.write_u64(0),
             }

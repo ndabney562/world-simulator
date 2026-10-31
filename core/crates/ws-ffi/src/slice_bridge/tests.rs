@@ -1204,26 +1204,27 @@ fn inspection_accepts_kind3_away_from_home_only() {
         assert_eq!(u64_from(&out, state_at + 88), root);
         // No other override kind may stand away from home.
         let gathering = (*h).world.gathering().map(|g| g.building);
+        let featured = (*h).world.population().world().buildings().ids();
         let mut bytes = [0u8; inspection::MAX];
         let record = (*h).world.inspect(guest).unwrap();
-        assert!(inspection::encode(&record, gathering, &mut bytes).is_ok());
+        assert!(inspection::encode(&record, gathering, featured, &mut bytes).is_ok());
         for kind in [1, 2, 4] {
             let mut forged = (*h).world.inspect(guest).unwrap();
             forged.illness.as_mut().unwrap().override_kind = kind;
             assert!(
-                inspection::encode(&forged, gathering, &mut bytes).is_err(),
+                inspection::encode(&forged, gathering, featured, &mut bytes).is_err(),
                 "kind{kind}"
             );
         }
         // Kind 3 away from home is valid only at the active gathering's building.
         let record = (*h).world.inspect(guest).unwrap();
-        assert!(inspection::encode(&record, None, &mut bytes).is_err());
+        assert!(inspection::encode(&record, None, featured, &mut bytes).is_err());
         let elsewhere = featured_building(&*h, "two-family house");
-        assert!(inspection::encode(&record, Some(elsewhere), &mut bytes).is_err());
+        assert!(inspection::encode(&record, Some(elsewhere), featured, &mut bytes).is_err());
         // A root-less override is incoherent.
         let mut forged = (*h).world.inspect(guest).unwrap();
         forged.illness.as_mut().unwrap().override_root = 0;
-        assert!(inspection::encode(&forged, gathering, &mut bytes).is_err());
+        assert!(inspection::encode(&forged, gathering, featured, &mut bytes).is_err());
         ws_slice_destroy(h);
     }
 }
@@ -1409,6 +1410,293 @@ fn last_root_survives_save_and_load() {
         let mut after = 0;
         assert_eq!(ws_slice_last_root(loaded, &mut after), OK);
         assert_eq!(after, root);
+        ws_slice_destroy(h);
+        ws_slice_destroy(loaded);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Monday 07:30 (the ws-sim `storm_world` start), so a one-hour storm spans
+/// the 08:00 departures; every resident at L1 as in `gather_handle`.
+unsafe fn storm_handle() -> *mut WsSliceHandle {
+    // SAFETY: a valid stack config and inputs; the returned handle is live and exclusive.
+    unsafe {
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        (*h).world = SliceSimulation::new(SliceConfig {
+            seed: 42,
+            start: SimTime::from_micros_since_epoch(7 * 3_600_000_000 + 30 * 60_000_000),
+            schedule_epoch: SimTime::EPOCH,
+        })
+        .unwrap();
+        let mut camera = op(4, 0);
+        camera.words[3] = 1000.0f64.to_bits();
+        assert_eq!(ws_slice_apply(h, &camera), OK);
+        h
+    }
+}
+
+/// D1 as amended: every resident inspects OK on every tick through a one-hour
+/// storm and its whole resume, and a hold is published as kind 4 with the
+/// storm root, in both phases, exactly where the hold places the resident.
+#[test]
+fn storm_holds_inspect_as_kind4_through_storm_and_resume() {
+    use ws_sim::slice::inspect::HoldPhase;
+    // SAFETY: one live exclusive handle and disjoint initialized outputs; destroyed once.
+    unsafe {
+        let h = storm_handle();
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(7, [3_600_000_000, 0, 0, 0, 0, 0])),
+            OK
+        );
+        let root = last_root(&*h);
+        let residents = (*h).world.population().residents().ids().to_vec();
+        let mut out = [0u8; 8192];
+        let (mut deferring, mut resuming_walk, mut resuming_stay) = (0, 0, 0);
+        let mut ticks = 0;
+        loop {
+            for &id in &residents {
+                let mut written = 0;
+                assert_eq!(
+                    ws_slice_inspect(h, id.raw(), out.as_mut_ptr(), out.len(), &mut written),
+                    OK,
+                    "tick {ticks} resident {}",
+                    id.raw()
+                );
+                let state_at = 96 + u32_from(&out, 64) as usize;
+                let kind = u32_from(&out, state_at + 80);
+                let hold = (*h).world.illness_state(id).unwrap().hold;
+                assert_eq!(kind == 4, hold.is_some());
+                if let Some(hold) = hold {
+                    assert_eq!(u64_from(&out, state_at + 88), root);
+                    assert_eq!(hold.root, root);
+                    match (hold.phase, u32_from(&out, state_at + 12)) {
+                        (HoldPhase::Deferring, 0) => deferring += 1,
+                        (HoldPhase::Deferring, l) => panic!("deferring at location {l}"),
+                        (HoldPhase::Resuming, 2) => {
+                            assert_eq!(u32_from(&out, state_at + 4), 1);
+                            assert_eq!(u32_from(&out, state_at + 8), 5);
+                            assert_eq!(u64_from(&out, state_at + 32), hold.building.raw());
+                            resuming_walk += 1;
+                        }
+                        (HoldPhase::Resuming, _) => resuming_stay += 1,
+                    }
+                }
+            }
+            let held = (*h)
+                .world
+                .to_parts()
+                .behavior_states
+                .iter()
+                .any(|s| s.storm_hold.is_some());
+            if ticks > 36_000 && !held {
+                break;
+            }
+            assert!(ticks < 6 * 36_000, "holds never rejoined");
+            assert_eq!(ws_slice_apply(h, &op(1, 1)), OK);
+            ticks += 1;
+        }
+        // Both phases are published as kind 4. In this scenario every post-storm walk
+        // rejoins on arrival, so a resuming stay (kept activity at the destination)
+        // is covered by the forged-record test and ws-life's own storm tests.
+        assert!(
+            deferring > 0 && resuming_walk > 0,
+            "{deferring} {resuming_walk} {resuming_stay} after {ticks} ticks"
+        );
+        assert!((*h).world.storm().is_none());
+        ws_slice_destroy(h);
+    }
+}
+
+/// Kind 4 is coherent only exactly where the hold places the resident.
+#[test]
+fn inspection_rejects_forged_storm_holds() {
+    use ws_sim::slice::inspect::Location;
+    // SAFETY: one live exclusive handle and disjoint initialized outputs; destroyed once.
+    unsafe {
+        let h = storm_handle();
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(7, [3_600_000_000, 0, 0, 0, 0, 0])),
+            OK
+        );
+        let residents = (*h).world.population().residents().ids().to_vec();
+        let held = loop {
+            if let Some(id) = residents
+                .iter()
+                .copied()
+                .find(|id| (*h).world.illness_state(*id).unwrap().hold.is_some())
+            {
+                break id;
+            }
+            assert_eq!(ws_slice_apply(h, &op(1, 10)), OK);
+        };
+        let gathering = (*h).world.gathering().map(|g| g.building);
+        let featured = (*h).world.population().world().buildings().ids();
+        let mut bytes = [0u8; inspection::MAX];
+        let record = (*h).world.inspect(held).unwrap();
+        assert!(inspection::encode(&record, gathering, featured, &mut bytes).is_ok());
+        // Wrong root, a dropped hold, a routine kind, or a moved resident are refused.
+        let mut forged = (*h).world.inspect(held).unwrap();
+        forged.illness.as_mut().unwrap().override_root += 1;
+        assert!(inspection::encode(&forged, gathering, featured, &mut bytes).is_err());
+        let mut forged = (*h).world.inspect(held).unwrap();
+        forged.illness.as_mut().unwrap().hold = None;
+        assert!(inspection::encode(&forged, gathering, featured, &mut bytes).is_err());
+        for kind in [0, 1, 2, 3, 5] {
+            let mut forged = (*h).world.inspect(held).unwrap();
+            forged.illness.as_mut().unwrap().override_kind = kind;
+            assert!(
+                inspection::encode(&forged, gathering, featured, &mut bytes).is_err(),
+                "kind{kind}"
+            );
+        }
+        let mut forged = (*h).world.inspect(held).unwrap();
+        let ws_sim::slice::inspect::Entity::Resident {
+            state, identity, ..
+        } = &mut forged.entity
+        else {
+            unreachable!()
+        };
+        let elsewhere = featured
+            .iter()
+            .copied()
+            .find(|b| Location::AtBuilding(*b) != state.logical.location && *b != identity.home)
+            .unwrap();
+        state.logical.location = Location::AtBuilding(elsewhere);
+        assert!(inspection::encode(&forged, gathering, featured, &mut bytes).is_err());
+        assert!(inspection::encode(&record, gathering, &[], &mut bytes).is_err());
+        ws_slice_destroy(h);
+    }
+}
+
+/// A bless cure whose rejoin is due exactly at a baseline departure from home,
+/// under a storm, takes `end_illness`'s storm branch: the departure is deferred
+/// at once, the hold is published as kind 4 with the storm root, and it
+/// survives a save and load (ledger minors T4/T5).
+#[test]
+fn bless_cure_under_storm_defers_inspects_kind4_and_round_trips() {
+    use ws_sim::slice::inspect::{HoldPhase, Location, Place};
+    use ws_sim::ws_events::Payload;
+    // SAFETY: live exclusive handles and a valid C path; each destroyed once.
+    unsafe {
+        let minute = |h: *mut WsSliceHandle| {
+            for _ in 0..6 {
+                assert_eq!(ws_slice_apply(h, &op(1, 100)), OK);
+            }
+        };
+        let h = storm_handle();
+        let residents = (*h).world.population().residents().ids().to_vec();
+        for &id in &residents {
+            assert_eq!(
+                ws_slice_apply(h, &slice_op(5, [id.raw(), 5, 3 * 3_600_000_000, 0, 0, 0])),
+                OK
+            );
+        }
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(7, [3_600_000_000, 0, 0, 0, 0, 0])),
+            OK
+        );
+        let storm = last_root(&*h);
+        let epoch = (*h).world.schedules().epoch();
+        let mut cured = None;
+        for _ in 0..60 {
+            minute(h);
+            let now = (*h).world.clock().now();
+            let due = residents.iter().copied().find(|&id| {
+                let home = (*h).world.population().residents().get(id).unwrap().home;
+                let base = (*h).world.schedules().get(id).unwrap().at(epoch, now);
+                (*h).world.illness_state(id).unwrap().active
+                    && matches!(base.location, Location::InTransit { from, departure, .. }
+                        if from == Place::Building(home)
+                            && departure == i128::from(now.as_micros_since_epoch()))
+                    && (*h)
+                        .world
+                        .behavior()
+                        .common(id, now)
+                        .unwrap()
+                        .logical
+                        .location
+                        == Location::AtBuilding(home)
+            });
+            if let Some(id) = due {
+                assert_eq!(
+                    ws_slice_apply(h, &slice_op(6, [id.raw(), 0, 0, 0, 0, 0])),
+                    OK
+                );
+                cured = Some(id);
+                break;
+            }
+        }
+        let id = cured.expect("an ill resident's departure falls inside the storm");
+        let bless = last_root(&*h);
+        // The bless batch holds the cure and the deferral, which is linked to
+        // the storm, not indexed under the bless.
+        let stayed = (*h)
+            .world
+            .events()
+            .records()
+            .iter()
+            .filter(|e| e.id.0 > bless)
+            .filter(|e| matches!(e.record.payload, Payload::StayedInside { resident, .. } if resident == id))
+            .count();
+        assert_eq!(stayed, 1);
+        let c = consequences_of(h, bless);
+        assert_eq!((row_count(&c), row_tag(&c, 1)), (2, 12));
+        assert!((*h).world.storm().unwrap().kept >= 1);
+        let state = (*h).world.illness_state(id).unwrap();
+        assert!(!state.active);
+        let hold = state
+            .hold
+            .expect("the cure's rejoin is deferred by the storm");
+        assert_eq!(
+            (hold.phase, hold.root, state.override_kind),
+            (HoldPhase::Deferring, storm, 4)
+        );
+        let inspect = |h: *mut WsSliceHandle| {
+            let mut out = [0u8; 8192];
+            let mut written = 0;
+            assert_eq!(
+                ws_slice_inspect(h, id.raw(), out.as_mut_ptr(), out.len(), &mut written),
+                OK
+            );
+            let state_at = 96 + u32_from(&out, 64) as usize;
+            (u32_from(&out, state_at + 80), u64_from(&out, state_at + 88))
+        };
+        assert_eq!(inspect(h), (4, storm));
+        // Round trip: the hold, with its root, is saved and the loaded world
+        // publishes the same record and the same future.
+        let dir = std::env::temp_dir().join(format!("ws-ffi-cure-storm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = std::ffi::CString::new(dir.join("cure.wssave").to_str().unwrap()).unwrap();
+        assert_eq!(ws_slice_save(h, path.as_ptr()), OK);
+        let loaded = ws_slice_load(path.as_ptr());
+        assert!(!loaded.is_null());
+        assert_eq!((*loaded).world.illness_state(id).unwrap().hold, Some(hold));
+        assert_eq!((*loaded).world.state_hash(), (*h).world.state_hash());
+        assert_eq!(inspect(loaded), (4, storm));
+        for _ in 0..90 {
+            minute(h);
+            minute(loaded);
+            assert_eq!((*loaded).world.state_hash(), (*h).world.state_hash());
+            let (kind, root) = inspect(h);
+            assert_eq!(inspect(loaded), (kind, root));
+            // A healthy neighbour may later check in on an ill one (kind 2).
+            assert!(kind != 4 || root == storm, "kind {kind}");
+        }
+        assert!((*h).world.illness_state(id).unwrap().hold.is_none());
+        // The storm's count includes the bless batch's deferral, and the storm
+        // group stays [root, kept, ended]: StayedInside is never indexed.
+        let all_stayed = (*h)
+            .world
+            .events()
+            .records()
+            .iter()
+            .filter(|e| matches!(e.record.payload, Payload::StayedInside { .. }))
+            .count() as u64;
+        let c = consequences_of(h, storm);
+        assert_eq!((row_count(&c), row_tag(&c, 1), row_tag(&c, 2)), (3, 18, 19));
+        assert_eq!(u64_from(&c, 96 + 128 + 40), all_stayed);
         ws_slice_destroy(h);
         ws_slice_destroy(loaded);
         let _ = std::fs::remove_dir_all(&dir);

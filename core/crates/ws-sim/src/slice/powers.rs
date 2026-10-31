@@ -420,7 +420,11 @@ impl SliceSimulation {
         if !prepared.deferrals().is_empty() {
             return Err(SliceError::Lod(LodError::Invariant));
         }
-        prepared.set_storm(Some(StormWindow { start: time, end }));
+        prepared.set_storm(Some(StormWindow {
+            start: time,
+            end,
+            root: root.0,
+        }));
         let mut facts = Vec::new();
         facts
             .try_reserve(1 + self.lod.nodes().len())

@@ -60,6 +60,7 @@ fn cast(b: &mut Behavior, start: i64, end: i64) {
     p.set_storm(Some(StormWindow {
         start: t(start),
         end: t(end),
+        root: 77,
     }));
     p.commit();
 }
@@ -364,6 +365,7 @@ fn override_homeward_leg_is_not_deferred() {
     p.set_storm(Some(StormWindow {
         start: t(at),
         end: t(at + 60 * MINUTE),
+        root: 77,
     }));
     let r = p.afflict(id, home, t(at + 240 * MINUTE), 11).unwrap();
     let leg = r.homeward.unwrap();
@@ -540,6 +542,7 @@ fn overrides_are_never_deferred() {
     p.set_storm(Some(StormWindow {
         start: t(d - 10 * MINUTE),
         end: t(d + 30 * MINUTE),
+        root: 77,
     }));
     p.visit(id, home, t(d + 20 * MINUTE), 9).unwrap();
     p.commit();

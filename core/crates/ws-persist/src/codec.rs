@@ -1860,6 +1860,7 @@ fn get_opt_time(r: &mut Reader) -> Result<Option<SimTime>> {
 /// The format-5 storm hold block (plan decision D1): every field, with the
 /// phase stored explicitly.
 fn put_storm_hold(w: &mut Writer, h: ws_life::behavior::StormHold) {
+    w.u64(h.root);
     w.id(h.building);
     w.u8(h.activity as u8);
     put_opt_journey(w, h.resume);
@@ -1868,6 +1869,10 @@ fn put_storm_hold(w: &mut Writer, h: ws_life::behavior::StormHold) {
 }
 
 fn get_storm_hold(r: &mut Reader) -> Result<ws_life::behavior::StormHold> {
+    let root = r.u64()?;
+    if root == 0 {
+        return Err(CodecError("storm hold without a root"));
+    }
     let building = r.id()?;
     let activity =
         ws_events::Activity::from_tag(r.u8()?).ok_or(CodecError("invalid activity tag"))?;
@@ -1879,6 +1884,7 @@ fn get_storm_hold(r: &mut Reader) -> Result<ws_life::behavior::StormHold> {
         _ => return Err(CodecError("invalid storm hold phase")),
     };
     Ok(ws_life::behavior::StormHold {
+        root,
         building,
         activity,
         resume,
@@ -1981,6 +1987,7 @@ pub(crate) fn put_slice_storm(
             w.u8(1);
             w.time(x.start);
             w.time(x.end);
+            w.u64(x.root);
         }
         None => w.u8(0),
     }
@@ -2008,6 +2015,7 @@ pub(crate) fn get_slice_storm(bytes: &[u8]) -> Result<DecodedStorm> {
         Some(ws_life::behavior::StormWindow {
             start: r.time()?,
             end: r.time()?,
+            root: r.u64()?,
         })
     } else {
         None
@@ -2936,6 +2944,7 @@ mod format5_tests {
         };
         for hold in [
             StormHold {
+                root: 41,
                 building: EntityId::procedural(5),
                 activity: ws_events::Activity::Work,
                 resume: Some(walk),
@@ -2943,6 +2952,7 @@ mod format5_tests {
                 phase: HoldPhase::Deferring,
             },
             StormHold {
+                root: 41,
                 building: EntityId::procedural(5),
                 activity: ws_events::Activity::Home,
                 resume: None,
@@ -3004,6 +3014,7 @@ mod format5_tests {
         let window = StormWindow {
             start: t(1_000_000),
             end: t(3_601_000_000),
+            root: 41,
         };
         for row in [
             (Some(storm), Some(window)),

@@ -420,6 +420,14 @@ fn holds(w: &SliceSimulation) -> usize {
         .count()
 }
 
+fn hold_roots(w: &SliceSimulation) -> Vec<u64> {
+    w.to_parts()
+        .behavior_states
+        .iter()
+        .filter_map(|s| s.storm_hold.map(|h| h.root))
+        .collect()
+}
+
 /// Monday 07:30, so a one-hour storm spans the 08:00 departures.
 fn storm_world() -> SliceSimulation {
     SliceSimulation::new(SliceConfig {
@@ -499,6 +507,17 @@ fn format5_round_trips_active_storm_and_gathering() {
     ok(&mut storm, Operation::Steps(40 * MINUTE));
     assert!(storm.storm().is_some_and(|s| s.kept > 0));
     assert!(holds(&storm) > 0);
+    // Every hold and the window carry the storm root (D1 as amended), and both
+    // survive the round trip.
+    let root = storm.storm().unwrap().root.0;
+    assert_eq!(hold_roots(&storm), vec![root; holds(&storm)]);
+    assert_eq!(storm.to_parts().storm_window.unwrap().root, root);
+    let loaded_dir = Scratch::new("f5-storm-root");
+    let path = loaded_dir.path("p.wssave");
+    save_slice(&storm, &path).unwrap();
+    let loaded = load_slice(&path).unwrap();
+    assert_eq!(hold_roots(&loaded), hold_roots(&storm));
+    assert_eq!(loaded.to_parts().storm_window.unwrap().root, root);
     save_load_and_step(&mut storm, "f5-storm");
 
     // After the storm's end, while holds still resume: the episode is gone

@@ -11,6 +11,8 @@ pub struct StormWindow {
     pub start: SimTime,
     /// Exclusive end; held residents are re-evaluated exactly here.
     pub end: SimTime,
+    /// Storm root event ID; every hold this window installs carries it.
+    pub root: u64,
 }
 /// Explicit hold phase, independent of any (possibly replaced) storm window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +23,10 @@ pub enum HoldPhase {
     /// Post-storm (D3): `resume` is the walk now under way, if any, then `rejoin`.
     Resuming = 1,
 }
-/// Saved per-resident storm state (D1). Not an override: inspection never reports it.
+/// Saved per-resident storm state (D1 as amended). Not a routine override, but
+/// inspection publishes it as override kind 4 with `root` as the override root.
+/// A routine override supersedes it (`Prepared::install` clears it) and a hold is
+/// only installed on a routine-free resident, so the two never coexist.
 ///
 /// While `Deferring`, `resume` is the latest deferred baseline row and `rejoin` is
 /// None. At the first re-evaluation at or after the storm's end (D3) it becomes
@@ -30,6 +35,8 @@ pub enum HoldPhase {
 /// beyond SimTime).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StormHold {
+    /// Root event ID of the storm that installed this hold.
+    pub root: u64,
     /// Featured building the resident is held at.
     pub building: EntityId,
     /// Activity kept from before the first deferral.
@@ -138,6 +145,7 @@ impl StormHold {
     pub(super) fn hash(self, h: &mut SipHasher24) {
         h.write_words(&[
             self.phase as u64,
+            self.root,
             self.building.raw(),
             self.activity as u64,
             u64::from(self.rejoin.is_some()),
@@ -192,6 +200,7 @@ pub(super) fn step(
     {
         let activity = s.storm_hold.map_or(s.logical.activity, |h| h.activity);
         s.storm_hold = Some(StormHold {
+            root: storm.root,
             building: b,
             activity,
             resume: Some(Journey {

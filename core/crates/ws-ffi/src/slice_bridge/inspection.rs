@@ -152,20 +152,34 @@ fn endpoint(p: ws_sim::slice::inspect::Place) -> (u64, u32) {
     }
 }
 /// Schema3 routine-override coherence, checked before anything is published.
-/// Kinds: 0 none, 1 illness home hold, 2 visit, 3 gathering (ADR0038 §4). An
-/// override needs a root; an overridden resident is either commuting or at
-/// home with the Home activity, except that kind3 alone may stand away from
-/// home: at the active gathering's building, Home activity, Socialize.
+/// Kinds: 0 none, 1 illness home hold, 2 visit, 3 gathering (ADR0038 §4), 4
+/// storm hold (ADR0038 D1 as amended). An override needs a root; an
+/// overridden resident is either commuting or at home with the Home activity,
+/// except that kinds 3 and 4 alone may stand away from home: kind3 at the
+/// active gathering's building, Home activity, Socialize; kind4 exactly where
+/// its hold places it (`storm_hold`).
 fn check_override(
     home: ws_sim::EntityId,
     (location, activity, action): (ws_sim::slice::inspect::Location, u32, u32),
     illness: &ws_sim::slice::illness::State,
     gathering: Option<ws_sim::EntityId>,
+    (time, featured): (i128, &[ws_sim::EntityId]),
 ) -> Result<(), &'static str> {
     use ws_sim::slice::inspect::Location;
     let kind = illness.override_kind;
-    if kind > 3 || (kind == 0) != (illness.override_root == 0) {
+    if kind > 4
+        || (kind == 0) != (illness.override_root == 0)
+        || (kind == 4) != illness.hold.is_some()
+    {
         return Err("inspection override kind/root incoherent");
+    }
+    if let Some(h) = illness.hold {
+        return storm_hold(
+            h,
+            illness.override_root,
+            (location, activity, action),
+            (time, featured),
+        );
     }
     if kind == 0 || activity == 1 {
         return Ok(());
@@ -180,9 +194,68 @@ fn check_override(
         _ => Err("inspection override away from home"),
     }
 }
+/// Kind4: a deferring hold stands at its featured building with the kept
+/// activity; a resuming hold is on its walk out of that building (Commute,
+/// Travel, the walk's exact endpoints and instants) until arrival, then at the
+/// walk's destination (or the building, without a walk) with the kept activity
+/// until the rejoin.
+fn storm_hold(
+    h: ws_sim::slice::inspect::StormHold,
+    root: u64,
+    (location, activity, action): (ws_sim::slice::inspect::Location, u32, u32),
+    (time, featured): (i128, &[ws_sim::EntityId]),
+) -> Result<(), &'static str> {
+    use ws_sim::slice::inspect::{HoldPhase, Location, Place};
+    let here = Place::Building(h.building);
+    let kept = h.activity as u32;
+    // `choose`: Sleep sleeps, duties for work/school/errands, a home action at home.
+    let fits = match activity {
+        0 => action == 6,
+        2..=4 => action == 4,
+        5 => action <= 4,
+        _ => false,
+    };
+    let ok = root == h.root
+        && featured.contains(&h.building)
+        && kept != 1
+        && match (h.phase, h.resume) {
+            (HoldPhase::Deferring, Some(row)) => {
+                row.from == here
+                    && location == Location::AtBuilding(h.building)
+                    && activity == kept
+                    && fits
+            }
+            (HoldPhase::Deferring, None) => false,
+            (HoldPhase::Resuming, Some(j)) if time < j.arrival => {
+                j.from == here
+                    && j.departure <= time
+                    && activity == 1
+                    && action == 5
+                    && location
+                        == Location::InTransit {
+                            from: here,
+                            to: j.to,
+                            departure: j.departure,
+                            arrival: j.arrival,
+                        }
+            }
+            (HoldPhase::Resuming, Some(j)) => {
+                j.from == here && location == j.to.into() && activity == kept && fits
+            }
+            (HoldPhase::Resuming, None) => {
+                location == Location::AtBuilding(h.building) && activity == kept && fits
+            }
+        };
+    if ok {
+        Ok(())
+    } else {
+        Err("inspection storm hold incoherent")
+    }
+}
 pub(super) fn encode(
     record: &Inspection<'_>,
     gathering: Option<ws_sim::EntityId>,
+    featured: &[ws_sim::EntityId],
     bytes: &mut [u8; MAX],
 ) -> Result<usize, &'static str> {
     use ws_sim::slice::inspect::Location;
@@ -267,6 +340,7 @@ pub(super) fn encode(
                 ),
                 &illness,
                 gathering,
+                (i128::from(record.time.as_micros_since_epoch()), featured),
             )?;
             w.u32(illness.override_kind)?;
             w.u32(u32::from(illness.active))?;
@@ -400,6 +474,7 @@ pub unsafe extern "C" fn ws_slice_inspect(
             let len = encode(
                 &record,
                 h.world.gathering().map(|g| g.building),
+                h.world.population().world().buildings().ids(),
                 &mut scratch,
             )
             .map_err(|message| (STEP_FAILED, message))?;
@@ -596,7 +671,13 @@ mod tests {
         let mut record = world.inspect(resident).unwrap();
         record.events = store.recent(resident, SimTime::EPOCH).unwrap();
         let mut bytes = [0; MAX];
-        let len = encode(&record, None, &mut bytes).unwrap();
+        let len = encode(
+            &record,
+            None,
+            world.population().world().buildings().ids(),
+            &mut bytes,
+        )
+        .unwrap();
         assert_eq!(u32::from_le_bytes(bytes[60..64].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(bytes[76..80].try_into().unwrap()), 16);
         let at = len - 16 * 80;
@@ -648,7 +729,13 @@ mod tests {
         let mut record = world.inspect(building).unwrap();
         record.events = store.recent(building, SimTime::EPOCH).unwrap();
         bytes.fill(0);
-        let len = encode(&record, None, &mut bytes).unwrap();
+        let len = encode(
+            &record,
+            None,
+            world.population().world().buildings().ids(),
+            &mut bytes,
+        )
+        .unwrap();
         let at = len - 16 * 80;
         assert_eq!(
             u32::from_le_bytes(bytes[at + 32..at + 36].try_into().unwrap()),
@@ -686,7 +773,12 @@ mod tests {
         let mut record = world.inspect(resident).unwrap();
         record.events = future.recent(resident, SimTime::EPOCH).unwrap();
         assert_eq!(
-            encode(&record, None, &mut bytes),
+            encode(
+                &record,
+                None,
+                world.population().world().buildings().ids(),
+                &mut bytes
+            ),
             Err("unsupported inspection event vocabulary")
         );
         let mut writer = Writer {
