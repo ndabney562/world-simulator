@@ -57,6 +57,31 @@ namespace WorldSim.Rendering
             return Build("Toy capsule", vertices, triangles);
         }
 
+        /// <summary>Flat two-sided annulus of unit outer radius in the XZ plane; scale X/Z to size it.</summary>
+        public static Mesh Ring(float inner = 0.85f, int segments = 48)
+        {
+            var vertices = new List<Vector3>();
+            var triangles = new List<int>();
+            for (int s = 0; s <= segments; s++)
+            {
+                float phi = 2 * Mathf.PI * s / segments;
+                var d = new Vector3(Mathf.Cos(phi), 0, Mathf.Sin(phi));
+                vertices.Add(d * inner);
+                vertices.Add(d);
+            }
+            for (int s = 0; s < segments; s++)
+            {
+                int a = s * 2, b = a + 1, c = a + 2, d = a + 3;
+                triangles.AddRange(new[] { a, c, b, b, c, d, a, b, c, b, d, c }); // both windings: visible from any side
+            }
+            var mesh = Build("Toy ring", vertices, triangles);
+            // Opposite windings cancel recalculated normals; the ring is lit as an upward face.
+            var up = new Vector3[vertices.Count];
+            for (int i = 0; i < up.Length; i++) up[i] = Vector3.up;
+            mesh.normals = up;
+            return mesh;
+        }
+
         static Mesh Build(string name, List<Vector3> vertices, List<int> triangles)
         {
             var mesh = new Mesh { name = name };

@@ -14,7 +14,7 @@ namespace WorldSim.UI
     public sealed class GameHud : MonoBehaviour
     {
         enum Power {None,Curse,Bless,Gather}
-        const ulong StormUs=3600000000,GatherUs=1800000000;
+        public const ulong StormUs=3600000000,GatherUs=1800000000;
         const int FeedLines=8;
         const double PollSeconds=1;
         static readonly Color Panel=new Color(0.07f,0.08f,0.11f,0.92f),Accent=new Color(0.95f,0.7f,0.25f),Text=new Color(0.92f,0.92f,0.9f),Dim=new Color(0.62f,0.64f,0.68f);
@@ -24,7 +24,8 @@ namespace WorldSim.UI
         ThemeStyleSheet theme;
         VisualElement root,card,controls,feedPanel,powerBar,schedule;
         Label calendar,notice,stats,cardTitle,cardBody,feedEmpty,hint;
-        Button curse,bless,storm,gather,closeCard;
+        Button curse,bless,storm,gather,closeCard,follow;
+        Reactions reactions;
         readonly Dictionary<uint,Button> speeds=new Dictionary<uint,Button>();
         readonly List<HudWatch> watches=new List<HudWatch>();
         readonly HashSet<ulong> seen=new HashSet<ulong>();
@@ -37,6 +38,10 @@ namespace WorldSim.UI
         string warning="";
         public bool PowerArmed=>armed!=Power.None;
         public IReadOnlyList<string> Feed=>feed;
+        /// <summary>Each consequence row the first time a poll sees it, with its group.</summary>
+        public event System.Action<InspectionEvent,SliceConsequences> ConsequenceSeen;
+        /// <summary>A power that applied: its root tag and subject (0 for a storm).</summary>
+        public event System.Action<ushort,ulong> Casted;
         /// <summary>Select or deselect the power; the next resident tap casts it.</summary>
         public void TogglePower() {Toggle(Power.Curse);}
         /// <summary>Select or deselect bless; the next resident tap casts it.</summary>
@@ -58,12 +63,12 @@ namespace WorldSim.UI
         {
             string refused=HudCasts.Try(watches,tag,subject,cast);
             if(refused!=null) {Warn(refused);return false;}
-            nextPoll=0;return true;
+            nextPoll=0;Casted?.Invoke(tag,subject);return true;
         }
 
         void OnEnable()
         {
-            demo=GetComponent<SliceDemo>();
+            demo=GetComponent<SliceDemo>();reactions=GetComponent<Reactions>();
             settings=ScriptableObject.CreateInstance<PanelSettings>();theme=ScriptableObject.CreateInstance<ThemeStyleSheet>();
             settings.name="Game HUD panel";settings.themeStyleSheet=theme;settings.scaleMode=PanelScaleMode.ConstantPixelSize;settings.scale=SliceDemo.HudUnits;
             document=gameObject.AddComponent<UIDocument>();document.panelSettings=settings;
@@ -123,7 +128,10 @@ namespace WorldSim.UI
 
             card=Box(strip,Panel);card.style.width=320;card.style.flexShrink=1;card.style.marginRight=8;
             var head=Row(card);head.style.justifyContent=Justify.SpaceBetween;head.style.flexWrap=Wrap.NoWrap;
-            cardTitle=Line(head,"",Accent,16);closeCard=Action(head,"Close",demo.ClearInspection);closeCard.style.marginTop=0;
+            cardTitle=Line(head,"",Accent,16);
+            var buttons=Row(head);buttons.style.flexWrap=Wrap.NoWrap;
+            follow=Action(buttons,"Follow",ToggleFollow);follow.style.marginTop=0;
+            closeCard=Action(buttons,"Close",demo.ClearInspection);closeCard.style.marginTop=0;
             cardBody=Line(card,"",Text,13);
             var scroll=new ScrollView(ScrollViewMode.Vertical);scroll.style.flexGrow=1;scroll.style.marginTop=4;card.Add(scroll);schedule=scroll.contentContainer;
 
@@ -162,7 +170,13 @@ namespace WorldSim.UI
             // Fresh tap sample has no root, so this applies the curse exactly once.
             if(demo.InspectIllness()) armed=Power.None;else Warn(HudCasts.Rejected);
         }
-        void OnCast(ulong subject,ulong root) {HudCasts.Watch(watches,HudCasts.CurseTag,subject,root);nextPoll=0;}
+        void OnCast(ulong subject,ulong root) {HudCasts.Watch(watches,HudCasts.CurseTag,subject,root);nextPoll=0;Casted?.Invoke(HudCasts.CurseTag,subject);}
+        /// <summary>Follow the resident on the card, or stop following.</summary>
+        public void ToggleFollow()
+        {
+            var r=demo.CurrentInspection;if(reactions==null||r==null||r.Kind!=1) return;
+            reactions.Follow(reactions.Following==r.Id?0:r.Id);
+        }
         void OnWorldReplaced()
         {
             watches.Clear();seen.Clear();names.Clear();Add("Loaded a saved world.");
@@ -186,6 +200,7 @@ namespace WorldSim.UI
                 foreach(var e in c.Events)
                 {
                     if(!seen.Add(e.Id)) continue;
+                    ConsequenceSeen?.Invoke(e,c);
                     string line=HudText.Feed(e,NameOf,c.RootTag);if(line!=null) Add(line);
                 }
                 w.Done=HudText.Finished(c);
@@ -223,6 +238,9 @@ namespace WorldSim.UI
                 }
             }
             card.style.display=inspection!=null?DisplayStyle.Flex:DisplayStyle.None;
+            bool resident=inspection!=null&&inspection.Kind==1&&reactions!=null;
+            follow.style.display=resident?DisplayStyle.Flex:DisplayStyle.None;
+            if(resident) follow.text=reactions.Following==inspection.Id?"Stop following":"Follow";
             // Narrow screens: the card takes the feed's place while it is open.
             bool narrow=Screen.width/SliceDemo.HudUnits<900;
             feedPanel.style.display=narrow&&inspection!=null?DisplayStyle.None:DisplayStyle.Flex;
