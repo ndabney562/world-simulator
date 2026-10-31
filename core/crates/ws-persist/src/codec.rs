@@ -830,6 +830,8 @@ fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
             w.id(building);
             w.u32(attendees);
         }
+        // Tag 23 is unsupported until save format 6.
+        Payload::GoalCompleted { .. } => return Err(CodecError("unknown payload tag")),
     }
     Ok(())
 }

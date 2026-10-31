@@ -140,6 +140,18 @@ pub(super) fn event_words(payload: Payload) -> Result<[u64; 5], &'static str> {
             building,
             attendees,
         } => [building.raw(), u64::from(attendees), 0, 0, 0],
+        Payload::GoalCompleted {
+            day,
+            slot,
+            kind,
+            target,
+        } => [
+            day as u64,
+            u64::from(slot),
+            u64::from(kind),
+            u64::from(target),
+            0,
+        ],
         _ => return Err("unsupported inspection event vocabulary"),
     })
 }
