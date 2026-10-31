@@ -10,10 +10,16 @@ use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
+#[path = "slice/god.rs"]
+mod god;
 #[path = "slice/illness.rs"]
 pub mod illness;
 #[path = "slice/powers.rs"]
 mod powers;
+pub use god::{
+    Caps, FAITH_MAX, FAITH_MIN, Goal, GoalFact, GoalKind, Goals, God, GodError, MAX_GOALS,
+    Observed, day_of, generate as generate_goals,
+};
 pub use powers::{Gathering, MAX_ATTENDEES, Phase, REACH_MM, Storm, distance_ok, offset_mm};
 
 #[path = "slice_inspect.rs"]
