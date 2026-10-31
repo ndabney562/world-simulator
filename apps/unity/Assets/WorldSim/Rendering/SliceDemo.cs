@@ -176,12 +176,17 @@ namespace WorldSim.Rendering
             Inspected?.Invoke(inspection);return true;
         }
         public void ClearInspection() {consequenceRoot=0;inspection=null;inspectionText="";}
-        /// <summary>Refresh-only query of an applied root; never reapplies.</summary>
-        public SliceConsequences Consequences(ulong subject,ulong root)
+        /// <summary>Refresh-only query of an applied root; never reapplies. The root's tag picks the
+        /// paired illness path (13) or the root-only path for bless, storm and gathering (ADR0038 §7).</summary>
+        public SliceConsequences Consequences(ulong subject,ulong root,ushort rootTag=13)
         {
             if(host==null||root==0) throw new InvalidOperationException("No applied intervention.");
-            return host.Illness(subject,root).Consequences;
+            return rootTag==13?host.Illness(subject,root).Consequences:host.Consequences(root);
         }
+        /// <summary>One cast each; returns the root, throws on rejection like the illness action.</summary>
+        public ulong Bless(ulong resident) {if(host==null) throw new InvalidOperationException("No slice.");return host.Bless(resident);}
+        public ulong Storm(ulong durationUs) {if(host==null) throw new InvalidOperationException("No slice.");return host.Storm(durationUs);}
+        public ulong Gather(ulong building,ulong durationUs) {if(host==null) throw new InvalidOperationException("No slice.");return host.Gather(building,durationUs);}
         /// <summary>Display name for another resident; does not change the current selection.</summary>
         public string ResidentName(ulong id)
         {

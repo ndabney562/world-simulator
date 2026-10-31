@@ -21,7 +21,7 @@ namespace WorldSim.Tests.EditMode
         static void U64(byte[] bytes,int at,ulong value) {Array.Copy(BitConverter.GetBytes(value),0,bytes,at,8);}
         static SliceGeometry Geometry()
         {
-            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v8"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
+            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v9"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
         }
         [Test]
         public void SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients()
@@ -32,7 +32,7 @@ namespace WorldSim.Tests.EditMode
             Assert.That(Marshal.SizeOf<NativeSliceOperation>(),Is.EqualTo(64));
             string[] operation={"Version","Size","Tag","Reserved","A","B","C","D","E","F"};int[] operationOffsets={0,4,8,12,16,24,32,40,48,56};
             for(int i=0;i<operation.Length;i++) Assert.That(Marshal.OffsetOf<NativeSliceOperation>(operation[i]).ToInt32(),Is.EqualTo(operationOffsets[i]));
-            for(uint old=1;old<=7;old++)
+            for(uint old=1;old<=8;old++)
             {
                 Assert.Throws<InvalidOperationException>(()=>NativeWorld.RequireVersion(old));
                 var input=new NativeSliceConfig {Version=old,Size=32,Seed=71449,Start=Start};var pointer=NativeSliceMethods.Create(in input);
@@ -44,7 +44,7 @@ namespace WorldSim.Tests.EditMode
         public void SharedRealSliceFixturesMatchNativeGeometryIdentitiesPositionsCountsAndSky()
         {
             var expectedGeometry=Geometry();var expected=new SliceFrame();
-            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v8"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
+            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v9"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
             Assert.That(expectedGeometry.Buildings.Length,Is.EqualTo(58));Assert.That(expectedGeometry.FeaturedIds.Length,Is.EqualTo(4));
             Assert.That(expectedGeometry.Vertices.Length,Is.EqualTo(2245));Assert.That(expectedGeometry.Indices.Length,Is.EqualTo(3693));
             Assert.That(expected.Population,Is.EqualTo(30));Assert.That(expected.Tick,Is.EqualTo(20));Assert.That(expected.StateHash,Is.Zero);
@@ -66,7 +66,7 @@ namespace WorldSim.Tests.EditMode
                     Assert.That(frame.Residents[i].Location,Is.EqualTo(expected.Residents[i].Location));Assert.That(Vector3.Distance(frame.Residents[i].Foot,expected.Residents[i].Foot),Is.LessThan(0.0002f));
                 }
                 Assert.That(frame.RenderedResidents,Is.GreaterThan(0));Assert.That(frame.StateHash,Is.EqualTo(frame.Sky.StateHash));Assert.That(frame.Tick,Is.EqualTo(frame.Sky.Tick));
-                byte[] skyBytes=Fixture("slice-sky-v8");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
+                byte[] skyBytes=Fixture("slice-sky-v9");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
                 try
                 {
                     var sky=Marshal.PtrToStructure<CalendarSky>(pinned.AddrOfPinnedObject());sky.Validate();Assert.That(sky.StateHash,Is.Zero);
@@ -78,7 +78,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidGeometryIsRejectedBeforeAnyPartialCacheIsPublished()
         {
-            byte[] original=Fixture("slice-geometry-v8");
+            byte[] original=Fixture("slice-geometry-v9");
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
                 b=>U32(b,0,4),b=>U32(b,20,uint.MaxValue),b=>U32(b,24,uint.MaxValue),b=>U32(b,36,25),b=>U32(b,44,1),
                 b=>U64(b,96+48,BitConverter.ToUInt64(b,96)),b=>U32(b,96+36,2),b=>U32(b,96+16,1),
@@ -92,7 +92,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidDynamicRowsLeaveTheCompletePreviousFrameUntouched()
         {
-            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v8");var frame=new SliceFrame();
+            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v9");var frame=new SliceFrame();
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) SliceDecoder.DecodeSnapshot(bytes,bytes.Length,geometry,frame);
             ulong tick=frame.Tick,first=frame.Residents[0].Id;Matrix4x4 matrix=frame.ResidentMatrices[0];
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
@@ -286,6 +286,99 @@ namespace WorldSim.Tests.EditMode
             finally
             {
                 if(File.Exists(path)) File.Delete(path);
+            }
+        }
+        static SliceConsequences DecodeFixture(string name,SliceGeometry geometry)
+        {
+            byte[] raw=Fixture(name);
+            using(var b=new NativeArray<byte>(raw,Allocator.Temp)) return ConsequencesDecoder.Decode(b,b.Length,geometry,BitConverter.ToUInt64(raw,40));
+        }
+        static uint[] Tags(SliceConsequences c) {var tags=new uint[c.Events.Length];for(int i=0;i<tags.Length;i++) tags[i]=c.Events[i].Tag;return tags;}
+        static int Count(SliceConsequences c,uint tag) {int n=0;foreach(var e in c.Events) if(e.Tag==tag) n++;return n;}
+        [Test]
+        public void BlessThenConsequencesDecode()
+        {
+            // ADR0038 §2: native bytes for a bless curing the shared sample illness.
+            var fixture=DecodeFixture("consequences-bless-v9",Geometry());
+            Assert.That(fixture.RootTag,Is.EqualTo(14));Assert.That(Tags(fixture),Is.EqualTo(new uint[]{14,12}));
+            Assert.That(fixture.Severity,Is.Zero);Assert.That(fixture.End,Is.EqualTo(fixture.Applied));
+            Assert.That(fixture.Causes[1].Length,Is.EqualTo(2));Assert.That(fixture.Causes[1][0].Parent,Is.EqualTo(fixture.Root));
+            Assert.That(fixture.Causes[1][1].Relation,Is.EqualTo(3));Assert.That(fixture.Causes[1][1].Parent,Is.LessThan(fixture.Root));
+            using(var world=new NativeSlice(71449,Start))
+            {
+                var frame=new SliceFrame();world.Fill(frame,out _);ulong id=frame.Residents[0].Id;
+                ulong relief=world.Bless(id);var relieved=world.Consequences(relief);
+                Assert.That(relieved.Root,Is.EqualTo(relief));Assert.That(relieved.RootTag,Is.EqualTo(14));Assert.That(relieved.Subject,Is.EqualTo(id));
+                Assert.That(Tags(relieved),Is.EqualTo(new uint[]{14,15}));Assert.That(relieved.Events[0].C,Is.EqualTo(1));
+                // Deficits are now zero: an accepted no-op bless has only its root.
+                var noop=world.Consequences(world.Bless(id));Assert.That(Tags(noop),Is.EqualTo(new uint[]{14}));Assert.That(noop.Events[0].C,Is.Zero);
+                var ill=world.Illness(id,0,5,600000000);ulong cure=world.Bless(id);
+                Assert.That(cure,Is.GreaterThan(ill.Consequences.Root));
+                var cured=world.Consequences(cure);Assert.That(Tags(cured),Is.EqualTo(new uint[]{14,12}));
+                Assert.That(cured.Causes[1][1].Parent,Is.EqualTo(ill.Consequences.Events[1].Id),"The cure contributes from the original illness event.");
+                Assert.That(world.Inspect(id).Health,Is.EqualTo(100));Assert.That(world.Inspect(id).IllnessActive,Is.False);
+                // A semantic rejection throws through the shared apply path and records no root.
+                ulong building=frame.Buildings[0].Id;var before=new SliceFrame();world.Fill(before,out _);
+                Assert.Throws<InvalidOperationException>(()=>world.Bless(building));
+                var after=new SliceFrame();world.Fill(after,out _);Assert.That(after.StateHash,Is.EqualTo(before.StateHash));
+                Assert.That(world.Consequences(cure).Events.Length,Is.EqualTo(2));
+                Assert.Throws<InvalidOperationException>(()=>world.Consequences(cure+1000));
+            }
+        }
+        [Test]
+        public void StormRootOnlyConsequencesHaveZeroSubject()
+        {
+            var fixture=DecodeFixture("consequences-storm-v9",Geometry());
+            Assert.That(fixture.RootTag,Is.EqualTo(16));Assert.That(fixture.Subject,Is.Zero);Assert.That(Tags(fixture),Is.EqualTo(new uint[]{16,18,19}));
+            Assert.That(fixture.End-fixture.Applied,Is.EqualTo(60000000));
+            using(var world=new NativeSlice(71449,Start))
+            {
+                world.SetCamera(Vector3.zero,500);world.Steps(20);var frame=new SliceFrame();world.Fill(frame,out _);
+                ulong root=world.Storm(60000000);var active=world.Consequences(root);
+                Assert.That(active.RootTag,Is.EqualTo(16));Assert.That(active.Subject,Is.Zero);Assert.That(Tags(active),Is.EqualTo(new uint[]{16}));
+                Assert.That(active.End-active.Applied,Is.EqualTo(60000000));Assert.That(active.Severity,Is.Zero);
+                // One storm at a time, and no gathering under it; both are journalled rejections.
+                Assert.Throws<InvalidOperationException>(()=>world.Storm(60000000));
+                Assert.Throws<InvalidOperationException>(()=>world.Gather(frame.Buildings[0].Id,600000000));
+                for(int i=0;i<7;i++) world.Steps(100);
+                var ended=world.Consequences(root);Assert.That(Tags(ended),Is.EqualTo(new uint[]{16,18,19}));
+                Assert.That(ended.Events[1].Time,Is.EqualTo(ended.End));Assert.That(ended.Events[2].A,Is.EqualTo(ended.Events[0].A));
+                Assert.Throws<InvalidOperationException>(()=>world.Storm(0));
+            }
+        }
+        [Test]
+        public void GatheringConsequencesAllowRepeats()
+        {
+            var fixture=DecodeFixture("consequences-gathering-v9",Geometry());
+            Assert.That(fixture.RootTag,Is.EqualTo(20));Assert.That(Tags(fixture),Is.EqualTo(new uint[]{20}));
+            Assert.That(fixture.Subject,Is.EqualTo(fixture.Events[0].A));Assert.That(fixture.End-fixture.Applied,Is.EqualTo(600000000));
+            // Monday 21:00 in New York, when most residents are home; a 1 km camera keeps everyone at L1.
+            using(var world=new NativeSlice(71449,NativeWorld.UtcToSim(2026,6,23,1,0,0)))
+            {
+                var frame=new SliceFrame();world.SetCamera(Vector3.zero,1000);
+                for(int i=0;i<100;i++) {world.Fill(frame,out _);if(frame.L1==(uint)frame.Population) break;world.Steps(1);}
+                Assert.That(frame.L1,Is.EqualTo((uint)frame.Population));
+                ulong target=frame.Buildings[0].Id;ulong root=world.Gather(target,1800000000);
+                var called=world.Consequences(root);Assert.That(called.RootTag,Is.EqualTo(20));Assert.That(called.Subject,Is.EqualTo(target));
+                Assert.That(called.Events[0].D,Is.EqualTo(7),"Seven eligible residents fill the gathering cap.");
+                bool away=false,travelling=false;SliceConsequences c=called;
+                for(int step=0;step<400&&Count(c,6)<7;step++)
+                {
+                    world.Steps(100);world.Fill(frame,out _);
+                    // Every attendee inspection passes the schema3 kind3 rule on real native bytes.
+                    for(int i=0;i<frame.Population;i++)
+                    {
+                        var r=world.Inspect(frame.Residents[i].Id);if(r.OverrideKind!=3) continue;
+                        Assert.That(r.OverrideRoot,Is.EqualTo(root));
+                        if(r.Location==2) travelling=true;
+                        else if(r.From==target&&r.Home!=target) {away=true;Assert.That(r.Action,Is.EqualTo(3));Assert.That(r.Activity,Is.EqualTo(5));}
+                    }
+                    c=world.Consequences(root);
+                }
+                Assert.That(away,Is.True,"An attendee must be inspected at the gathering, away from home.");Assert.That(travelling,Is.True);
+                Assert.That(Count(c,21),Is.EqualTo(7));Assert.That(Count(c,6),Is.EqualTo(7));Assert.That(Count(c,22),Is.EqualTo(1));
+                Assert.That(c.Events.Length,Is.EqualTo(16));
+                foreach(var e in c.Events) if(e.Tag==22) {Assert.That(e.B,Is.EqualTo(7));Assert.That(e.Time,Is.EqualTo(c.End));}
             }
         }
         [Test]

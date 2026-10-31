@@ -44,6 +44,7 @@ namespace WorldSim.Bridge
             var bytes=new byte[(int)count];for(int i=0;i<bytes.Length;i++) {bytes[i]=b[at++];Require(bytes[i]!=0);}
             return Utf8.GetString(bytes);
         }
+        static bool Grid(ulong us,ulong min,ulong max)=>us>=min&&us<=max&&us%100000==0;
         static bool Endpoint(SliceGeometry g,ulong id,uint exit)=>id!=0&&(exit==uint.MaxValue?g.IsFeatured(id):exit<=1&&!g.IsFeatured(id));
         internal static void ValidateIllnessEvent(InspectionEvent e,uint kind,ulong id,SliceGeometry geometry)
         {
@@ -53,6 +54,15 @@ namespace WorldSim.Bridge
             else if(e.Tag==11) Require(e.A!=0&&e.B!=0&&e.A!=e.B&&geometry.IsFeatured(e.C)&&e.D==300000000&&e.E==0&&(kind==1?e.A==id||e.B==id:e.C==id));
             else if(e.Tag==12) Require(kind==1&&e.A==id&&e.B==100&&e.C==0&&e.D==0&&e.E==0);
             else if(e.Tag==13) Require(kind==1&&e.A==id&&e.C>=1&&e.C<=10&&e.D>=100000&&e.D<=86400000000&&e.D%100000==0&&e.E<=1);
+            // ADR0038 §5 power rows: five words each, as pinned by the Rust event_words layout test.
+            else if(e.Tag==14) Require(kind==1&&e.A==id&&e.C<=1&&e.D==0&&e.E==0);
+            else if(e.Tag==15) Require(kind==1&&e.A==id&&e.B==0&&e.C==0&&e.D==0&&e.E==0);
+            else if(e.Tag==16) Require(Grid(e.B,100000,3600000000)&&e.C==0&&e.D==0&&e.E==0);
+            else if(e.Tag==17) Require(e.A!=0&&!geometry.IsFeatured(e.A)&&geometry.IsFeatured(e.B)&&e.C<=5&&e.D==0&&e.E==0&&(kind==1?e.A==id:e.B==id));
+            else if(e.Tag==18||e.Tag==19) Require(e.B==0&&e.C==0&&e.D==0&&e.E==0);
+            else if(e.Tag==20) Require(kind==2&&e.A==id&&Grid(e.C,600000000,3600000000)&&e.D<=7&&e.E==0);
+            else if(e.Tag==21) Require(e.A!=0&&!geometry.IsFeatured(e.A)&&geometry.IsFeatured(e.B)&&e.C==0&&e.D==0&&e.E==0&&(kind==1?e.A==id:e.B==id));
+            else if(e.Tag==22) Require(kind==2&&e.A==id&&e.B<=7&&e.C==0&&e.D==0&&e.E==0);
             else throw new ArgumentException("Unsupported inspection event vocabulary.");
         }
         /// <summary>Validate a whole bounded record before returning a new published value.</summary>
@@ -91,11 +101,14 @@ namespace WorldSim.Bridge
                 r.From=U64(b,stateAt+32);r.To=U64(b,stateAt+40);r.FromExit=U32(b,stateAt+48);r.ToExit=U32(b,stateAt+52);
                 r.Health=U32(b,stateAt+56);r.Life=U32(b,stateAt+60);
                 r.OverrideKind=U32(b,stateAt+80);r.IllnessActive=U32(b,stateAt+84)==1;r.OverrideRoot=U64(b,stateAt+88);r.OwnRoot=U64(b,stateAt+96);r.IllnessEnd=unchecked((long)U64(b,stateAt+104));
-                Require(r.OverrideKind<=2&&U32(b,stateAt+84)<=1&&(r.OverrideKind==0)==(r.OverrideRoot==0)&&
+                // Kinds: 0 none, 1 illness hold, 2 visit, 3 gathering. Only kind3 may stand away from
+                // home, with the Home activity and Socialize at a featured building (ADR0038 §4).
+                Require(r.OverrideKind<=3&&U32(b,stateAt+84)<=1&&(r.OverrideKind==0)==(r.OverrideRoot==0)&&
                     (r.IllnessActive?r.Life==0&&r.Health>=1&&r.Health<100&&r.OwnRoot!=0&&r.IllnessEnd>r.Time&&r.OverrideKind==1&&r.OverrideRoot==r.OwnRoot:r.IllnessEnd==0)&&
-                    (r.OverrideKind==0||r.Activity==1||r.Activity==5&&r.Location==0&&r.From==r.Home)&&
+                    (r.OverrideKind==0||r.Activity==1||r.Activity==5&&r.Location==0&&(r.From==r.Home||r.OverrideKind==3&&r.Action==3))&&
                     (r.OverrideKind!=1||r.Activity==1&&r.Action==5||r.Activity==5&&r.Action==1)&&
-                    (r.OverrideKind!=2||r.Activity==5&&r.Action==3&&r.Health==100&&r.Life==0));
+                    (r.OverrideKind!=2||r.Activity==5&&r.Action==3&&r.Health==100&&r.Life==0)&&
+                    (r.OverrideKind!=3||r.Activity==1&&r.Action==5||r.Activity==5&&(r.Action==3||r.Action==1)));
                 r.ScheduleEpoch=unchecked((long)U64(b,stateAt+64));r.Jitter=unchecked((int)U32(b,stateAt+72));
                 Require(r.Detail>=1&&r.Detail<=2&&r.Activity<=5&&r.Action<=6&&r.Location<=2&&r.Health<=100&&r.Life<=1&&(r.Life==0?r.Health>=1:r.Health==0)&&
                     r.Jitter>=-15&&r.Jitter<=15&&U32(b,stateAt+76)==1&&Endpoint(geometry,r.From,r.FromExit)&&Endpoint(geometry,r.To,r.ToExit)&&
@@ -151,7 +164,9 @@ namespace WorldSim.Bridge
                         if(row.Destination==r.From&&row.DestinationExit==r.FromExit||row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit) knownFrom=true;
                         if(row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit&&row.Destination==r.To&&row.DestinationExit==r.ToExit) baselineLeg=true;
                     }
-                    Require(r.OverrideKind==1&&r.Action==5&&(r.To==r.Home&&r.ToExit==uint.MaxValue&&knownFrom||baselineLeg));
+                    // Kind3 legs run home to the featured target and back on the navigation graph.
+                    Require(r.Action==5&&(r.OverrideKind==1&&(r.To==r.Home&&r.ToExit==uint.MaxValue&&knownFrom||baselineLeg)||
+                        r.OverrideKind==3&&r.FromExit==uint.MaxValue&&r.ToExit==uint.MaxValue&&(r.From==r.Home||r.To==r.Home)));
                 }
             }
             r.Events=new InspectionEvent[(int)events];
@@ -174,6 +189,8 @@ namespace WorldSim.Bridge
     public sealed class SliceConsequences
     {
         public ulong Tick,StateHash,Dataset,Root,Subject;public long Time,Applied,End;public uint Severity;
+        /// <summary>Payload tag of the root row: 13 illness, 14 bless, 16 storm, 20 gathering.</summary>
+        public ushort RootTag;
         public InspectionEvent[] Events=Array.Empty<InspectionEvent>();
         public ConsequenceCause[][] Causes=Array.Empty<ConsequenceCause[]>();
     }
@@ -181,6 +198,7 @@ namespace WorldSim.Bridge
     public static class ConsequencesDecoder
     {
         static void Require(bool valid) {if(!valid) throw new ArgumentException("Invalid native consequences record.");}
+        /// <summary>ADR0038 §5: header and row rules are per root tag; illness (13) keeps ADR0034's rules exactly.</summary>
         public static SliceConsequences Decode(NativeArray<byte> b,int length,SliceGeometry geometry,ulong expectedRoot)
         {
             Require(b.IsCreated&&length>=96&&length<=8192&&length<=b.Length&&geometry!=null&&expectedRoot!=0);
@@ -189,39 +207,93 @@ namespace WorldSim.Bridge
             Require(SliceDecoder.U32(b,4)==96&&SliceDecoder.U32(b,56)==count&&count>=1&&count<=16&&SliceDecoder.U32(b,64)==128&&
                 SliceDecoder.U32(b,68)==0&&SliceDecoder.U32(b,72)==1&&length==96+count*128&&SliceDecoder.U64(b,40)==expectedRoot&&
                 SliceDecoder.U64(b,32)==SliceGeometry.DatasetVersion);
+            uint root=SliceDecoder.U32(b,96+32);
+            if(root!=13&&root!=14&&root!=16&&root!=20) throw new ArgumentException("Unsupported consequence root.");
             var r=new SliceConsequences {Tick=SliceDecoder.U64(b,8),Time=unchecked((long)SliceDecoder.U64(b,16)),StateHash=SliceDecoder.U64(b,24),Dataset=SliceDecoder.U64(b,32),
-                Root=expectedRoot,Subject=SliceDecoder.U64(b,48),Severity=SliceDecoder.U32(b,76),Applied=unchecked((long)SliceDecoder.U64(b,80)),End=unchecked((long)SliceDecoder.U64(b,88)),
+                Root=expectedRoot,RootTag=(ushort)root,Subject=SliceDecoder.U64(b,48),Severity=SliceDecoder.U32(b,76),Applied=unchecked((long)SliceDecoder.U64(b,80)),End=unchecked((long)SliceDecoder.U64(b,88)),
                 Events=new InspectionEvent[count],Causes=new ConsequenceCause[count][]};
-            Require(r.Subject!=0&&!geometry.IsFeatured(r.Subject)&&r.Severity>=1&&r.Severity<=10&&r.Applied<=r.Time);
+            Require(r.Applied<=r.Time&&(root==13?r.Subject!=0&&!geometry.IsFeatured(r.Subject)&&r.Severity>=1&&r.Severity<=10:
+                r.Severity==0&&(root==14?r.Subject!=0&&!geometry.IsFeatured(r.Subject)&&r.End==r.Applied:root==16?r.Subject==0:geometry.IsFeatured(r.Subject))));
             for(int i=0,at=96;i<count;i++,at+=128)
             {
                 var e=new InspectionEvent {Id=SliceDecoder.U64(b,at),Time=unchecked((long)SliceDecoder.U64(b,at+8)),Tick=SliceDecoder.U64(b,at+16),Ordinal=SliceDecoder.U64(b,at+24),Tag=SliceDecoder.U32(b,at+32),
                     A=SliceDecoder.U64(b,at+40),B=SliceDecoder.U64(b,at+48),C=SliceDecoder.U64(b,at+56),D=SliceDecoder.U64(b,at+64),E=SliceDecoder.U64(b,at+72)};
                 Require(e.Id!=0&&e.Ordinal!=0&&e.Time>=r.Applied&&e.Time<=r.Time&&e.Tick<=r.Tick&&SliceDecoder.U32(b,at+36)==1&&
                     (i==0?e.Id==r.Root:e.Id>r.Events[i-1].Id)&&SliceDecoder.U32(b,at+84)==0&&SliceDecoder.U64(b,at+120)==0);
-                InspectionDecoder.ValidateIllnessEvent(e,1,r.Subject,geometry);
                 uint causes=SliceDecoder.U32(b,at+80);Require(causes<=2);r.Causes[i]=new ConsequenceCause[causes];
-                if(i==0) Require(e.Tag==13&&e.Time==r.Applied&&e.C==r.Severity&&causes==0&&
-                    (e.E==0?r.End==0&&count==1:count>=2&&(decimal)r.End-r.Applied==e.D));
-                else Require(e.Tag!=13&&causes==1);
-                if(e.Tag==5) Require(i==1&&e.Time==r.Applied&&e.C==r.Severity);
-                if(e.Tag==11) Require(e.B==r.Subject&&e.Time<r.End);
-                if(e.Tag==12) Require(e.Time==r.End);
-                int priorMisses=0;for(int k=0;k<i;k++) {if(r.Events[k].Tag==10) priorMisses++;Require(e.Tag==10||e.Tag!=r.Events[k].Tag);}
-                if(e.Tag==10) Require(priorMisses<2);
                 for(int j=0;j<2;j++)
                 {
                     int offset=at+88+j*16;var c=new ConsequenceCause {Parent=SliceDecoder.U64(b,offset),Relation=SliceDecoder.U32(b,offset+8),Confidence=SliceDecoder.U32(b,offset+12)};
-                    if(j>=causes) {Require(c.Parent==0&&c.Relation==0&&c.Confidence==0);continue;}
-                    int parent=-1;for(int k=0;k<i;k++) if(r.Events[k].Id==c.Parent) parent=k;
-                    Require(parent>=0&&r.Events[parent].Time<=e.Time&&c.Relation<=3&&c.Confidence<=3);
-                    Require(e.Tag==5?parent==0&&c.Relation==0&&c.Confidence==0:r.Events[parent].Tag==5&&
-                        (e.Tag==11?c.Relation==3&&c.Confidence==1:e.Tag==6?c.Relation==3&&c.Confidence==0:c.Relation==0&&c.Confidence==0));
-                    r.Causes[i][j]=c;
+                    if(j>=causes) Require(c.Parent==0&&c.Relation==0&&c.Confidence==0);else r.Causes[i][j]=c;
                 }
+                if(root==13) IllnessRow(r,i,e,causes,count,geometry);else PowerRow(root,r,i,e,count,geometry);
                 r.Events[i]=e;
             }
             return r;
+        }
+        /// <summary>ADR0034 illness group rows, unchanged.</summary>
+        static void IllnessRow(SliceConsequences r,int i,InspectionEvent e,uint causes,uint count,SliceGeometry geometry)
+        {
+            InspectionDecoder.ValidateIllnessEvent(e,1,r.Subject,geometry);
+            if(i==0) Require(e.Tag==13&&e.Time==r.Applied&&e.C==r.Severity&&causes==0&&
+                (e.E==0?r.End==0&&count==1:count>=2&&(decimal)r.End-r.Applied==e.D));
+            else Require(e.Tag!=13&&causes==1);
+            if(e.Tag==5) Require(i==1&&e.Time==r.Applied&&e.C==r.Severity);
+            if(e.Tag==11) Require(e.B==r.Subject&&e.Time<r.End);
+            if(e.Tag==12) Require(e.Time==r.End);
+            int priorMisses=0;for(int k=0;k<i;k++) {if(r.Events[k].Tag==10) priorMisses++;Require(e.Tag==10||e.Tag!=r.Events[k].Tag);}
+            if(e.Tag==10) Require(priorMisses<2);
+            foreach(var c in r.Causes[i])
+            {
+                int parent=-1;for(int k=0;k<i;k++) if(r.Events[k].Id==c.Parent) parent=k;
+                Require(parent>=0&&r.Events[parent].Time<=e.Time&&c.Relation<=3&&c.Confidence<=3);
+                Require(e.Tag==5?parent==0&&c.Relation==0&&c.Confidence==0:r.Events[parent].Tag==5&&
+                    (e.Tag==11?c.Relation==3&&c.Confidence==1:e.Tag==6?c.Relation==3&&c.Confidence==0:c.Relation==0&&c.Confidence==0));
+            }
+        }
+        /// <summary>ADR0038 §5 bless (14), storm (16) and gathering (20) groups. Every effect is
+        /// CausedBy/Direct the root; a bless cure also contributes from the earlier illness event.</summary>
+        static void PowerRow(uint root,SliceConsequences r,int i,InspectionEvent e,uint count,SliceGeometry geometry)
+        {
+            var causes=r.Causes[i];
+            if(i==0)
+            {
+                Require(e.Tag==root&&e.Time==r.Applied&&causes.Length==0);
+                if(root==14) {InspectionDecoder.ValidateIllnessEvent(e,1,r.Subject,geometry);Require(count==1+e.C);}
+                else if(root==16) {InspectionDecoder.ValidateIllnessEvent(e,0,0,geometry);Require((decimal)r.End-r.Applied==e.B&&(count==1||count==3));}
+                else {InspectionDecoder.ValidateIllnessEvent(e,2,r.Subject,geometry);Require((decimal)r.End-r.Applied==e.C);}
+                return;
+            }
+            Require(causes.Length>=1&&causes[0].Parent==r.Root&&causes[0].Relation==0&&causes[0].Confidence==0);
+            var first=r.Events[0];
+            if(root==14)
+            {
+                InspectionDecoder.ValidateIllnessEvent(e,1,r.Subject,geometry);
+                Require(i==1&&e.Time==r.Applied&&(e.Tag==15&&causes.Length==1||e.Tag==12&&causes.Length==2&&
+                    causes[1].Parent!=0&&causes[1].Parent<r.Root&&causes[1].Relation==3&&causes[1].Confidence==0));
+            }
+            else if(root==16)
+            {
+                InspectionDecoder.ValidateIllnessEvent(e,0,0,geometry);
+                Require(causes.Length==1&&e.Tag==(i==1?18u:19u)&&e.Time==r.End&&(e.Tag!=19||e.A==first.A));
+            }
+            else
+            {
+                // Attendee rows repeat: up to the called count of joins and returns, one end.
+                Require(causes.Length==1);
+                int joined=0,returned=0;bool ended=false;
+                for(int k=1;k<i;k++)
+                {
+                    var prior=r.Events[k];
+                    if(prior.Tag==21) {joined++;Require(e.Tag!=21||prior.A!=e.A);}
+                    else if(prior.Tag==6) {returned++;Require(e.Tag!=6||prior.A!=e.A);}
+                    else ended=true;
+                }
+                if(e.Tag==21) {InspectionDecoder.ValidateIllnessEvent(e,2,r.Subject,geometry);Require(!ended&&e.Time<r.End&&(ulong)joined<first.D);}
+                else if(e.Tag==6) {InspectionDecoder.ValidateIllnessEvent(e,1,e.A,geometry);Require(e.Time>=r.End&&(ulong)returned<first.D);}
+                else if(e.Tag==22) {InspectionDecoder.ValidateIllnessEvent(e,2,r.Subject,geometry);Require(!ended&&e.Time==r.End&&e.B==(ulong)joined);}
+                else Require(false);
+            }
         }
     }
 

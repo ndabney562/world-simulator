@@ -44,6 +44,8 @@ namespace WorldSim.Bridge
         internal static extern uint Inspect(SliceHandle handle,ulong id,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_consequences")]
         internal static extern uint Consequences(SliceHandle handle,ulong root,IntPtr buffer,UIntPtr capacity,out UIntPtr written);
+        [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_last_root")]
+        internal static extern uint LastRoot(SliceHandle handle,out ulong root);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save")]
         internal static extern uint Save(SliceHandle handle,byte[] path);
         [DllImport(Library, CallingConvention=CallingConvention.Cdecl, EntryPoint="ws_slice_save_background")]
@@ -225,23 +227,61 @@ namespace WorldSim.Bridge
                 record.Sky=sky;return record;
             }
         }
+        ulong ReadLastRoot() {Check(NativeSliceMethods.LastRoot(handle,out ulong root));return root;}
+        /// <summary>Applies one intervention (operation tags5–8). A semantic rejection throws
+        /// through the shared apply check; the root is read from the core, never probed.</summary>
+        ulong Intervene(in NativeSliceOperation operation)
+        {
+            ulong before=ReadLastRoot();Apply(in operation);ulong root=ReadLastRoot();
+            if(root==0||root<=before) throw new InvalidOperationException("Missing intervention root.");
+            return root;
+        }
+        unsafe SliceConsequences ReadConsequences(ulong root)
+        {
+            Check(NativeSliceMethods.Consequences(handle,root,(IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(inspectionBytes),(UIntPtr)inspectionBytes.Length,out var written));
+            ulong size=written.ToUInt64();if(size>8192) throw new InvalidOperationException("Oversized consequences.");
+            return ConsequencesDecoder.Decode(inspectionBytes,(int)size,Geometry,root);
+        }
         /// <summary>Apply (root zero) or refresh a bounded consequence group under one native gate.</summary>
-        public unsafe SliceIllnessSample Illness(ulong id,ulong root=0,uint severity=5,ulong durationMicroseconds=7200000000)
+        public SliceIllnessSample Illness(ulong id,ulong root=0,uint severity=5,ulong durationMicroseconds=7200000000)
         {
             lock(gate)
             {
                 RequireLive();
-                if(root==0) {var op=Operation(5);op.A=id;op.B=severity;op.C=durationMicroseconds;Apply(in op);}
+                if(root==0) {var op=Operation(5);op.A=id;op.B=severity;op.C=durationMicroseconds;root=Intervene(in op);}
                 var record=Inspect(id);
                 if(record.Kind!=1) throw new ArgumentException("Illness requires a resident.");
-                if(root==0) foreach(var e in record.Events) if(e.Tag==13) {root=e.Id;break;}
-                if(root==0) throw new InvalidOperationException("Missing illness intervention root.");
-                Check(NativeSliceMethods.Consequences(handle,root,(IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(inspectionBytes),(UIntPtr)inspectionBytes.Length,out var written));
-                ulong size=written.ToUInt64();if(size>8192) throw new InvalidOperationException("Oversized consequences.");
-                var consequences=ConsequencesDecoder.Decode(inspectionBytes,(int)size,Geometry,root);
-                if(consequences.Subject!=id||consequences.Tick!=record.Tick||consequences.Time!=record.Time||consequences.StateHash!=record.StateHash||consequences.Dataset!=record.Dataset)
+                var consequences=ReadConsequences(root);
+                if(consequences.RootTag!=13||consequences.Subject!=id||consequences.Tick!=record.Tick||consequences.Time!=record.Time||consequences.StateHash!=record.StateHash||consequences.Dataset!=record.Dataset)
                     throw new InvalidOperationException("Incoherent inspection/consequences pair.");
                 return new SliceIllnessSample {Inspection=record,Consequences=consequences};
+            }
+        }
+        /// <summary>ADR0038 §2: cure an ill resident or relieve a healthy one's needs. Returns the root.</summary>
+        public ulong Bless(ulong id)
+        {
+            lock(gate) {RequireLive();var op=Operation(6);op.A=id;return Intervene(in op);}
+        }
+        /// <summary>ADR0038 §3: one block-wide storm, grid-aligned, one tick through one hour. Returns the root.</summary>
+        public ulong Storm(ulong durationUs)
+        {
+            lock(gate) {RequireLive();var op=Operation(7);op.A=durationUs;return Intervene(in op);}
+        }
+        /// <summary>ADR0038 §4: call up to seven neighbours to a featured building. Returns the root.</summary>
+        public ulong Gather(ulong buildingId,ulong durationUs)
+        {
+            lock(gate) {RequireLive();var op=Operation(8);op.A=buildingId;op.B=durationUs;return Intervene(in op);}
+        }
+        /// <summary>Root-only consequence read for any root, paired with the sky under one gate; never applies.</summary>
+        public SliceConsequences Consequences(ulong root)
+        {
+            lock(gate)
+            {
+                RequireLive();
+                var consequences=ReadConsequences(root);var sky=ReadSky();
+                if(consequences.Tick!=sky.Tick||consequences.Time!=sky.SimTimeMicroseconds||consequences.StateHash!=sky.StateHash||consequences.Dataset!=sky.SiteDatasetVersion)
+                    throw new InvalidOperationException("Incoherent consequences/sky pair.");
+                return consequences;
             }
         }
         public void Save(string path)

@@ -21,7 +21,7 @@ namespace WorldSim.Tests.EditMode
         static ulong Id(byte[] b)=>BitConverter.ToUInt64(b,40);
         static void U32(byte[] b,int at,uint value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,4);
         static void U64(byte[] b,int at,ulong value)=>Array.Copy(BitConverter.GetBytes(value),0,b,at,8);
-        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v8"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
+        static SliceGeometry Geometry() {using(var b=new NativeArray<byte>(Fixture("slice-geometry-v9"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(b,b.Length);}
         [Test]
         public void ActualIllnessActionReadsHealthRecoveryAndRefreshNeverReapplies()
         {
@@ -67,7 +67,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void ConsequencesRejectMalformedMetadataVocabularyCausesAndLengthsBeforePublication()
         {
-            var geometry=Geometry();byte[] raw=Fixture("consequences-v8");ulong root=BitConverter.ToUInt64(raw,40);SliceConsequences published;
+            var geometry=Geometry();byte[] raw=Fixture("consequences-v9");ulong root=BitConverter.ToUInt64(raw,40);SliceConsequences published;
             using(var b=new NativeArray<byte>(raw,Allocator.Temp)) published=ConsequencesDecoder.Decode(b,b.Length,geometry,root);
             Assert.That(published.Events.Length,Is.GreaterThanOrEqualTo(2));
             foreach(Action<byte[]> corrupt in new Action<byte[]>[] {
@@ -83,13 +83,83 @@ namespace WorldSim.Tests.EditMode
             }
             byte[] missing=new byte[96+128];Array.Copy(raw,missing,missing.Length);U32(missing,56,1);U32(missing,60,1);
             using(var b=new NativeArray<byte>(missing,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
-            byte[] old=(byte[])raw.Clone();U32(old,0,7);using(var b=new NativeArray<byte>(old,Allocator.Temp)) Assert.Throws<InvalidOperationException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
+            byte[] old=(byte[])raw.Clone();U32(old,0,8);using(var b=new NativeArray<byte>(old,Allocator.Temp)) Assert.Throws<InvalidOperationException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
             Assert.That(published.Root,Is.EqualTo(root));
-            byte[] ill=Fixture("inspect-ill-v8");int state=96+(int)BitConverter.ToUInt32(ill,64);
+            byte[] ill=Fixture("inspect-ill-v9");int state=96+(int)BitConverter.ToUInt32(ill,64);
             using(var b=new NativeArray<byte>(ill,Allocator.Temp)) Assert.That(InspectionDecoder.Decode(b,b.Length,geometry,Id(ill)).IllnessActive,Is.True);
             foreach(Action<byte[]> corrupt in new Action<byte[]>[] {
                 b=>U32(b,state+8,6),b=>U64(b,state+32,ulong.MaxValue),b=>U32(b,state+80,3),b=>U32(b,state+84,2),b=>U64(b,state+88,0),b=>U64(b,state+96,0),b=>U64(b,state+104,0),b=>U32(b,state+56,100),b=>U32(b,state+60,1)
             }) {byte[] copy=(byte[])ill.Clone();corrupt(copy);using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>InspectionDecoder.Decode(b,b.Length,geometry,Id(ill)));}
+        }
+        [Test]
+        public void IllnessConsequencesWithoutRecoveryDecode()
+        {
+            // ADR0038 §2 / Review Focus4: a bless cure owns the Recovered row, so the
+            // illness group keeps its scheduled end and has no recovery row.
+            using(var world=new NativeSlice(71449,Start)) {
+                var frame=new SliceFrame();world.Fill(frame,out _);ulong id=frame.Residents[0].Id;
+                var ill=world.Illness(id,0,5,600000000);ulong illness=ill.Consequences.Root;long end=ill.Consequences.End;
+                world.Steps(50);ulong bless=world.Bless(id);
+                for(int i=0;i<61;i++) world.Steps(100);
+                var sample=world.Illness(id,illness);
+                Assert.That(sample.Consequences.RootTag,Is.EqualTo(13));Assert.That(sample.Consequences.End,Is.EqualTo(end));
+                Assert.That(sample.Consequences.Time,Is.GreaterThan(end));
+                foreach(var e in sample.Consequences.Events) Assert.That(e.Tag,Is.Not.EqualTo(12));
+                Assert.That(sample.Inspection.Health,Is.EqualTo(100));Assert.That(sample.Inspection.IllnessActive,Is.False);Assert.That(sample.Inspection.OwnRoot,Is.EqualTo(illness));
+                var blessed=world.Consequences(bless);Assert.That(blessed.Events[blessed.Events.Length-1].Tag,Is.EqualTo(12));
+                int recovered=0;foreach(var e in world.Consequences(bless).Events) if(e.Tag==12) recovered++;Assert.That(recovered,Is.EqualTo(1));
+                Assert.That(SliceInspectionText.Consequences(sample),Does.Not.Contain("Recovered"));
+            }
+        }
+        [Test]
+        public void RejectsUnknownRootTag()
+        {
+            var geometry=Geometry();
+            foreach(string name in new[]{"consequences-v9","consequences-bless-v9","consequences-storm-v9","consequences-gathering-v9"})
+            {
+                byte[] raw=Fixture(name);ulong root=BitConverter.ToUInt64(raw,40);
+                using(var b=new NativeArray<byte>(raw,Allocator.Temp)) Assert.That(ConsequencesDecoder.Decode(b,b.Length,geometry,root).RootTag,Is.EqualTo(BitConverter.ToUInt32(raw,96+32)));
+                foreach(uint tag in new uint[]{0,5,6,12,15,17,18,19,21,22,23,99})
+                {
+                    byte[] copy=(byte[])raw.Clone();U32(copy,96+32,tag);
+                    using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root),name+" root tag "+tag);
+                }
+            }
+            // A known tag under another root's header rules is still refused.
+            foreach(var (name,tag) in new[]{("consequences-v9",14u),("consequences-bless-v9",13u),("consequences-bless-v9",16u),("consequences-storm-v9",14u),("consequences-gathering-v9",16u)})
+            {
+                byte[] copy=Fixture(name);ulong root=BitConverter.ToUInt64(copy,40);U32(copy,96+32,tag);
+                using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root),name+" as "+tag);
+            }
+            // Per-root header and row rules on real native bytes.
+            byte[] bless=Fixture("consequences-bless-v9"),storm=Fixture("consequences-storm-v9"),gathering=Fixture("consequences-gathering-v9");
+            foreach(var (raw,corrupt) in new (byte[],Action<byte[]>)[] {
+                (bless,b=>U64(b,48,0)),(bless,b=>U64(b,48,BitConverter.ToUInt64(gathering,48))),(bless,b=>U32(b,76,1)),(bless,b=>U64(b,88,BitConverter.ToUInt64(b,88)+100000)),
+                (bless,b=>U64(b,96+56,0)),(bless,b=>U32(b,96+128+32,15)),(bless,b=>U32(b,96+128+112,0)),(bless,b=>U32(b,96+128+80,1)),(bless,b=>U64(b,96+128+104,BitConverter.ToUInt64(b,40))),
+                (storm,b=>U64(b,48,BitConverter.ToUInt64(bless,48))),(storm,b=>U32(b,76,5)),(storm,b=>U64(b,88,BitConverter.ToUInt64(b,88)+100000)),
+                (storm,b=>U32(b,96+128+32,19)),(storm,b=>U32(b,96+256+32,18)),(storm,b=>U64(b,96+256+40,99)),(storm,b=>U32(b,96+128+96,3)),
+                (gathering,b=>U64(b,48,0)),(gathering,b=>U64(b,48,BitConverter.ToUInt64(bless,48))),(gathering,b=>U32(b,76,1)),(gathering,b=>U64(b,96+64,8)),(gathering,b=>U64(b,96+56,60000000)) })
+            {
+                byte[] copy=(byte[])raw.Clone();corrupt(copy);ulong root=BitConverter.ToUInt64(copy,40);
+                using(var b=new NativeArray<byte>(copy,Allocator.Temp)) Assert.Throws<ArgumentException>(()=>ConsequencesDecoder.Decode(b,b.Length,geometry,root));
+            }
+        }
+        [Test]
+        public void InspectionAcceptsKindThreeAwayFromHomeOnly()
+        {
+            // Schema3 (ADR0038 §4): kind3 is the only override allowed away from home,
+            // and there only with the Home activity and Socialize at a featured building.
+            var geometry=Geometry();byte[] raw=Fixture("inspect-resident-v9");ulong id=Id(raw);int state=96+(int)BitConverter.ToUInt32(raw,64);
+            ulong home=BitConverter.ToUInt64(raw,104),elsewhere=0;foreach(ulong f in geometry.FeaturedIds) if(f!=home) {elsewhere=f;break;}
+            byte[] Variant(uint kind,uint action,ulong at)
+            {
+                byte[] b=(byte[])raw.Clone();U32(b,state+80,kind);U64(b,state+88,kind==0?0UL:6UL);U32(b,state+8,action);U64(b,state+32,at);U64(b,state+40,at);return b;
+            }
+            SliceInspection Decode(byte[] bytes) {using(var b=new NativeArray<byte>(bytes,Allocator.Temp)) return InspectionDecoder.Decode(b,b.Length,geometry,id);}
+            var gathered=Decode(Variant(3,3,elsewhere));Assert.That(gathered.OverrideKind,Is.EqualTo(3));Assert.That(gathered.From,Is.EqualTo(elsewhere));
+            Assert.That(Decode(Variant(3,3,home)).OverrideKind,Is.EqualTo(3));Assert.That(Decode(Variant(3,1,home)).OverrideKind,Is.EqualTo(3));
+            foreach(var bytes in new[]{Variant(1,1,elsewhere),Variant(2,3,elsewhere),Variant(3,1,elsewhere),Variant(3,4,home),Variant(4,3,home)})
+                Assert.Throws<ArgumentException>(()=>Decode(bytes));
         }
         [Test]
         public void NativeInspectionMatchesSharedCoreFixturesAndEveryRenderedIdentityWithoutMutation()
@@ -98,7 +168,7 @@ namespace WorldSim.Tests.EditMode
             {
                 world.SetCamera(Vector3.zero,500);world.Steps(20);var frame=new SliceFrame();world.Fill(frame,out _);
                 ulong hash=frame.StateHash;
-                foreach(string name in new[]{"inspect-resident-v8","inspect-building-v8"})
+                foreach(string name in new[]{"inspect-resident-v9","inspect-building-v9"})
                 {
                     byte[] raw=Fixture(name);SliceInspection expected;
                     using(var b=new NativeArray<byte>(raw,Allocator.Temp)) expected=InspectionDecoder.Decode(b,b.Length,world.Geometry,Id(raw));
@@ -120,7 +190,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void MalformedInspectionNeverReplacesThePreviousCompleteRecord()
         {
-            byte[] original=Fixture("inspect-resident-v8");var geometry=Geometry();SliceInspection published;
+            byte[] original=Fixture("inspect-resident-v9");var geometry=Geometry();SliceInspection published;
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) published=InspectionDecoder.Decode(bytes,bytes.Length,geometry,Id(original));
             var saved=published;
             int state=96+(int)BitConverter.ToUInt32(original,64);
