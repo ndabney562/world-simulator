@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 8
+#define ABI_VERSION 9
 
 /**
  * Most residents per building a config may ask for.
@@ -136,7 +136,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current native ABI8.
+   * Exact current native ABI9.
    */
   uint32_t abi_version;
   /**
@@ -162,7 +162,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current ABI8.
+   * Exact current ABI9.
    */
   uint32_t abi_version;
   /**
@@ -170,7 +170,8 @@ typedef struct {
    */
   uint32_t struct_size;
   /**
-   * 1steps,2scale,3host elapsed microseconds,4camera target/radius.
+   * 1steps,2scale,3host elapsed microseconds,4camera target/radius,5illness,
+   * 6bless,7storm,8gathering (ADR0038).
    */
   uint32_t tag;
   /**
@@ -180,6 +181,8 @@ typedef struct {
   /**
    * Tags1–3: unsigned word0 and remaining words0. Tag4: four finite f64
    * bit patterns (ENU target metres,radius metres), last two words0.
+   * Tag5: resident,severity(u32),duration_us. Tag6: resident. Tag7:
+   * duration_us. Tag8: building,duration_us. Every unused word is zero.
    */
   uint64_t words[6];
 } WsSliceOperation;
@@ -538,14 +541,14 @@ WsStatus ws_slice_fill_snapshot(WsSliceHandle *handle,
 WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output);
 
 /**
- * Saves the real slice synchronously to a format-4 save file.
+ * Saves the real slice synchronously to a format-5 save file.
  * # Safety
  * Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
  */
 WsStatus ws_slice_save(WsSliceHandle *handle, const char *path_utf8);
 
 /**
- * Spawns a background thread saving the real slice to a format-4 save file.
+ * Spawns a background thread saving the real slice to a format-5 save file.
  * # Safety
  * Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
  */
@@ -561,11 +564,22 @@ WsStatus ws_slice_save_background(WsSliceHandle *handle, const char *path_utf8);
 WsStatus ws_slice_save_status(WsSliceHandle *handle);
 
 /**
- * Loads a real slice from a format-4 save file. Returns null on failure.
+ * Loads a real slice from a format-4 or format-5 save file. Returns null on failure.
  * # Safety
  * Non-null path is null-terminated UTF-8.
  */
 WsSliceHandle *ws_slice_load(const char *path_utf8);
+
+/**
+ * Pure read of the root EventId of the most recently accepted intervention
+ * (operation tags5–8), or0 when none has been accepted. Read from the derived
+ * consequence index (rebuilt from history on load), so a rejected operation
+ * leaves it unchanged and it survives save/load.
+ * Never steps, flushes or publishes; root is written only on success.
+ * # Safety
+ * Handle is live/exclusive; root is aligned writable u64 storage disjoint from the handle.
+ */
+WsStatus ws_slice_last_root(WsSliceHandle *handle, uint64_t *root);
 
 /**
  * Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.

@@ -12,6 +12,9 @@ use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
 #[path = "slice/illness.rs"]
 pub mod illness;
+#[path = "slice/powers.rs"]
+mod powers;
+pub use powers::{Gathering, MAX_ATTENDEES, Phase, REACH_MM, Storm, distance_ok, offset_mm};
 
 #[path = "slice_inspect.rs"]
 pub mod inspect;
@@ -90,6 +93,25 @@ pub enum Operation {
         /// Grid-aligned duration, one tick through24hours.
         duration_us: u64,
     },
+    /// Bless one living resident (ADR 0038 §2): cure an active illness episode,
+    /// otherwise zero the four need deficits; a no-op is accepted with `affected = 0`.
+    Bless {
+        /// Existing living resident.
+        resident: EntityId,
+    },
+    /// Block-wide storm (ADR 0038 §3); rejected while a storm or a gathering is active.
+    Storm {
+        /// Grid-aligned duration, one tick through one hour.
+        duration_us: u64,
+    },
+    /// Gathering at a featured residential building (ADR 0038 §4); rejected while
+    /// a gathering or a storm is active.
+    Gather {
+        /// Featured residential building.
+        building: EntityId,
+        /// Grid-aligned duration, ten minutes through one hour.
+        duration_us: u64,
+    },
     /// Explicit physical steps, independent of scale. Large calls preserve a committed prefix on failure.
     Steps(u64),
     /// Serialized scale change, retaining pending sub-step host time.
@@ -159,6 +181,7 @@ pub struct SliceSimulation {
     population: PopulatedSlice,
     vitals: ws_world::slice::vitals::Vitals,
     illness: illness::Illness,
+    powers: powers::Powers,
     schedules: Schedules,
     behavior: Behavior,
     lod: Controller,
@@ -236,6 +259,7 @@ impl SliceSimulation {
             population,
             vitals,
             illness: illness::Illness::default(),
+            powers: powers::Powers::default(),
             schedules,
             behavior,
             lod,
@@ -323,13 +347,23 @@ impl SliceSimulation {
                 self.vitals.state_hash(),
             ],
         );
-        if !self.illness.has_episodes() {
-            return vitals;
+        let state = if self.illness.has_episodes() {
+            ws_rng::hash(
+                0,
+                Purpose::new("ws-sim/slice-state/v3").value(),
+                &[vitals, u64::from(illness::VERSION), self.illness.hash()],
+            )
+        } else {
+            vitals
+        };
+        // Mixed only while a block power is active, so earlier goldens hold.
+        if !self.powers.active() {
+            return state;
         }
         ws_rng::hash(
             0,
-            Purpose::new("ws-sim/slice-state/v3").value(),
-            &[vitals, u64::from(illness::VERSION), self.illness.hash()],
+            Purpose::new("ws-sim/slice-state/v4").value(),
+            &[state, self.powers.hash()],
         )
     }
     fn legacy_state_hash(&self) -> u64 {
@@ -398,6 +432,22 @@ impl SliceSimulation {
                     duration_us,
                 ]);
                 report.error = self.afflict(resident, severity, duration_us).err();
+            }
+            Operation::Bless { resident } => {
+                self.operation_hash.write_words(&[8, resident.raw()]);
+                report.error = self.bless(resident).err();
+            }
+            Operation::Storm { duration_us } => {
+                self.operation_hash.write_words(&[9, duration_us]);
+                report.error = self.cast_storm(duration_us).err();
+            }
+            Operation::Gather {
+                building,
+                duration_us,
+            } => {
+                self.operation_hash
+                    .write_words(&[10, building.raw(), duration_us]);
+                report.error = self.gather(building, duration_us).err();
             }
             Operation::CameraInterest(camera) => {
                 self.operation_hash.write_words(&[
@@ -568,6 +618,29 @@ impl SliceSimulation {
                             duration_us,
                         ]);
                     }
+                    Operation::Bless { resident } if record.report.committed == 0 => {
+                        world
+                            .bless_preflight(resident)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world.operation_hash.write_words(&[8, resident.raw()]);
+                    }
+                    Operation::Storm { duration_us } if record.report.committed == 0 => {
+                        world
+                            .storm_preflight(duration_us)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world.operation_hash.write_words(&[9, duration_us]);
+                    }
+                    Operation::Gather {
+                        building,
+                        duration_us,
+                    } if record.report.committed == 0 => {
+                        world
+                            .gather_preflight(building, duration_us)
+                            .map_err(|_| ReplayError::Record(index))?;
+                        world
+                            .operation_hash
+                            .write_words(&[10, building.raw(), duration_us]);
+                    }
                     Operation::HostElapsed(elapsed) => {
                         let mut target = world.clock.clone();
                         let due = target
@@ -646,6 +719,8 @@ impl SliceSimulation {
                 ));
             }
         }
+        // Attendee routines before preparation may clear them at their rejoin.
+        let routines = powers::attendee_routines(&self.powers, &self.behavior)?;
         let mut behavior = self
             .behavior
             .prepare(clock.now())
@@ -666,6 +741,10 @@ impl SliceSimulation {
             .lod
             .prepare(&mut behavior, clock.scale().multiplier())
             .map_err(lod_error)?;
+        let (powers, mut storm_facts) =
+            powers::storm_tick(self.powers, &self.events, &behavior, clock.now())?;
+        let (powers, mut gathering_facts) =
+            powers::gathering_tick(powers, &routines, &behavior, self.clock.now(), clock.now())?;
         #[cfg(test)]
         if self.fail_controller_tick == Some(clock.steps()) {
             return Err(SliceError::Lod(LodError::Resource));
@@ -714,8 +793,17 @@ impl SliceSimulation {
             .try_reserve(illness_plan.facts.len())
             .map_err(|_| SliceError::History(EventError::Resource))?;
         facts.append(&mut illness_plan.facts);
+        facts
+            .try_reserve(storm_facts.len())
+            .map_err(|_| SliceError::History(EventError::Resource))?;
+        facts.append(&mut storm_facts);
+        facts
+            .try_reserve(gathering_facts.len())
+            .map_err(|_| SliceError::History(EventError::Resource))?;
+        facts.append(&mut gathering_facts);
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
         let updates = self.illness.stage_index(
+            &self.events,
             &facts,
             self.events.counters().map_err(SliceError::History)?.0,
         )?;
@@ -726,6 +814,7 @@ impl SliceSimulation {
         behavior.commit();
         lod.commit();
         self.illness.commit(illness_plan, updates, &mut self.vitals);
+        self.powers = powers;
         self.next_change = next;
         self.clock = clock;
         Ok(())

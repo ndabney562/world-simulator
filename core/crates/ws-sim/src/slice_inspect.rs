@@ -2,6 +2,7 @@
 use super::{SliceError, SliceSimulation};
 use crate::{EntityId, SimTime};
 use ws_events::RecentEvents;
+pub use ws_life::behavior::{HoldPhase, StormHold};
 pub use ws_life::{Location, Place};
 use ws_life::{Schedule, behavior::CommonSnapshot, lod::BuildingSummary};
 pub use ws_world::slice::DATASET_VERSION;

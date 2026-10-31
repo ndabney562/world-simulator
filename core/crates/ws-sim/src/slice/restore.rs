@@ -10,7 +10,7 @@ use core::fmt;
 use ws_ecs::EntityId;
 use ws_events::{Event, EventError, EventStore};
 use ws_life::Schedules;
-use ws_life::behavior::{Behavior, ResidentStateSnapshot};
+use ws_life::behavior::{Behavior, ResidentStateSnapshot, StormWindow};
 use ws_life::lod::{CameraInterest, Controller, Mode};
 use ws_rng::{Purpose, SipHasher24};
 use ws_time::SimTime;
@@ -18,6 +18,7 @@ use ws_world::slice::population::PopulatedSlice;
 use ws_world::slice::vitals::VitalState;
 
 use super::illness::{Episode, Illness};
+use super::powers::{Gathering, Powers, Storm};
 use super::{
     Operation, OperationRecord, SliceConfig, SliceError, SliceSimulation, error_tag, lod_error,
 };
@@ -44,6 +45,13 @@ pub struct SliceParts {
     pub events: Vec<Event>,
     /// Session operation records.
     pub operations: Vec<OperationRecord>,
+    /// Active storm episode (ADR 0038 §3); always None in format 4.
+    pub storm: Option<Storm>,
+    /// `ws-life` storm window, retained after the episode until every hold
+    /// has rejoined; always None in format 4.
+    pub storm_window: Option<StormWindow>,
+    /// Active gathering episode (ADR 0038 §4); always None in format 4.
+    pub gathering: Option<Gathering>,
 }
 
 /// Why saved slice parts do not form a valid slice simulation.
@@ -98,6 +106,9 @@ impl SliceSimulation {
             nodes,
             events: self.events.records().to_vec(),
             operations: self.operations.clone(),
+            storm: self.powers.storm,
+            storm_window: self.behavior.storm(),
+            gathering: self.powers.gathering,
         }
     }
 
@@ -117,6 +128,9 @@ impl SliceSimulation {
             nodes,
             events,
             operations,
+            storm,
+            storm_window,
+            gathering,
         } = parts;
 
         if !clock.base_step().is_tick_start(config.start)
@@ -136,9 +150,14 @@ impl SliceSimulation {
         let schedules = Schedules::new(&population, config.schedule_epoch)
             .map_err(|e| SliceRestoreError::Simulation(SliceError::Destination(e)))?;
 
-        let behavior =
-            Behavior::from_saved_states(&population, &schedules, &behavior_states, clock.now())
-                .map_err(|e| SliceRestoreError::Simulation(SliceError::Behavior(e)))?;
+        let behavior = Behavior::from_saved_states(
+            &population,
+            &schedules,
+            &behavior_states,
+            clock.now(),
+            storm_window,
+        )
+        .map_err(|e| SliceRestoreError::Simulation(SliceError::Behavior(e)))?;
 
         let lod = Controller::from_saved_parts(
             &population,
@@ -201,6 +220,18 @@ impl SliceSimulation {
                         u64::from(severity),
                         duration_us,
                     ]);
+                }
+                Operation::Bless { resident } => {
+                    operation_hash.write_words(&[8, resident.raw()]);
+                }
+                Operation::Storm { duration_us } => {
+                    operation_hash.write_words(&[9, duration_us]);
+                }
+                Operation::Gather {
+                    building,
+                    duration_us,
+                } => {
+                    operation_hash.write_words(&[10, building.raw(), duration_us]);
                 }
                 Operation::CameraInterest(c) => {
                     operation_hash.write_words(&[
@@ -308,6 +339,8 @@ impl SliceSimulation {
             population,
             vitals,
             illness,
+            // Format 4 holds no block power, so both are None there.
+            powers: Powers { storm, gathering },
             schedules,
             behavior,
             lod,

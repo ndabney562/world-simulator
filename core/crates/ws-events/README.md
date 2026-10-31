@@ -37,3 +37,23 @@ The toy tag2 remains1/2-only with unchanged fields/validation/digests. New tag9 
 ## VS-010 illness vocabulary
 
 ADR0034 appends tag10 `life.missed_duty`, tag11 `social.neighbour_check_in`, tag12 `life.recovered` and tag13 `intervention.slice_illness_applied`; old tags and record schema1 remain. New consequence systems80/81/82 validate explicit participants, actual detail and cause classes. Root13 uses system10/lod0 and command origin. Illness5/return6 retain their meanings; root traversal recognizes both toy4 and slice13. Direct illness/recovery/missed-duty facts and contributing voluntary visits are distinct. Generic tape words include all fields; legacy toy save writers explicitly refuse the new slice-only payloads.
+
+## Bless, storm and gathering vocabulary (ADR 0038)
+
+GP-002 appends tags 14 through 22. Roots (tags 14, 16, 20, plus 13) carry `Origin::Command(sequence)`, no causes, and `Payload::is_slice_root()` is true for them; `root_intervention` recognises tags 4, 13, 14, 16 and 20.
+
+`life.recovered` (12) has two producers. System 82 is the natural episode end with exactly one `CausedBy/Direct` link (ADR 0034). System 84 is a bless cure with exactly two links, `CausedBy/Direct` the bless root then `ContributedTo/Direct` the illness, so `root_intervention` reaches the bless root. Any other system or link shape is refused.
+
+| Tag | Name | Fields | Importance |
+|---|---|---|---|
+| 14 | `intervention.bless_applied` (root) | resident, sequence, affected | 32768 |
+| 15 | `life.needs_relieved` | resident | 8192 |
+| 16 | `intervention.storm_applied` (root) | sequence, duration_us | 32768 |
+| 17 | `life.stayed_inside` | resident, building, activity | 8192 |
+| 18 | `life.storm_kept_inside` | count | 8192 |
+| 19 | `life.storm_ended` | sequence | 8192 |
+| 20 | `intervention.gathering_called` (root) | building, sequence, duration_us, attendees | 32768 |
+| 21 | `social.joined_gathering` | resident, building | 8192 |
+| 22 | `social.gathering_ended` | building, attendees | 8192 |
+
+Digest words are the fields in the order above; unknown resident or building IDs are rejected. Producer system numbers (D4): roots use system 10; bless effects 84, storm effects 85, gathering effects 86; `ReturnedHome` keeps 50. Importance: roots 32768; `StayedInside` matches `MissedDuty`, `JoinedGathering` matches `NeighbourCheckIn`, and `NeedsRelieved`, `StormKeptInside`, `StormEnded` and `GatheringEnded` match `Recovered`. Participants and cause links are enforced by the `ws-sim` producers. Existing tags, layouts and goldens are unchanged.

@@ -28,7 +28,7 @@ cargo +"$channel" clippy --target "$native_target" --workspace --all-targets --l
 cargo +"$channel" build --target "$native_target" --workspace --all-targets --locked
 cargo +"$channel" test --target "$native_target" --workspace --locked
 cc -arch arm64 -std=c11 -Wall -Wextra -Werror -Icrates/ws-ffi/include \
-  crates/ws-ffi/tests/abi-v8-smoke.c -L"target/$native_target/debug" -lws_ffi \
+  crates/ws-ffi/tests/abi-v9-smoke.c -L"target/$native_target/debug" -lws_ffi \
   -Wl,-rpath,"$PWD/target/$native_target/debug" -o "$evidence_tmp/abi-smoke"
 "$evidence_tmp/abi-smoke"
 cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- run --seed 42 --ticks 10000 --journal "$evidence_tmp/replay.wsjr" --hash-every 1000 --script crates/ws-cli/tests/fixtures/ci-commands.txt

@@ -1,15 +1,17 @@
-//! Integration tests for save format 4 slice persistence (ADR 0036, Issue #75).
+//! Integration tests for slice persistence: format 4 (ADR 0036, Issue #75) and
+//! format 5 with storm and gathering episodes (ADR 0038 §6, Issue #125).
 
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use ws_life::lod::CameraInterest;
 use ws_persist::{
-    FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, MODEL_KIND_TOY, load, load_slice, read_header,
-    save_slice, save_slice_background,
+    FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, MODEL_KIND_TOY, SaveError, load, load_slice,
+    read_header, save_slice, save_slice_background, save_slice_with_version,
 };
-use ws_sim::SimTime;
 use ws_sim::slice::{Operation, SliceConfig, SliceSimulation};
+use ws_sim::ws_events::EventId;
+use ws_sim::{EntityId, SimTime};
 
 struct Scratch(PathBuf);
 
@@ -56,7 +58,7 @@ fn fresh_slice_at_tick_zero_round_trips() {
 
     let h = read_header(&path).unwrap();
     assert_eq!(h.format_version, FORMAT_VERSION);
-    assert_eq!(FORMAT_VERSION, 4);
+    assert_eq!(FORMAT_VERSION, 5);
     assert_eq!(h.model_kind, MODEL_KIND_SLICE);
     assert!(h.is_slice());
     assert!(!h.is_toy());
@@ -113,7 +115,7 @@ fn slice_advanced_with_illness_and_lod_round_trips_and_steps_identically() {
 
     // Header inspection
     let h = read_header(&path).unwrap();
-    assert_eq!(h.format_version, 4);
+    assert_eq!(h.format_version, 5);
     assert_eq!(h.model_kind, MODEL_KIND_SLICE);
     assert_eq!(h.tick, 70);
     assert_eq!(h.state_hash, sim.state_hash());
@@ -376,4 +378,336 @@ fn rejected_command_then_later_commands_can_save_load_and_replay() {
         .unwrap()
         .stop = None;
     assert!(SliceSimulation::from_parts(legacy).is_err());
+}
+
+// ---- Format 5: storm and gathering episodes (ADR 0038 §6) ----
+
+const MINUTE: u64 = 600;
+const HOUR_US: u64 = 3_600_000_000;
+
+fn ok(w: &mut SliceSimulation, op: Operation) {
+    assert_eq!(w.apply(op).unwrap().error, None, "{op:?}");
+}
+
+/// Every slice root's consequence group and its events' digests, in root order.
+fn index(w: &SliceSimulation) -> Vec<(ws_sim::slice::illness::Group, Vec<u64>)> {
+    w.events()
+        .records()
+        .iter()
+        .filter(|e| e.record.payload.is_slice_root())
+        .map(|e| {
+            let (g, ev) = w.consequences(e.id).unwrap();
+            (*g, ev.iter().map(|e| e.digest()).collect())
+        })
+        .collect()
+}
+
+fn last_root(w: &SliceSimulation) -> EventId {
+    w.events()
+        .records()
+        .iter()
+        .rev()
+        .find(|e| e.record.payload.is_slice_root())
+        .unwrap()
+        .id
+}
+
+fn holds(w: &SliceSimulation) -> usize {
+    w.to_parts()
+        .behavior_states
+        .iter()
+        .filter(|s| s.storm_hold.is_some())
+        .count()
+}
+
+fn hold_roots(w: &SliceSimulation) -> Vec<u64> {
+    w.to_parts()
+        .behavior_states
+        .iter()
+        .filter_map(|s| s.storm_hold.map(|h| h.root))
+        .collect()
+}
+
+/// Monday 07:30, so a one-hour storm spans the 08:00 departures.
+fn storm_world() -> SliceSimulation {
+    SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(7 * 3_600_000_000 + 30 * 60_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap()
+}
+
+/// Monday 21:00, when most residents are home; every resident at L1.
+fn gather_world() -> SliceSimulation {
+    let mut w = SliceSimulation::new(SliceConfig {
+        seed: 42,
+        start: SimTime::from_micros_since_epoch(21 * 3_600_000_000),
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    for id in w.population().residents().ids().to_vec() {
+        ok(
+            &mut w,
+            Operation::SetDetail {
+                resident: id,
+                level: ws_life::behavior::Detail::L1,
+            },
+        );
+    }
+    w
+}
+
+fn rowhouse(w: &SliceSimulation) -> EntityId {
+    w.population()
+        .world()
+        .buildings()
+        .iter()
+        .find(|(_, b)| b.featured == Some("rowhouse"))
+        .unwrap()
+        .0
+}
+
+/// Saves `sim` as format 5, loads it, and checks equal hashes, equal episodes,
+/// a rebuilt index equal to the live producer's, and equal futures for an hour.
+fn save_load_and_step(sim: &mut SliceSimulation, name: &str) {
+    let dir = Scratch::new(name);
+    let path = dir.path("p.wssave");
+    save_slice(sim, &path).unwrap();
+    assert_eq!(read_header(&path).unwrap().format_version, 5);
+    let mut loaded = load_slice(&path).unwrap();
+    assert_eq!(loaded.state_hash(), sim.state_hash());
+    assert_eq!(loaded.checkpoint(), sim.checkpoint());
+    assert_eq!(loaded.operation_digest(), sim.operation_digest());
+    assert_eq!(loaded.events().digest(), sim.events().digest());
+    assert_eq!(loaded.storm(), sim.storm());
+    assert_eq!(loaded.gathering(), sim.gathering());
+    assert_eq!(loaded.to_parts(), sim.to_parts());
+    // The live index equals the one rebuilt from committed history on load.
+    assert_eq!(index(&loaded), index(sim));
+    for _ in 0..6 {
+        ok(sim, Operation::Steps(10 * MINUTE));
+        ok(&mut loaded, Operation::Steps(10 * MINUTE));
+        assert_eq!(loaded.state_hash(), sim.state_hash());
+        assert_eq!(loaded.checkpoint(), sim.checkpoint());
+    }
+    assert_eq!(index(&loaded), index(sim));
+}
+
+#[test]
+fn format5_round_trips_active_storm_and_gathering() {
+    // Mid-storm: departures deferred, holds deferring.
+    let mut storm = storm_world();
+    ok(
+        &mut storm,
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+    );
+    ok(&mut storm, Operation::Steps(40 * MINUTE));
+    assert!(storm.storm().is_some_and(|s| s.kept > 0));
+    assert!(holds(&storm) > 0);
+    // Every hold and the window carry the storm root (D1 as amended), and both
+    // survive the round trip.
+    let root = storm.storm().unwrap().root.0;
+    assert_eq!(hold_roots(&storm), vec![root; holds(&storm)]);
+    assert_eq!(storm.to_parts().storm_window.unwrap().root, root);
+    let loaded_dir = Scratch::new("f5-storm-root");
+    let path = loaded_dir.path("p.wssave");
+    save_slice(&storm, &path).unwrap();
+    let loaded = load_slice(&path).unwrap();
+    assert_eq!(hold_roots(&loaded), hold_roots(&storm));
+    assert_eq!(loaded.to_parts().storm_window.unwrap().root, root);
+    save_load_and_step(&mut storm, "f5-storm");
+
+    // After the storm's end, while holds still resume: the episode is gone
+    // but ws-life keeps its window until every hold has rejoined.
+    let mut after = storm_world();
+    ok(
+        &mut after,
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+    );
+    ok(&mut after, Operation::Steps(60 * MINUTE));
+    while after.storm().is_some() {
+        ok(&mut after, Operation::Steps(1));
+    }
+    assert!(holds(&after) > 0, "a hold must still be resuming");
+    save_load_and_step(&mut after, "f5-storm-resuming");
+
+    // Mid-gathering: some attendees joined, the stay not yet over.
+    let mut gather = gather_world();
+    let target = rowhouse(&gather);
+    ok(
+        &mut gather,
+        Operation::Gather {
+            building: target,
+            duration_us: 30 * 60_000_000,
+        },
+    );
+    ok(&mut gather, Operation::Steps(10 * MINUTE));
+    let g = gather.gathering().copied().unwrap();
+    assert!(g.joined > 0);
+    assert_eq!(g.attendees().len(), 7);
+    save_load_and_step(&mut gather, "f5-gather");
+}
+
+#[test]
+fn format4_save_loads_without_episodes() {
+    let dir = Scratch::new("f4-fixture");
+    let path = dir.path("v4.wssave");
+    let mut sim = sample_slice(101);
+    sim.apply(Operation::Steps(30)).unwrap();
+    let resident = sim.population().residents().ids()[0];
+    sim.apply(Operation::Afflict {
+        resident,
+        severity: 5,
+        duration_us: 15_000_000,
+    })
+    .unwrap();
+    sim.apply(Operation::Steps(40)).unwrap();
+    save_slice_with_version(&sim, &path, 4).unwrap();
+
+    let h = read_header(&path).unwrap();
+    assert_eq!(h.format_version, 4);
+    {
+        let conn = Connection::open(&path).unwrap();
+        for table in ["slice_storm", "slice_gathering"] {
+            let present: bool = conn
+                .query_row(
+                    "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = ?)",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(!present, "format 4 has no {table} table");
+        }
+    }
+    let mut loaded = load_slice(&path).unwrap();
+    assert_eq!(loaded.state_hash(), sim.state_hash());
+    assert_eq!(loaded.storm(), None);
+    assert_eq!(loaded.gathering(), None);
+    assert_eq!(holds(&loaded), 0);
+    assert_eq!(index(&loaded), index(&sim));
+    for _ in 0..50 {
+        sim.step().unwrap();
+        loaded.step().unwrap();
+        assert_eq!(loaded.state_hash(), sim.state_hash());
+    }
+
+    // The golden format-4 fixture loads with no episodes either.
+    let golden = load_slice(&fixture("slice-v4.wssave")).unwrap();
+    assert_eq!((golden.storm(), golden.gathering()), (None, None));
+    assert_eq!(holds(&golden), 0);
+
+    // A format-4 file cannot hold an active storm or gathering.
+    let mut storm = storm_world();
+    ok(
+        &mut storm,
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+    );
+    assert!(matches!(
+        save_slice_with_version(&storm, &dir.path("storm-v4.wssave"), 4),
+        Err(SaveError::Unsaveable(_))
+    ));
+    let mut gather = gather_world();
+    let target = rowhouse(&gather);
+    ok(
+        &mut gather,
+        Operation::Gather {
+            building: target,
+            duration_us: 30 * 60_000_000,
+        },
+    );
+    assert!(matches!(
+        save_slice_with_version(&gather, &dir.path("gather-v4.wssave"), 4),
+        Err(SaveError::Unsaveable(_))
+    ));
+    assert!(matches!(
+        save_slice_with_version(&sim, &dir.path("v3.wssave"), 3),
+        Err(SaveError::Unsaveable(_))
+    ));
+}
+
+/// ADR 0038 §6: one case per power, saved after the episode completes; the
+/// index rebuilt on load equals the live one.
+#[test]
+fn each_power_saved_after_completion_rebuilds_equal() {
+    let check = |sim: &mut SliceSimulation, name: &str| {
+        assert_eq!((sim.storm(), sim.gathering()), (None, None));
+        let mut rebuilt = sim.clone();
+        rebuilt.rebuild_consequence_index().unwrap();
+        assert_eq!(index(&rebuilt), index(sim));
+        save_load_and_step(sim, name);
+    };
+
+    // Bless: a cure of an active illness.
+    let mut bless = storm_world();
+    let id = bless.population().residents().ids()[0];
+    ok(
+        &mut bless,
+        Operation::Afflict {
+            resident: id,
+            severity: 4,
+            duration_us: 2 * HOUR_US,
+        },
+    );
+    ok(&mut bless, Operation::Steps(10 * MINUTE));
+    ok(&mut bless, Operation::Bless { resident: id });
+    ok(&mut bless, Operation::Steps(MINUTE));
+    let root = last_root(&bless);
+    assert_eq!(bless.consequences(root).unwrap().1.len(), 2);
+    check(&mut bless, "done-bless");
+
+    // Storm: ended and every hold rejoined.
+    let mut storm = storm_world();
+    ok(
+        &mut storm,
+        Operation::Storm {
+            duration_us: HOUR_US,
+        },
+    );
+    let root = last_root(&storm);
+    ok(&mut storm, Operation::Steps(60 * MINUTE));
+    while storm.storm().is_some() || holds(&storm) > 0 {
+        ok(&mut storm, Operation::Steps(MINUTE));
+    }
+    let tags: Vec<_> = storm
+        .consequences(root)
+        .unwrap()
+        .1
+        .iter()
+        .map(|e| e.record.payload.tag())
+        .collect();
+    assert_eq!(tags, vec![16, 18, 19]);
+    check(&mut storm, "done-storm");
+
+    // Gathering: ended and every attendee home.
+    let mut gather = gather_world();
+    let target = rowhouse(&gather);
+    ok(
+        &mut gather,
+        Operation::Gather {
+            building: target,
+            duration_us: 30 * 60_000_000,
+        },
+    );
+    let root = last_root(&gather);
+    while gather.gathering().is_some() {
+        ok(&mut gather, Operation::Steps(MINUTE));
+    }
+    let tags: Vec<_> = gather
+        .consequences(root)
+        .unwrap()
+        .1
+        .iter()
+        .map(|e| e.record.payload.tag())
+        .collect();
+    assert_eq!(tags.first(), Some(&20));
+    assert_eq!(tags.iter().filter(|t| **t == 22).count(), 1);
+    assert_eq!(tags.iter().filter(|t| **t == 6).count(), 7);
+    check(&mut gather, "done-gather");
 }

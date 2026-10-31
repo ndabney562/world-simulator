@@ -91,6 +91,23 @@ namespace WorldSim.Rendering
         {
             lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Illness(id,root);}
         }
+        public ulong Bless(ulong id)
+        {
+            lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Bless(id);}
+        }
+        public ulong Storm(ulong durationUs)
+        {
+            lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Storm(durationUs);}
+        }
+        public ulong Gather(ulong buildingId,ulong durationUs)
+        {
+            lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Gather(buildingId,durationUs);}
+        }
+        /// <summary>Root-only read for roots whose subject is not a resident (ADR0038 §7).</summary>
+        public SliceConsequences Consequences(ulong root)
+        {
+            lock(pacingGate) {SubmitElapsed(Stopwatch.GetTimestamp(),true);return world.Consequences(root);}
+        }
         public void SetCamera(Vector3 target,double radius) {world.SetCamera(target,radius);}
         /// <summary>Includes lock wait, fill, coherent sky and decode; costs share the captured tick window.</summary>
         public double Fill(SliceFrame frame,out SliceAdvanceStats stats)

@@ -143,3 +143,5 @@ A complete Unity export is a separate local check: `scripts/build-desktop-web.sh
 No Unity cloud licensing secret or new account is configured. Until a free, approved Editor CI setup is verified, require a successful local full-player export and desktop browser evidence in the PR, alongside hosted checks. A green static Unity job is insufficient.
 
 The first ARM Linux run at `2079dc51577bc31de380adb3355c3b80212105b0` acquired a runner and passed its architecture assertion, then exposed five test-buffer declarations hard-coded to signed `i8`. On ARM Linux, C `char` is unsigned; the existing exported functions correctly use `std::ffi::c_char`, so those tests failed to compile. The declarations now use `c_char` and byte comparisons use one-byte representations, retaining the exact existing UTF-8/truncation/sentinel assertions. Production exports, layouts, status codes and test expectations are unchanged.
+
+GP-002 (ADR0038) advances current consumers to ABI9: `abi-v9-smoke.c` keeps the ABI8 consumer checks and adds tag6–8 framing, journalled semantic rejection, `ws_slice_last_root` and root-only storm consequences; ABI1–8 fixtures and consumer sources remain.
