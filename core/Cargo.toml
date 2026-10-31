@@ -29,6 +29,13 @@ missing_docs = "warn"
 # Backed by `clippy.toml`: no wall-clock reads in simulation crates.
 disallowed_methods = "deny"
 
+[profile.dev]
+# Tests and local runs are optimised: the suite is long integer simulation
+# loops, and unoptimised it took 845 s instead of 119 s (#140). Debug
+# assertions and overflow checks stay on (dev defaults), so behaviour is the
+# same as before; only speed and debugger stepping change.
+opt-level = 2
+
 [profile.release]
 # Integer overflow panics in every profile, so release builds cannot
 # silently wrap where debug builds would stop (determinism policy).

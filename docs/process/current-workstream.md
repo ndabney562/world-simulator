@@ -1,12 +1,12 @@
 # Current workstream
 
-Updated 2026-10-30 for [#112](https://github.com/ndabney562/world-simulator/issues/112). GitHub issues/PRs remain canonical; refresh their live state at each handoff.
+Updated 2026-10-31 for [#141](https://github.com/ndabney562/world-simulator/issues/141). GitHub issues/PRs remain canonical; refresh their live state at each handoff.
 
 ## Authorization and ownership
 
 Noah's 2026-10-19 and 2026-10-20 instructions recorded on [#77](https://github.com/ndabney562/world-simulator/issues/77) authorize the current technical backlog (#13, #30, #49, #53, #66–#76), dependent starts and its technical merges after latest-head green CI and a clean independent actual-diff review. The specifically recorded design acceptances retain their own scope; this is not blanket acceptance of future ADRs. Noah directly authorized the five-step improvement plan and #104 implementation on 2026-10-26. From 2026-10-29 the [standing delegation](human-approval-gates.md#standing-delegation-2026-10-29) (#122) covers all work, including #104.
 
-Codex is the implementer for the resumed plan. A different assistant reviews the actual published diff, or a fresh-context review agent when none is available. One writer owns each branch. The implementer remains responsible through fixes, CI, readiness, delegated merge and the next dependency handoff; successful monitor recovery does not finish that handoff.
+Claude implements the game-play issues (GP-001 to GP-004, #124–#127) and the audit follow-ups (#138–#141); Codex implements the desktop browser work (#112). A different assistant reviews the actual published diff, or a fresh-context review agent when none is available. One writer owns each branch. The implementer remains responsible through fixes, CI, readiness, delegated merge and the next dependency handoff; successful monitor recovery does not finish that handoff.
 
 Costs, new credentials/accounts, repository settings, test weakening, Apple signing/provisioning/device actions and stage-exit declarations remain separate gates. Scope or architecture changes not covered by a specific recorded acceptance still require Noah's decision. Reversible work within authorized scope proceeds without repeated permission requests.
 
@@ -21,8 +21,8 @@ Costs, new credentials/accounts, repository settings, test weakening, Apple sign
 | Persistence #53 / #75 | Merged in #108 / #109; format 4 under accepted ADR0036 | Preserve native save/load coverage; browser durability is separate |
 | Desktop browser #112 | Player #114, runner fallback #118 and release checks #119 merged; verified candidate published from `gh-pages` | [Play desktop preview](https://ndabney562.github.io/world-simulator/); phone/other-device evidence remains separate |
 | God powers GP-002 #125 | ADR 0038 accepted; bless, storm and gathering implemented on `claude/125-god-powers-impl` (save format 5, ABI 9, HUD); decisions D1 to D4 in [architecture 13](../architecture/13-god-interventions.md) | Merged in #131 |
-| Visible reactions GP-003 #126 | Cast effects, status icons, camera ease and follow on `claude/126-visible-reactions` (Unity only) | Review, CI, merge under the standing delegation |
-| Faith and daily goals GP-004 #127 | ADR 0039 accepted; faith, daily goals and `GoalCompleted` implemented on `claude/127-faith-goals` (save format 6, ABI 10, HUD); decisions D1, R1, R2 in [architecture 13](../architecture/13-god-interventions.md) | Review, CI, merge under the standing delegation |
+| Visible reactions GP-003 #126 | Cast effects, status icons, camera ease and follow (Unity only) | Merged in #135 |
+| Faith and daily goals GP-004 #127 | ADR 0039 accepted; faith, daily goals and `GoalCompleted` (save format 6, ABI 10, HUD); decisions D1, R1, R2 in [architecture 13](../architecture/13-god-interventions.md) | Merged in #137 |
 | Final run #76 | Open | Noah: iPhone evidence and stage declaration |
 
 #53 delivered baseline/delta storage; #75 delivered slice state, background saving and Unity controls under accepted ADR0036. Do not repeat completed persistence work. #76 records every criterion as met, explicitly waived by Noah, or open with a follow-up. Neither engineering integration nor a desktop benchmark closes device criteria.

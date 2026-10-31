@@ -2,7 +2,7 @@
 
 The Unity 6 / URP application shell. Unity owns rendering, presentation, input, and platform integration; it never owns simulation state, which stays in the Rust core (`core/`). See [03-rendering-architecture.md](../../docs/architecture/03-rendering-architecture.md) §4.1.
 
-The Bootstrap scene loads the Rust native bridge and draws the toy world (TP-011 plus VS-007, ABI5): five buildings as boxes and residents as capsules from one snapshot per frame, with an orbit camera and a debug HUD. The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Providers and gameplay UI are not implemented.
+The RealBlock scene is the game: the real block and its residents drawn from the Rust core, tap inspection, save/load and the god-powers HUD (sections below). Current ABI: **10**. The older Bootstrap scene draws the toy world (TP-011 plus VS-007): five buildings as boxes and residents as capsules, with an orbit camera and a debug HUD; it is scheduled for deletion (#139). The iPhone build and run procedure is in [the TP-011 note](../../docs/spikes/tp-011-iphone-performance.md). Visual providers are not implemented.
 
 ## Editor version
 
