@@ -915,6 +915,7 @@ fn rejects_corrupt_goal_blob() {
         (vec![2, 2, 2, 0, 0, 2, 3, 0, 0, 0, 0], "duplicate kinds"),
         (vec![1, 4, 3, 4, 0, 0, 0], "progress past an open target"),
         (vec![1, 4, 3, 3, 0, 0, 0], "progress at an open target"),
+        (vec![1, 4, 3, 2, 1, 0, 0], "done below its target"),
         (
             [&[1, 2, 3, 2, 0, 2][..], &id, &id, &[0]].concat(),
             "duplicate blessed",

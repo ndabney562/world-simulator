@@ -45,7 +45,7 @@ namespace WorldSim.Bridge
             {
                 int at=24+i*16;uint kind=SliceDecoder.U32(b,at),target=SliceDecoder.U32(b,at+4),progress=SliceDecoder.U32(b,at+8),done=SliceDecoder.U32(b,at+12);
                 if(i>=goalCount) {Require(kind==0&&target==0&&progress==0&&done==0,"unused goal row");continue;}
-                Require(kind>=1&&kind<=4,"goal kind");Require(done<=1,"done flag");Require(done==1||progress<=target,"progress");
+                Require(kind>=1&&kind<=4,"goal kind");Require(done<=1,"done flag");Require(done==1||progress<=target,"progress");Require(done==0||progress>=target,"done progress");
                 god.Goals[i]=new SliceGoal {Kind=kind,Target=target,Progress=progress,Done=done==1};
             }
             uint count=SliceDecoder.U32(b,72);Require(count<=30,"resident_count");Require(SliceDecoder.U32(b,76)==0,"reserved2");

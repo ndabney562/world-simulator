@@ -325,13 +325,15 @@ namespace WorldSim.Tests.EditMode
             Rejects("kind 5",b=>U32(b,24,5));
             Rejects("progress over target",b=>U32(b,32,3));
             Rejects("done flag",b=>U32(b,36,2));
+            Rejects("done below target",b=>U32(b,52,0));
             Rejects("unused goal row",b=>U32(b,56,1));
             Rejects("resident_count",b=>U32(b,72,31));
             Rejects("reserved2",b=>U32(b,76,1));
             Rejects("unsorted ids",b=>{U64(b,96,5);});
             Rejects("duplicate ids",b=>{U64(b,96,10);});
-            Rejects("faith 101",b=>U32(b,88,101));
-            Rejects("faith -101",b=>U32(b,120,unchecked((uint)-101)));
+            // Other rows are adjusted so the block mean stays 0 and only the range check can fire.
+            Rejects("faith 101",b=>{U32(b,88,101);U32(b,104,unchecked((uint)-100));U32(b,120,unchecked((uint)-1));});
+            Rejects("faith -101",b=>{U32(b,88,100);U32(b,104,1);U32(b,120,unchecked((uint)-101));});
             Rejects("wrong mean",b=>U32(b,16,1));
             Rejects("row reserved",b=>U32(b,92,1));
             Rejects("unused resident row",b=>U32(b,128,1));

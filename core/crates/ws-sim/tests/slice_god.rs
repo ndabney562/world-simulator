@@ -350,9 +350,43 @@ fn midnight_regenerates_once_and_counts_tick_for_new_day() {
     assert_goal(&g[0], day + 1, s, GoalKind::BlessDistinct, target, root);
 }
 
-/// Per-tick state hashes and the history digest of a fixed goal scenario:
-/// a gathering completes kind 1, and a bless mid-gathering raises faith.
+/// Steps one minute at a time, recording every tick's state hash.
+fn record(
+    w: &mut SliceSimulation,
+    hashes: &mut Vec<u64>,
+    minutes: u64,
+    mut each: impl FnMut(&mut SliceSimulation, u64),
+) {
+    for k in 0..minutes * MINUTE {
+        each(w, k);
+        ok(w, Operation::Steps(1));
+        hashes.push(w.state_hash());
+    }
+}
+fn assert_done(w: &SliceSimulation, kind: GoalKind) {
+    let g = w
+        .god()
+        .goals()
+        .goals()
+        .iter()
+        .find(|g| g.kind == kind)
+        .unwrap();
+    assert!(g.done, "{kind:?} must complete in the digest scenario");
+}
+
+/// Per-tick state hashes and the history digest of fixed goal scenarios, one
+/// world per goal kind (a day holds at most three goals): a gathering with a
+/// mid-gathering bless (kind 1), a storm across the 08:00 departures (kind 4),
+/// a curse then bless cure (kind 3) and distinct blessings (kind 2).
 fn god_hashes() -> (Vec<u64>, u64, Vec<(EntityId, i16)>) {
+    let mut hashes = Vec::new();
+    let mut events = Vec::new();
+    let mut faith_all = Vec::new();
+    let mut finish = |w: &SliceSimulation| {
+        events.push(w.events().digest());
+        faith_all.extend_from_slice(w.god().faith());
+    };
+
     let (day, _) = day_with(GoalKind::Gathering, 0, 7);
     let mut w = world_at(day * DAY + 21 * HOUR);
     set_l1(&mut w);
@@ -365,16 +399,64 @@ fn god_hashes() -> (Vec<u64>, u64, Vec<(EntityId, i16)>) {
             duration_us: 30 * 60_000_000,
         },
     );
-    let mut hashes = Vec::new();
-    for k in 0..40 * MINUTE {
+    record(&mut w, &mut hashes, 40, |w, k| {
         if k == 5 * MINUTE {
-            ok(&mut w, Operation::Bless { resident: ids[19] });
+            ok(w, Operation::Bless { resident: ids[19] });
         }
-        ok(&mut w, Operation::Steps(1));
-        hashes.push(w.state_hash());
-    }
+    });
+    assert_done(&w, GoalKind::Gathering);
     assert_eq!(goals(&w).len(), 1);
-    (hashes, w.events().digest(), w.god().faith().to_vec())
+    finish(&w);
+
+    let (day, _) = day_with(GoalKind::Storm, 0, 7);
+    let mut w = world_at(day * DAY + 7 * HOUR + 30 * 60_000_000);
+    ok(
+        &mut w,
+        Operation::Storm {
+            duration_us: HOUR as u64,
+        },
+    );
+    record(&mut w, &mut hashes, 61, |_, _| {});
+    assert_done(&w, GoalKind::Storm);
+    finish(&w);
+
+    let (day, _) = day_with(GoalKind::Cure, 0, 1);
+    let mut w = world_at(day * DAY + 12 * HOUR);
+    let ids = w.population().residents().ids().to_vec();
+    ok(
+        &mut w,
+        Operation::Afflict {
+            resident: ids[0],
+            severity: 5,
+            duration_us: 15 * 60_000_000,
+        },
+    );
+    record(&mut w, &mut hashes, 5, |w, k| {
+        if k == MINUTE {
+            ok(w, Operation::Bless { resident: ids[0] });
+        }
+    });
+    assert_done(&w, GoalKind::Cure);
+    finish(&w);
+
+    let (day, target) = day_with(GoalKind::BlessDistinct, 0, 1);
+    let mut w = world_at(day * DAY + 12 * HOUR);
+    let ids = w.population().residents().ids().to_vec();
+    record(&mut w, &mut hashes, 5, |w, k| {
+        if k % MINUTE == 0 && k / MINUTE < u64::from(target) {
+            ok(
+                w,
+                Operation::Bless {
+                    resident: ids[(k / MINUTE) as usize],
+                },
+            );
+        }
+    });
+    assert_done(&w, GoalKind::BlessDistinct);
+    finish(&w);
+
+    let events = ws_rng::hash(1, 5, &events);
+    (hashes, events, faith_all)
 }
 fn digest(hashes: &[u64], events: u64, faith: &[(EntityId, i16)]) -> u64 {
     let words: Vec<u64> = faith

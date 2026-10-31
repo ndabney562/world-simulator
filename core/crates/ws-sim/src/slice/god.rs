@@ -107,6 +107,10 @@ impl Goals {
             if !g.done && g.progress >= g.target {
                 return Err(GodError::Progress);
             }
+            // ...so a done goal has reached it.
+            if g.done && g.progress < g.target {
+                return Err(GodError::Progress);
+            }
         }
         for (i, id) in blessed.iter().enumerate() {
             if blessed[..i].contains(id) {
@@ -277,6 +281,9 @@ impl God {
         (sum / self.faith.len() as i64) as i32
     }
     /// Whether any faith, progress or completion differs from a fresh day.
+    ///
+    /// Ignoring `blessed` and `gathering` is safe: each only matters to a goal
+    /// that would already show progress > 0 (or done), and both reset at `roll_day`.
     pub fn touched(&self) -> bool {
         self.faith.iter().any(|(_, f)| *f != 0)
             || self.goals.goals().iter().any(|g| g.progress > 0 || g.done)
@@ -627,6 +634,24 @@ mod tests {
             .iter()
             .any(|g| g.kind == GoalKind::Gathering)
         }));
+    }
+
+    #[test]
+    fn capped_gathering_goal_completes_at_reach_two() {
+        let home = id(99);
+        let god = God::new(&ids(), goals_of(&[(GoalKind::Gathering, 2)]));
+        let ps = [joined(id(1), home), joined(id(2), home)];
+        let (n, facts) = god.plan(&obs(&ps), &[]);
+        assert_eq!(
+            facts,
+            vec![GoalFact {
+                slot: 0,
+                kind: GoalKind::Gathering,
+                target: 2,
+                trigger: 1
+            }]
+        );
+        assert!(n.goals().goals()[0].done);
     }
 
     #[test]
