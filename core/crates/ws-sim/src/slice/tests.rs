@@ -370,3 +370,94 @@ fn retained_vitals_survive_steps_camera_lod_queries_and_operation_replay() {
     replay.apply(Operation::Steps(50)).unwrap();
     assert_eq!(replay.checkpoint(), w.checkpoint());
 }
+
+/// ADR 0039 §2: a batch at the first instant of a new day rolls the goals
+/// before any rule applies, so its events count toward the new day only.
+#[test]
+fn god_pass_rolls_the_day_before_counting_the_midnight_batch() {
+    const DAY: i64 = 86_400_000_000;
+    let w = SliceSimulation::new(config(0)).unwrap();
+    let caps = w.caps();
+    // Seed 42: days 2 and 3 both ask for a gathering.
+    let (old_day, new_day) = (2, 3);
+    let old = god::generate(42, old_day, caps);
+    let new = god::generate(42, new_day, caps);
+    let slot_of = |g: &god::Goals| {
+        g.goals()
+            .iter()
+            .position(|g| g.kind == god::GoalKind::Gathering)
+            .unwrap()
+    };
+    let (os, ns) = (slot_of(&old), slot_of(&new));
+    let ids = w.population.residents().ids();
+    let building = w.population.world().buildings().ids()[0];
+    // Yesterday's gathering is one join short of its goal.
+    let mut goals: Vec<god::Goal> = old.goals().to_vec();
+    goals[os].progress = goals[os].target - 1;
+    let current = god::God::from_parts(
+        w.god.faith().to_vec(),
+        god::Goals::from_parts(old_day, &goals, &[]).unwrap(),
+        Some((building, goals[os].target - 1)),
+    )
+    .unwrap();
+    let now = SimTime::from_micros_since_epoch(new_day * DAY);
+    let mut c = Candidate::new(
+        now,
+        86,
+        ids[0].raw(),
+        Payload::JoinedGathering {
+            resident: ids[0],
+            building,
+        },
+        Origin::System(86),
+    );
+    c.actors
+        .push(Actor {
+            id: ids[0],
+            role: Role::Subject,
+        })
+        .unwrap();
+    let mut facts = vec![c];
+    let next = god_pass(
+        &current,
+        w.config,
+        &w.population,
+        &w.vitals,
+        &mut facts,
+        now,
+    )
+    .unwrap();
+    // No completion of yesterday's goal: the join is today's first.
+    assert_eq!(facts.len(), 1);
+    assert_eq!(next.goals().day, new_day);
+    assert_eq!(next.gathering(), Some((building, 1)));
+    assert_eq!(next.goals().goals()[ns].progress, 1);
+    assert!(!next.goals().goals()[ns].done);
+    // The same batch one tick earlier would have completed yesterday's goal.
+    let before = SimTime::from_micros_since_epoch(new_day * DAY - 100_000);
+    let mut facts = vec![Candidate {
+        time: before,
+        ..facts[0]
+    }];
+    let next = god_pass(
+        &current,
+        w.config,
+        &w.population,
+        &w.vitals,
+        &mut facts,
+        before,
+    )
+    .unwrap();
+    assert_eq!(next.goals().day, old_day);
+    assert!(next.goals().goals()[os].done);
+    assert_eq!(facts.len(), 2);
+    assert_eq!(
+        facts[1].payload,
+        Payload::GoalCompleted {
+            day: old_day,
+            slot: os as u8,
+            kind: 1,
+            target: goals[os].target,
+        }
+    );
+}

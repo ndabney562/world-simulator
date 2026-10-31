@@ -334,6 +334,9 @@ impl SliceSimulation {
             ));
         }
 
+        // Saves do not carry god state yet: faith 0 and the restored day's
+        // goals, as ADR 0039 §4 loads formats 4 and 5.
+        let god = super::fresh_god(config, &population, &vitals, clock.now());
         let mut sim = Self {
             config,
             population,
@@ -341,6 +344,7 @@ impl SliceSimulation {
             illness,
             // Format 4 holds no block power, so both are None there.
             powers: Powers { storm, gathering },
+            god,
             schedules,
             behavior,
             lod,

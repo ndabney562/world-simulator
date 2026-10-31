@@ -29,8 +29,8 @@ pub enum Rejection {
 }
 /// Payload tags recorded in history but never indexed under any root, applied
 /// identically by the live producers and [`SliceSimulation::rebuild_consequence_index`].
-/// Tag 17 is `StayedInside` (ADR 0038 §3).
-pub const INDEX_EXCLUDED: &[u16] = &[17];
+/// Tag 17 is `StayedInside` (ADR 0038 §3); tag 23 is `GoalCompleted` (ADR 0039 §2).
+pub const INDEX_EXCLUDED: &[u16] = &[17, 23];
 pub(super) fn excluded(payload: &Payload) -> bool {
     u16::try_from(payload.tag()).is_ok_and(|t| INDEX_EXCLUDED.contains(&t))
 }
@@ -728,11 +728,20 @@ impl SliceSimulation {
         facts.push(c);
         if duplicate {
             group.append(root)?;
+            let god = super::god_pass(
+                &self.god,
+                self.config,
+                &self.population,
+                &self.vitals,
+                &mut facts,
+                time,
+            )?;
             self.events
                 .prepare(self.clock.steps(), &facts)
                 .map_err(SliceError::History)?
                 .commit();
             self.illness.groups.push(group);
+            self.god = god;
             return Ok(());
         }
         let mut episodes = self.illness.copied_episodes()?;
@@ -803,8 +812,16 @@ impl SliceSimulation {
                 .map(|(i, c)| c.fact(time, i as u64)),
         );
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        let god = super::god_pass(
+            &self.god,
+            self.config,
+            &self.population,
+            &self.vitals,
+            &mut facts,
+            time,
+        )?;
         for (i, c) in facts.iter().enumerate() {
-            if c.system != 70 {
+            if c.system != 70 && !excluded(&c.payload) {
                 group.append(EventId(first + i as u64))?;
             }
         }
@@ -829,6 +846,7 @@ impl SliceSimulation {
         self.illness.episodes = episodes;
         self.illness.groups.push(group);
         self.powers = powers;
+        self.god = god;
         Ok(())
     }
 }
