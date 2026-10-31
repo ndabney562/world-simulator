@@ -347,6 +347,23 @@ impl SliceSimulation {
     /// Canonical state/configuration in explicit integer words. Host pacing,
     /// factual/operation histories, capacities and derived boundary cache are separate.
     pub fn state_hash(&self) -> u64 {
+        let state = self.state_hash_without_god();
+        // ADR 0039 §4: an untouched god is a pure function of hashed state
+        // and the day, so it is mixed only once faith or a goal has moved.
+        if !self.god.touched() {
+            return state;
+        }
+        ws_rng::hash(
+            0,
+            Purpose::new("ws-sim/slice-state/v5").value(),
+            &[state, self.god.hash()],
+        )
+    }
+    /// [`Self::state_hash`] without the ADR 0039 god block: the hash a
+    /// format-4 or format-5 save of this world reloads to, since those
+    /// formats restore faith 0 and freshly generated goals.
+    #[doc(hidden)]
+    pub fn state_hash_without_god(&self) -> u64 {
         let vitals = ws_rng::hash(
             0,
             Purpose::new("ws-sim/slice-state/v2").value(),
@@ -366,24 +383,13 @@ impl SliceSimulation {
             vitals
         };
         // Mixed only while a block power is active, so earlier goldens hold.
-        let state = if self.powers.active() {
-            ws_rng::hash(
-                0,
-                Purpose::new("ws-sim/slice-state/v4").value(),
-                &[state, self.powers.hash()],
-            )
-        } else {
-            state
-        };
-        // ADR 0039 §4: an untouched god is a pure function of hashed state
-        // and the day, so it is mixed only once faith or a goal has moved.
-        if !self.god.touched() {
+        if !self.powers.active() {
             return state;
         }
         ws_rng::hash(
             0,
-            Purpose::new("ws-sim/slice-state/v5").value(),
-            &[state, self.god.hash()],
+            Purpose::new("ws-sim/slice-state/v4").value(),
+            &[state, self.powers.hash()],
         )
     }
     /// Resident faith and the day's goals (ADR 0039).

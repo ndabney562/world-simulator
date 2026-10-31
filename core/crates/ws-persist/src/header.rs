@@ -9,7 +9,7 @@ use ws_world::{Dataset, TOY_DATASET_ID};
 use crate::error::LoadError;
 
 /// The newest save format this build writes and reads.
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 
 /// Model kind indicator in save format 4 (ADR 0036).
 pub const MODEL_KIND_TOY: u32 = 1;

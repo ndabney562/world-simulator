@@ -286,6 +286,38 @@ const TABLES_V5_SLICE: [&str; 12] = [
     "slice_gathering",
 ];
 
+/// Tables in format 6 for the real slice: format 5 plus ADR 0039 §4 faith
+/// (one row per retained resident) and the day's goals (one row, `id = 0`).
+const TABLES_V6_SLICE: [&str; 14] = [
+    "header",
+    "slice_config",
+    "clock",
+    "slice_vitals",
+    "slice_illness",
+    "slice_behavior",
+    "slice_lod",
+    "events",
+    "event_links",
+    "slice_operations",
+    "slice_storm",
+    "slice_gathering",
+    "slice_faith",
+    "slice_goals",
+];
+
+/// Tables format 6 adds to format 5 (ADR 0039 §4).
+const SCHEMA_V6_SLICE_EXTRA: &str = "
+CREATE TABLE slice_faith (
+    resident_id INTEGER PRIMARY KEY,
+    faith INTEGER NOT NULL
+);
+CREATE TABLE slice_goals (
+    id INTEGER PRIMARY KEY CHECK (id = 0),
+    day INTEGER NOT NULL,
+    data BLOB NOT NULL
+);
+";
+
 /// Tables format 5 adds to [`SCHEMA_V4_SLICE`] (ADR 0038 §6).
 const SCHEMA_V5_SLICE_EXTRA: &str = "
 CREATE TABLE slice_storm (
@@ -495,7 +527,7 @@ fn save_with_registry_version(
     Ok(())
 }
 
-/// Saves `sim` to `path` as a format-5 slice save, replacing any file there atomically.
+/// Saves `sim` to `path` as a format-6 slice save, replacing any file there atomically.
 ///
 /// # Errors
 ///
@@ -504,8 +536,11 @@ pub fn save_slice(sim: &SliceSimulation, path: &Path) -> Result<(), SaveError> {
     save_slice_with_version(sim, path, FORMAT_VERSION)
 }
 
-/// Saves `sim` as slice format `format_version` (4 or 5). Writers use
-/// [`save_slice`]; this exists so tests can build format-4 fixtures.
+/// Saves `sim` as slice format `format_version` (4, 5 or 6). Writers use
+/// [`save_slice`]; this exists so tests can build format-4 and format-5
+/// fixtures. Those formats hold no faith or goals (ADR 0039 §4), so their
+/// header carries [`SliceSimulation::state_hash_without_god`]: the hash the
+/// file reloads to with faith 0 and freshly generated goals.
 ///
 /// # Errors
 ///
@@ -517,9 +552,14 @@ pub fn save_slice_with_version(
     path: &Path,
     format_version: u32,
 ) -> Result<(), SaveError> {
+    let state_hash = if format_version < 6 {
+        sim.state_hash_without_god()
+    } else {
+        sim.state_hash()
+    };
     save_slice_parts_version(
         sim.to_parts(),
-        sim.state_hash(),
+        state_hash,
         sim.operation_digest(),
         sim.events().digest(),
         path,
@@ -527,7 +567,7 @@ pub fn save_slice_with_version(
     )
 }
 
-/// Writes `parts` to `path` as a format-5 slice save, replacing any file there atomically.
+/// Writes `parts` to `path` as a format-6 slice save, replacing any file there atomically.
 ///
 /// # Errors
 ///
@@ -558,7 +598,10 @@ fn save_slice_parts_version(
     format_version: u32,
 ) -> Result<(), SaveError> {
     match format_version {
-        5 => {}
+        6 if parts.god.is_none() => {
+            return Err(SaveError::Unsaveable("format 6 needs the god state"));
+        }
+        5 | 6 => {}
         4 if parts.storm.is_some()
             || parts.storm_window.is_some()
             || parts.gathering.is_some()
@@ -569,7 +612,7 @@ fn save_slice_parts_version(
             ));
         }
         4 => {}
-        _ => return Err(SaveError::Unsaveable("slice saves are format 4 or 5")),
+        _ => return Err(SaveError::Unsaveable("slice saves are format 4, 5 or 6")),
     }
     let header = header_of_slice(&parts, state_hash, op_digest, events_digest, format_version)?;
     let links = parts
@@ -597,7 +640,7 @@ fn save_slice_parts_version(
     Ok(())
 }
 
-/// Spawns a background thread to write `parts` to `path` as a format-5 slice save.
+/// Spawns a background thread to write `parts` to `path` as a format-6 slice save.
 pub fn save_slice_background(
     parts: SliceParts,
     state_hash: u64,
@@ -1082,6 +1125,10 @@ fn write_slice_file(
     if v5 {
         tx.execute_batch(SCHEMA_V5_SLICE_EXTRA)?;
     }
+    let god = parts.god.as_ref().filter(|_| h.format_version >= 6);
+    if god.is_some() {
+        tx.execute_batch(SCHEMA_V6_SLICE_EXTRA)?;
+    }
     tx.execute(
         "INSERT INTO header VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
@@ -1209,6 +1256,16 @@ fn write_slice_file(
             params![RECORD_SCHEMA, codec::put_slice_gathering(&g)],
         )?;
     }
+    if let Some(god) = god {
+        let mut st = tx.prepare("INSERT INTO slice_faith (resident_id, faith) VALUES (?, ?)")?;
+        for (id, faith) in god.faith() {
+            st.execute(params![key(id.raw()), i64::from(*faith)])?;
+        }
+        tx.execute(
+            "INSERT INTO slice_goals VALUES (0, ?, ?)",
+            params![god.goals().day, codec::put_slice_goals(god)],
+        )?;
+    }
     tx.commit()?;
     conn.close().map_err(|(_, e)| e)?;
     Ok(())
@@ -1248,13 +1305,15 @@ fn open(path: &Path) -> Result<Connection, LoadError> {
         1 => Box::new(TABLES_V1.iter()),
         2 => Box::new(TABLES_V1.iter().chain(TABLES_V2.iter())),
         3 => Box::new(TABLES_V3.iter()),
-        4 | 5 => {
+        4..=6 => {
             let is_slice: bool = conn.query_row(
                 "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'slice_config')",
                 [],
                 |r| r.get(0),
             )?;
-            if is_slice && found == 5 {
+            if is_slice && found == 6 {
+                Box::new(TABLES_V6_SLICE.iter())
+            } else if is_slice && found == 5 {
                 Box::new(TABLES_V5_SLICE.iter())
             } else if is_slice {
                 Box::new(TABLES_V4_SLICE.iter())
@@ -1426,28 +1485,28 @@ pub fn load_with_registry(path: &Path, registry: &BaselineRegistry) -> Result<Wo
             "save file is a slice simulation; use load_slice",
         ));
     }
-    if (3..=5).contains(&header.format_version) {
+    if (3..=6).contains(&header.format_version) {
         load_v3(&conn, &header, registry)
     } else {
         load_v1_v2(&conn, &header)
     }
 }
 
-/// Loads the raw parts and header of a format-4 or format-5 slice save. A
+/// Loads the raw parts and header of a format-4, 5 or 6 slice save. A
 /// format-4 file holds no storm, storm hold or gathering (ADR 0038 §6).
 ///
 /// # Errors
 ///
-/// Returns [`LoadError`] if the file cannot be opened, is not a valid format-4
-/// or format-5 slice save, has missing tables, or contains undecodable records.
+/// Returns [`LoadError`] if the file cannot be opened, is not a valid format-4,
+/// format-5 or format-6 slice save, has missing tables, or contains undecodable records.
 pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> {
     let conn = open(path)?;
     let header = header_row(&conn)?;
     let format = header.format_version;
-    if !header.is_slice() && !matches!(format, 4 | 5) {
+    if !header.is_slice() && !matches!(format, 4..=6) {
         return Err(bad("header", "save file is not a slice simulation"));
     }
-    if !matches!(format, 4 | 5) {
+    if !matches!(format, 4..=6) {
         return Err(LoadError::UnsupportedVersion {
             found: header.format_version,
             supported: FORMAT_VERSION,
@@ -1568,6 +1627,12 @@ pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> 
         .map(|data| codec::get_slice_gathering(&data).map_err(|e| corrupt("slice_gathering", e)))
         .transpose()?;
 
+    let god = if format >= 6 {
+        Some(load_god(&conn)?)
+    } else {
+        None
+    };
+
     let parts = SliceParts {
         config,
         clock: clock.clock,
@@ -1581,8 +1646,55 @@ pub fn load_slice_parts(path: &Path) -> Result<(Header, SliceParts), LoadError> 
         storm,
         storm_window,
         gathering,
+        god,
     };
     Ok((header, parts))
+}
+
+/// The format-6 faith rows and the single goals row (ADR 0039 §4).
+fn load_god(conn: &Connection) -> Result<ws_sim::slice::God, LoadError> {
+    let mut faith = Vec::new();
+    {
+        let mut st =
+            conn.prepare("SELECT resident_id, faith FROM slice_faith ORDER BY resident_id")?;
+        let mapped = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
+        for row in mapped {
+            let (k, f) = row?;
+            let id = entity("slice_faith", k)?;
+            let f = i16::try_from(f).map_err(|_| bad("slice_faith", "faith out of range"))?;
+            faith.push((id, f));
+        }
+    }
+    let mut goals = None;
+    {
+        let mut st = conn.prepare("SELECT id, day, data FROM slice_goals ORDER BY id")?;
+        let mapped = st.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        for row in mapped {
+            let (id, day, data) = row?;
+            if id != 0 || goals.is_some() {
+                return Err(bad("slice_goals", "goals row is not id 0"));
+            }
+            goals =
+                Some(codec::get_slice_goals(day, &data).map_err(|e| corrupt("slice_goals", e))?);
+        }
+    }
+    let (goals, gathering) = goals.ok_or(bad("slice_goals", "no slice_goals row"))?;
+    ws_sim::slice::God::from_parts(faith, goals, gathering).map_err(|e| {
+        bad(
+            "slice_faith",
+            match e {
+                ws_sim::slice::GodError::FaithRange => "faith out of range",
+                ws_sim::slice::GodError::Order => "faith resident IDs not ascending",
+                _ => "invalid god state",
+            },
+        )
+    })
 }
 
 /// The optional `id = 1` row of a format-5 episode table; None in format 4.
@@ -1608,7 +1720,8 @@ fn single_row(
     Ok(out)
 }
 
-/// Loads a [`SliceSimulation`] from a format-4 or format-5 save file.
+/// Loads a [`SliceSimulation`] from a format-4, 5 or 6 save file. Formats 4
+/// and 5 restore faith 0 and the restored day's generated goals (ADR 0039 §4).
 ///
 /// # Errors
 ///

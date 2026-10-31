@@ -52,6 +52,12 @@ pub enum GodError {
     FaithRange,
     /// Resident IDs not strictly ascending.
     Order,
+    /// Two goals of one day share a template.
+    DuplicateKind,
+    /// An open goal already at or past its target.
+    Progress,
+    /// A resident listed twice among the blessed.
+    DuplicateBlessed,
 }
 
 /// One goal of the day.
@@ -92,6 +98,20 @@ impl Goals {
         }
         if blessed.len() > MAX_GOALS {
             return Err(GodError::TooManyBlessed);
+        }
+        for (i, g) in goals.iter().enumerate() {
+            if goals[..i].iter().any(|o| o.kind == g.kind) {
+                return Err(GodError::DuplicateKind);
+            }
+            // `plan` marks a goal done the moment progress reaches its target.
+            if !g.done && g.progress >= g.target {
+                return Err(GodError::Progress);
+            }
+        }
+        for (i, id) in blessed.iter().enumerate() {
+            if blessed[..i].contains(id) {
+                return Err(GodError::DuplicateBlessed);
+            }
         }
         let mut slots = [BLANK; MAX_GOALS];
         slots[..goals.len()].copy_from_slice(goals);
@@ -694,5 +714,35 @@ mod tests {
             Err(GodError::Order)
         );
         assert!(God::from_parts(vec![(lo, -100), (hi, 100)], g, Some((id(9), 2))).is_ok());
+    }
+
+    #[test]
+    fn goals_from_parts_refuses_inconsistent_state() {
+        let goal = |kind, target, progress, done| Goal {
+            kind,
+            target,
+            progress,
+            done,
+        };
+        let bless = goal(GoalKind::BlessDistinct, 2, 1, false);
+        assert_eq!(
+            Goals::from_parts(0, &[bless, bless], &[]),
+            Err(GodError::DuplicateKind)
+        );
+        assert_eq!(
+            Goals::from_parts(0, &[goal(GoalKind::Storm, 3, 3, false)], &[]),
+            Err(GodError::Progress)
+        );
+        assert_eq!(
+            Goals::from_parts(0, &[goal(GoalKind::Storm, 3, 9, false)], &[]),
+            Err(GodError::Progress)
+        );
+        assert_eq!(
+            Goals::from_parts(0, &[bless], &[id(1), id(1)]),
+            Err(GodError::DuplicateBlessed)
+        );
+        // A storm can overshoot its target in the batch that completes it.
+        assert!(Goals::from_parts(0, &[goal(GoalKind::Storm, 3, 9, true)], &[]).is_ok());
+        assert!(Goals::from_parts(0, &[bless], &[id(1)]).is_ok());
     }
 }

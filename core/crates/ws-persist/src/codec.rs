@@ -830,8 +830,18 @@ fn put_payload(w: &mut Writer, p: Payload) -> Result<()> {
             w.id(building);
             w.u32(attendees);
         }
-        // Tag 23 is unsupported until save format 6.
-        Payload::GoalCompleted { .. } => return Err(CodecError("unknown payload tag")),
+        Payload::GoalCompleted {
+            day,
+            slot,
+            kind,
+            target,
+        } => {
+            w.u8(23);
+            w.i64(day);
+            w.u8(slot);
+            w.u8(kind);
+            w.u8(target);
+        }
     }
     Ok(())
 }
@@ -958,6 +968,12 @@ fn get_payload(r: &mut Reader) -> Result<Payload> {
         22 => Payload::GatheringEnded {
             building: r.id()?,
             attendees: r.u32()?,
+        },
+        23 => Payload::GoalCompleted {
+            day: r.i64()?,
+            slot: r.u8()?,
+            kind: r.u8()?,
+            target: r.u8()?,
         },
         _ => return Err(CodecError("unknown payload tag")),
     })
@@ -2069,6 +2085,82 @@ pub(crate) fn get_slice_gathering(bytes: &[u8]) -> Result<ws_sim::slice::Gatheri
         .ok_or(CodecError("too many attendees"))
 }
 
+/// The format-6 `slice_goals` blob (ADR 0039 §4; the day is its own column):
+/// `len u8`, per goal `kind, target, progress, done` (u8 each), `blessed_len
+/// u8` and that many resident IDs, then `has_gathering u8` and, if 1, the
+/// counted gathering's `building u64, joined u8`.
+pub(crate) fn put_slice_goals(god: &ws_sim::slice::God) -> Vec<u8> {
+    let mut w = Writer::new();
+    let goals = god.goals();
+    w.u8(goals.goals().len() as u8);
+    for g in goals.goals() {
+        w.u8(g.kind as u8);
+        w.u8(g.target);
+        w.u8(g.progress);
+        w.u8(u8::from(g.done));
+    }
+    w.u8(goals.blessed().len() as u8);
+    for id in goals.blessed() {
+        w.id(*id);
+    }
+    match god.gathering() {
+        Some((building, joined)) => {
+            w.u8(1);
+            w.id(building);
+            w.u8(joined);
+        }
+        None => w.u8(0),
+    }
+    w.0
+}
+
+/// The goals of `day` and the counted gathering from a `slice_goals` blob,
+/// checked through [`ws_sim::slice::Goals::from_parts`].
+pub(crate) fn get_slice_goals(
+    day: i64,
+    bytes: &[u8],
+) -> Result<(ws_sim::slice::Goals, Option<(EntityId, u8)>)> {
+    use ws_sim::slice::{Goal, GoalKind, Goals, MAX_GOALS};
+    let mut r = Reader::new(bytes);
+    let len = usize::from(r.u8()?);
+    if len > MAX_GOALS {
+        return Err(CodecError("too many goals"));
+    }
+    let mut goals = Vec::with_capacity(len);
+    for _ in 0..len {
+        let kind = GoalKind::from_tag(r.u8()?).ok_or(CodecError("invalid goal kind"))?;
+        goals.push(Goal {
+            kind,
+            target: r.u8()?,
+            progress: r.u8()?,
+            done: r.flag()?,
+        });
+    }
+    let blessed_len = usize::from(r.u8()?);
+    if blessed_len > MAX_GOALS {
+        return Err(CodecError("too many blessed residents"));
+    }
+    let mut blessed = Vec::with_capacity(blessed_len);
+    for _ in 0..blessed_len {
+        blessed.push(r.id()?);
+    }
+    let gathering = if r.flag()? {
+        Some((r.id()?, r.u8()?))
+    } else {
+        None
+    };
+    r.finish()?;
+    let goals = Goals::from_parts(day, &goals, &blessed).map_err(|e| {
+        CodecError(match e {
+            ws_sim::slice::GodError::DuplicateKind => "duplicate goal kind",
+            ws_sim::slice::GodError::Progress => "open goal at or past its target",
+            ws_sim::slice::GodError::DuplicateBlessed => "duplicate blessed resident",
+            _ => "invalid goals",
+        })
+    })?;
+    Ok((goals, gathering))
+}
+
 pub(crate) fn put_slice_lod(
     camera: Option<ws_life::lod::CameraInterest>,
     nodes: &[(EntityId, ws_life::lod::Mode, SimTime)],
@@ -2722,7 +2814,7 @@ mod slice_vocabulary_tests {
     use super::*;
     #[test]
     fn slice_payload_codec_round_trips_every_slice_tag() {
-        for tag in [23, 24, 255] {
+        for tag in [24, 255] {
             assert!(get_payload(&mut Reader::new(&[tag])).is_err());
         }
         let resident = EntityId::procedural(1);
@@ -2801,6 +2893,12 @@ mod slice_vocabulary_tests {
             Payload::GatheringEnded {
                 building: destination,
                 attendees: 3,
+            },
+            Payload::GoalCompleted {
+                day: -3,
+                slot: 2,
+                kind: 4,
+                target: 6,
             },
         ] {
             let mut writer = Writer::new();
