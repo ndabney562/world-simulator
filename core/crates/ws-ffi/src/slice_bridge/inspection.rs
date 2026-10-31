@@ -3,7 +3,7 @@ use super::*;
 use ws_sim::slice::inspect::{Entity, Inspection};
 use ws_sim::ws_events::Payload;
 
-const MAX: usize = 8192;
+pub(super) const MAX: usize = 8192;
 struct Writer<'a> {
     bytes: &'a mut [u8; MAX],
     at: usize,
@@ -34,7 +34,7 @@ impl Writer<'_> {
     }
 }
 
-fn event_words(payload: Payload) -> Result<[u64; 5], &'static str> {
+pub(super) fn event_words(payload: Payload) -> Result<[u64; 5], &'static str> {
     Ok(match payload {
         Payload::LifeIllness {
             resident,
@@ -151,7 +151,40 @@ fn endpoint(p: ws_sim::slice::inspect::Place) -> (u64, u32) {
         Place::OffMap(id, exit) => (id.raw(), u32::from(exit)),
     }
 }
-fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'static str> {
+/// Schema3 routine-override coherence, checked before anything is published.
+/// Kinds: 0 none, 1 illness home hold, 2 visit, 3 gathering (ADR0038 §4). An
+/// override needs a root; an overridden resident is either commuting or at
+/// home with the Home activity, except that kind3 alone may stand away from
+/// home: at the active gathering's building, Home activity, Socialize.
+fn check_override(
+    home: ws_sim::EntityId,
+    (location, activity, action): (ws_sim::slice::inspect::Location, u32, u32),
+    illness: &ws_sim::slice::illness::State,
+    gathering: Option<ws_sim::EntityId>,
+) -> Result<(), &'static str> {
+    use ws_sim::slice::inspect::Location;
+    let kind = illness.override_kind;
+    if kind > 3 || (kind == 0) != (illness.override_root == 0) {
+        return Err("inspection override kind/root incoherent");
+    }
+    if kind == 0 || activity == 1 {
+        return Ok(());
+    }
+    match location {
+        Location::AtBuilding(at) if activity == 5 && at == home => Ok(()),
+        Location::AtBuilding(at)
+            if kind == 3 && activity == 5 && action == 3 && gathering == Some(at) =>
+        {
+            Ok(())
+        }
+        _ => Err("inspection override away from home"),
+    }
+}
+pub(super) fn encode(
+    record: &Inspection<'_>,
+    gathering: Option<ws_sim::EntityId>,
+    bytes: &mut [u8; MAX],
+) -> Result<usize, &'static str> {
     use ws_sim::slice::inspect::Location;
     let mut w = Writer { bytes, at: 96 };
     w.u32(2)?;
@@ -192,10 +225,10 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
     let mut schedules = 0;
     match &record.entity {
         Entity::Resident {
+            identity,
             state,
             schedule,
             vitals,
-            ..
         } => {
             let (tag, from, to) = match state.logical.location {
                 Location::AtBuilding(id) => (0, (id.raw(), u32::MAX), (id.raw(), u32::MAX)),
@@ -225,6 +258,16 @@ fn encode(record: &Inspection<'_>, bytes: &mut [u8; MAX]) -> Result<usize, &'sta
             w.u32(i32::from(schedule.jitter) as u32)?;
             w.u32(1)?;
             let illness = record.illness.ok_or("missing illness state")?;
+            check_override(
+                identity.home,
+                (
+                    state.logical.location,
+                    state.logical.activity as u32,
+                    state.action as u32,
+                ),
+                &illness,
+                gathering,
+            )?;
             w.u32(illness.override_kind)?;
             w.u32(u32::from(illness.active))?;
             w.u64(illness.override_root)?;
@@ -354,13 +397,28 @@ pub unsafe extern "C" fn ws_slice_inspect(
                 .inspect(id)
                 .map_err(|_| (STEP_FAILED, "inspection query resource or domain failure"))?;
             let mut scratch = [0u8; MAX];
-            let len = encode(&record, &mut scratch).map_err(|message| (STEP_FAILED, message))?;
+            let len = encode(
+                &record,
+                h.world.gathering().map(|g| g.building),
+                &mut scratch,
+            )
+            .map_err(|message| (STEP_FAILED, message))?;
             #[cfg(test)]
             if h.panic_before_output {
                 panic!("inspection output fault");
             }
             fill_bytes(&scratch[..len], buffer, capacity, written)
         })
+    }
+}
+
+/// Consequence header subject (offset48): the resident for illness and bless,
+/// the building for a gathering, and 0 only for a storm root (ADR0038 §5).
+pub(super) fn header_subject(g: &ws_sim::slice::illness::Group) -> Result<u64, &'static str> {
+    match (g.tag, g.subject) {
+        (16, None) => Ok(0),
+        (13 | 14 | 20, Some(s)) => Ok(s.raw()),
+        _ => Err("consequence root subject incoherent"),
     }
 }
 
@@ -398,6 +456,7 @@ pub unsafe extern "C" fn ws_slice_consequences(
                 .world
                 .consequences(ws_sim::ws_events::EventId(root))
                 .map_err(consequence_error)?;
+            let subject = header_subject(g).map_err(|m| (STEP_FAILED, m))?;
             let mut scratch = [0u8; MAX];
             let mut w = Writer {
                 bytes: &mut scratch,
@@ -456,7 +515,7 @@ pub unsafe extern "C" fn ws_slice_consequences(
                 (24, h.world.state_hash()),
                 (32, ws_world_dataset()),
                 (40, g.root.0),
-                (48, g.subject.map_or(0, |s| s.raw())),
+                (48, subject),
                 (80, g.applied.as_micros_since_epoch() as u64),
                 (88, g.end.map_or(0, |t| t.as_micros_since_epoch() as u64)),
             ] {
@@ -537,7 +596,7 @@ mod tests {
         let mut record = world.inspect(resident).unwrap();
         record.events = store.recent(resident, SimTime::EPOCH).unwrap();
         let mut bytes = [0; MAX];
-        let len = encode(&record, &mut bytes).unwrap();
+        let len = encode(&record, None, &mut bytes).unwrap();
         assert_eq!(u32::from_le_bytes(bytes[60..64].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(bytes[76..80].try_into().unwrap()), 16);
         let at = len - 16 * 80;
@@ -589,7 +648,7 @@ mod tests {
         let mut record = world.inspect(building).unwrap();
         record.events = store.recent(building, SimTime::EPOCH).unwrap();
         bytes.fill(0);
-        let len = encode(&record, &mut bytes).unwrap();
+        let len = encode(&record, None, &mut bytes).unwrap();
         let at = len - 16 * 80;
         assert_eq!(
             u32::from_le_bytes(bytes[at + 32..at + 36].try_into().unwrap()),
@@ -627,7 +686,7 @@ mod tests {
         let mut record = world.inspect(resident).unwrap();
         record.events = future.recent(resident, SimTime::EPOCH).unwrap();
         assert_eq!(
-            encode(&record, &mut bytes),
+            encode(&record, None, &mut bytes),
             Err("unsupported inspection event vocabulary")
         );
         let mut writer = Writer {

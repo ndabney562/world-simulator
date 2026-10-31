@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicitly generate new ABI8 slice transport samples from a built native library.
+"""Explicitly generate new ABI9 slice transport samples from a built native library.
 
 Not run by CI. The shared samples pin transport interpretation, with Tier3
 coordinate tolerances and a zero hash sentinel, not cross-platform world hashes.
@@ -8,6 +8,9 @@ import ctypes as c
 from pathlib import Path
 import struct
 import sys
+
+ABI = 9
+SUFFIX = "-v%d" % ABI
 
 
 class Utc(c.Structure):
@@ -35,7 +38,7 @@ def main():
         raise SystemExit("usage: generate-slice-fixtures.py /absolute/path/to/built/libws_ffi")
     lib = c.CDLL(str(Path(sys.argv[1]).resolve()))
     lib.ws_abi_version.restype = c.c_uint32
-    assert lib.ws_abi_version() == 8
+    assert lib.ws_abi_version() == ABI
     lib.ws_utc_to_sim.argtypes = [c.POINTER(Utc), c.POINTER(c.c_int64)]
     lib.ws_slice_create.argtypes, lib.ws_slice_create.restype = [c.POINTER(Config)], c.c_void_p
     lib.ws_slice_destroy.argtypes = [c.c_void_p]
@@ -46,10 +49,10 @@ def main():
     lib.ws_slice_inspect.argtypes = [c.c_void_p, c.c_uint64, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
     lib.ws_slice_get_calendar_sky.argtypes = [c.c_void_p, c.POINTER(Sky)]
     assert (c.sizeof(Utc), c.sizeof(Config), c.sizeof(Operation), c.sizeof(Sky), c.alignment(Sky)) == (40, 32, 64, 160, 8)
-    utc = Utc(8, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
+    utc = Utc(ABI, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
     start = c.c_int64()
     assert lib.ws_utc_to_sim(c.byref(utc), c.byref(start)) == 0
-    handle = lib.ws_slice_create(c.byref(Config(8, 32, 71449, start.value, 0)))
+    handle = lib.ws_slice_create(c.byref(Config(ABI, 32, 71449, start.value, 0)))
     assert handle
 
     def fill(name):
@@ -61,12 +64,12 @@ def main():
 
     try:
         geometry = fill("ws_slice_fill_geometry")
-        camera = Operation(8, 64, 4, 0, (c.c_uint64 * 6)(0, 0, 0, struct.unpack("<Q", struct.pack("<d", 500.0))[0], 0, 0))
+        camera = Operation(ABI, 64, 4, 0, (c.c_uint64 * 6)(0, 0, 0, struct.unpack("<Q", struct.pack("<d", 500.0))[0], 0, 0))
         assert lib.ws_slice_apply(handle, c.byref(camera)) == 0
-        assert lib.ws_slice_apply(handle, c.byref(Operation(8, 64, 1, 0, (c.c_uint64 * 6)(20, 0, 0, 0, 0, 0)))) == 0
+        assert lib.ws_slice_apply(handle, c.byref(Operation(ABI, 64, 1, 0, (c.c_uint64 * 6)(20, 0, 0, 0, 0, 0)))) == 0
         snapshot = bytearray(fill("ws_slice_fill_snapshot"))
         sky = Sky()
-        struct.pack_into("<II", sky, 0, 8, 160)
+        struct.pack_into("<II", sky, 0, ABI, 160)
         assert lib.ws_slice_get_calendar_sky(handle, c.byref(sky)) == 0
         calendar = bytearray(c.string_at(c.byref(sky), 160))
         assert snapshot[8:32] == calendar[8:32]
@@ -78,23 +81,56 @@ def main():
             size = c.c_size_t()
             assert lib.ws_slice_inspect(handle, entity, out, len(out), c.byref(size)) == 0
             data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
-            (fixture_dir / ("inspect-" + label + "-v8.hex")).write_text(data.hex() + "\n")
+            (fixture_dir / ("inspect-" + label + SUFFIX + ".hex")).write_text(data.hex() + "\n")
             print("inspect-" + label, len(data), "bytes")
-        for name, data in (("slice-geometry-v8", geometry), ("slice-snapshot-v8", snapshot), ("slice-sky-v8", calendar)):
+        for name, data in (("slice-geometry" + SUFFIX, geometry), ("slice-snapshot" + SUFFIX, snapshot), ("slice-sky" + SUFFIX, calendar)):
             text = "\n".join(data[i:i+32].hex() for i in range(0, len(data), 32)) + "\n"
             (fixture_dir / (name + ".hex")).write_text(text)
             print(name, len(data), "bytes")
         entity = struct.unpack_from("<Q", snapshot, 128)[0]
-        assert lib.ws_slice_apply(handle, c.byref(Operation(8, 64, 5, 0, (c.c_uint64 * 6)(entity, 5, 200000, 0, 0, 0)))) == 0
+        assert lib.ws_slice_apply(handle, c.byref(Operation(ABI, 64, 5, 0, (c.c_uint64 * 6)(entity, 5, 200000, 0, 0, 0)))) == 0
         out = c.create_string_buffer(8192); size = c.c_size_t()
         assert lib.ws_slice_inspect(handle, entity, out, len(out), c.byref(size)) == 0
         data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
-        (fixture_dir / "inspect-ill-v8.hex").write_text(data.hex() + "\n")
+        (fixture_dir / ("inspect-ill" + SUFFIX + ".hex")).write_text(data.hex() + "\n")
         state_at = 96 + struct.unpack_from("<I", data, 64)[0]
         root = struct.unpack_from("<Q", data, state_at + 96)[0]
         assert lib.ws_slice_consequences(handle, root, out, len(out), c.byref(size)) == 0
         data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
-        (fixture_dir / "consequences-v8.hex").write_text(data.hex() + "\n")
+        (fixture_dir / ("consequences" + SUFFIX + ".hex")).write_text(data.hex() + "\n")
+
+        def apply(tag, *words):
+            words = (c.c_uint64 * 6)(*(list(words) + [0] * (6 - len(words))))
+            assert lib.ws_slice_apply(handle, c.byref(Operation(ABI, 64, tag, 0, words))) == 0
+
+        def find_root(after, tag):
+            # Event IDs are dense and ascending; probe forward for the first
+            # committed root of this tag (the storm root has no actor to inspect).
+            for candidate in range(after + 1, after + 4096):
+                if lib.ws_slice_consequences(handle, candidate, out, len(out), c.byref(size)) == 0 \
+                        and struct.unpack_from("<I", out.raw, 96 + 32)[0] == tag:
+                    return candidate
+            raise SystemExit("no root with tag %d after %d" % (tag, after))
+
+        def consequences(name, root):
+            assert lib.ws_slice_consequences(handle, root, out, len(out), c.byref(size)) == 0
+            data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
+            (fixture_dir / (name + SUFFIX + ".hex")).write_text(data.hex() + "\n")
+            print(name, len(data), "bytes")
+
+        # ADR0038 samples after the existing sequence: a bless curing the
+        # sample illness, a one-minute storm run past its end, then a gathering call.
+        apply(6, entity)
+        bless = find_root(root, 14)
+        consequences("consequences-bless", bless)
+        apply(7, 60000000)
+        storm = find_root(bless, 16)
+        for _ in range(7):
+            apply(1, 100)
+        consequences("consequences-storm", storm)
+        building = struct.unpack_from("<Q", snapshot, 128 + 30 * 48)[0]
+        apply(8, building, 600000000)
+        consequences("consequences-gathering", find_root(storm, 20))
     finally:
         lib.ws_slice_destroy(handle)
 

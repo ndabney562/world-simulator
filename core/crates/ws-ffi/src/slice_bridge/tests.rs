@@ -63,7 +63,7 @@ fn slice_config_operation_layout_and_old_library_creation_refusal_are_exact() {
     // SAFETY: only valid stack configs/null pointers; successful ownership destroyed once.
     unsafe {
         assert!(ws_slice_create(null()).is_null());
-        for version in 1..=7 {
+        for version in 1..=8 {
             assert!(
                 ws_slice_create(&WsSliceConfig {
                     abi_version: version,
@@ -125,7 +125,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                 u32_from(&geometry, 4),
                 u64_from(&geometry, 8)
             ),
-            (8, 96, ws_sim::SITE_DATASET_VERSION)
+            (9, 96, ws_sim::SITE_DATASET_VERSION)
         );
         assert_eq!(
             (
@@ -158,7 +158,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                     u32_from(&bytes, 52),
                     u32_from(&bytes, 56)
                 ),
-                (8, 128, 30, 30, 4)
+                (9, 128, 30, 30, 4)
             );
             assert_eq!(&bytes[92..128], &[0; 36]);
             let mut sky = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
@@ -354,9 +354,9 @@ fn close_f32(a: &[u8], b: &[u8], at: usize, tolerance: f32) {
 }
 #[test]
 fn shared_real_slice_samples_pin_integers_and_respect_coordinate_determinism_tiers() {
-    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v8.hex"));
-    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v8.hex"));
-    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v8.hex"));
+    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v9.hex"));
+    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v9.hex"));
+    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v9.hex"));
     // SAFETY: live exclusive native handle and initialized disjoint output storage.
     unsafe {
         let h = ws_slice_create(&config());
@@ -665,7 +665,7 @@ fn illness_wire_semantics_health_and_bounded_explicit_consequences_are_coherent(
             ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
             OK
         );
-        assert_eq!(u32_from(&out, 0), 8);
+        assert_eq!(u32_from(&out, 0), 9);
         assert_eq!(u32_from(&out, 4), 96);
         assert_eq!(u64_from(&out, 24), checkpoint.state);
         assert_eq!(u64_from(&out, 40), root);
@@ -850,5 +850,455 @@ fn slice_ffi_background_save_and_status() {
         ws_slice_destroy(h);
         ws_slice_destroy(loaded);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+fn slice_op(tag: u32, words: [u64; 6]) -> WsSliceOperation {
+    WsSliceOperation {
+        abi_version: ABI_VERSION,
+        struct_size: 64,
+        tag,
+        reserved: 0,
+        words,
+    }
+}
+fn row_tag(out: &[u8], i: usize) -> u32 {
+    u32_from(out, 96 + i * 128 + 32)
+}
+fn row_count(out: &[u8]) -> usize {
+    u32_from(out, 60) as usize
+}
+/// Reads one consequence record.
+unsafe fn consequences_of(h: *mut WsSliceHandle, root: u64) -> Vec<u8> {
+    let mut out = vec![0u8; 8192];
+    let mut written = 0;
+    // SAFETY: caller passes a live exclusive handle; output and control are disjoint.
+    assert_eq!(
+        unsafe { ws_slice_consequences(h, root, out.as_mut_ptr(), out.len(), &mut written) },
+        OK
+    );
+    out.truncate(written);
+    out
+}
+fn last_root(h: &WsSliceHandle) -> u64 {
+    h.world
+        .events()
+        .records()
+        .iter()
+        .rev()
+        .find(|e| e.record.payload.is_slice_root())
+        .unwrap()
+        .id
+        .0
+}
+fn featured_building(h: &WsSliceHandle, role: &str) -> ws_sim::EntityId {
+    h.world
+        .population()
+        .world()
+        .buildings()
+        .iter()
+        .find(|(_, b)| b.featured == Some(role))
+        .unwrap()
+        .0
+}
+/// Monday 21:00 model time (the ws-sim `gather_world` start), with a 1 km
+/// camera over the block so every resident is at L1 and a gathering finds
+/// attendees. Geometry is the shared block geometry, identical for every
+/// slice world.
+unsafe fn gather_handle() -> *mut WsSliceHandle {
+    // SAFETY: a valid stack config and inputs; the returned handle is live and exclusive.
+    unsafe {
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        (*h).world = SliceSimulation::new(SliceConfig {
+            seed: 42,
+            start: SimTime::from_micros_since_epoch(21 * 3_600_000_000),
+            schedule_epoch: SimTime::EPOCH,
+        })
+        .unwrap();
+        let mut camera = op(4, 0);
+        camera.words[3] = 1000.0f64.to_bits();
+        assert_eq!(ws_slice_apply(h, &camera), OK);
+        for _ in 0..100 {
+            let summary = (*h).world.render_snapshot().unwrap().summary;
+            if summary.l1 == summary.population {
+                return h;
+            }
+            assert_eq!(ws_slice_apply(h, &op(1, 1)), OK);
+        }
+        panic!("camera never promoted the block to L1");
+    }
+}
+
+#[test]
+fn abi8_config_is_refused() {
+    assert_eq!(ABI_VERSION, 9);
+    // SAFETY: valid stack configs and inputs; a successful handle is destroyed once.
+    unsafe {
+        assert_eq!(ws_abi_version(), 9);
+        assert!(
+            ws_slice_create(&WsSliceConfig {
+                abi_version: 8,
+                ..config()
+            })
+            .is_null()
+        );
+        assert!(
+            ws_create(&WsConfig {
+                abi_version: 8,
+                struct_size: 32,
+                seed: 7,
+                start_us: 0,
+                residents_per_building: 1,
+                reserved: 0,
+            })
+            .is_null()
+        );
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        let journal = (*h).world.operations().len();
+        let mut old = op(1, 1);
+        old.abi_version = 8;
+        assert_eq!(ws_slice_apply(h, &old), VERSION_MISMATCH);
+        assert_eq!((*h).world.operations().len(), journal);
+        let mut sky = WsCalendarSky::from_view((*h).world.calendar_sky());
+        sky.abi_version = 8;
+        assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), VERSION_MISMATCH);
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn tags_6_to_8_decode_and_reject_nonzero_unused_words() {
+    const HOUR: u64 = 3_600_000_000;
+    // SAFETY: live exclusive handles and stack initialized inputs; destroyed once.
+    unsafe {
+        let h = ws_slice_create(&config());
+        let resident = (*h).world.population().residents().ids()[0];
+        let building = featured_building(&*h, "rowhouse");
+        let bless = slice_op(6, [resident.raw(), 0, 0, 0, 0, 0]);
+        let storm = slice_op(7, [HOUR, 0, 0, 0, 0, 0]);
+        let gather = slice_op(8, [building.raw(), 10 * 60_000_000, 0, 0, 0, 0]);
+        let state = |h: *mut WsSliceHandle| {
+            (
+                (*h).world.checkpoint(),
+                (*h).world.operations().len(),
+                (*h).world.events().records().len(),
+            )
+        };
+        // Framing: every unused word must be zero, and nothing is journalled.
+        for (input, first_unused) in [(bless, 1), (storm, 1), (gather, 2)] {
+            for i in first_unused..6 {
+                let mut bad = input;
+                bad.words[i] = 1;
+                let before = state(h);
+                assert_eq!(ws_slice_apply(h, &bad), INVALID_COMMAND, "tag{}", input.tag);
+                assert_eq!(state(h), before);
+            }
+        }
+        // Framing: a zero identity is not an entity.
+        for bad in [
+            slice_op(6, [0; 6]),
+            slice_op(8, [0, 600_000_000, 0, 0, 0, 0]),
+        ] {
+            let before = state(h);
+            assert_eq!(ws_slice_apply(h, &bad), INVALID_ARGUMENT);
+            assert_eq!(state(h), before);
+        }
+        // Semantic rejections are journalled with no state or event effect.
+        for bad in [
+            slice_op(6, [building.raw(), 0, 0, 0, 0, 0]),
+            slice_op(7, [0, 0, 0, 0, 0, 0]),
+            slice_op(7, [HOUR + 100_000, 0, 0, 0, 0, 0]),
+            slice_op(8, [resident.raw(), 600_000_000, 0, 0, 0, 0]),
+            slice_op(8, [building.raw(), 60_000_000, 0, 0, 0, 0]),
+        ] {
+            let (checkpoint, journal, events) = state(h);
+            assert_eq!(ws_slice_apply(h, &bad), STEP_FAILED, "{bad:?}");
+            assert_eq!(state(h), (checkpoint, journal + 1, events));
+        }
+        // Each tag decodes to its operation.
+        assert_eq!(ws_slice_apply(h, &bless), OK);
+        assert_eq!(
+            (*h).world.operations().last().unwrap().operation,
+            Operation::Bless { resident }
+        );
+        assert_eq!(ws_slice_apply(h, &storm), OK);
+        assert_eq!(
+            (*h).world.operations().last().unwrap().operation,
+            Operation::Storm { duration_us: HOUR }
+        );
+        // A gathering during a storm is a journalled semantic rejection (Busy).
+        let (checkpoint, journal, events) = state(h);
+        assert_eq!(ws_slice_apply(h, &gather), STEP_FAILED);
+        assert_eq!(state(h), (checkpoint, journal + 1, events));
+        assert_eq!(
+            (*h).world.operations().last().unwrap().operation,
+            Operation::Gather {
+                building,
+                duration_us: 10 * 60_000_000
+            }
+        );
+        ws_slice_destroy(h);
+        let h = ws_slice_create(&config());
+        assert_eq!(ws_slice_apply(h, &gather), OK);
+        assert!((*h).world.gathering().is_some());
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn consequence_header_per_root() {
+    const MINUTE: u64 = 60_000_000;
+    // SAFETY: live exclusive handles and disjoint initialized outputs; destroyed once.
+    unsafe {
+        // Bless, healthy: subject is the resident, severity 0, end = applied.
+        let h = ws_slice_create(&config());
+        let ids = (*h).world.population().residents().ids().to_vec();
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(6, [ids[0].raw(), 0, 0, 0, 0, 0])),
+            OK
+        );
+        let root = last_root(&*h);
+        let out = consequences_of(h, root);
+        assert_eq!(u32_from(&out, 0), ABI_VERSION);
+        assert_eq!(u64_from(&out, 40), root);
+        assert_eq!(u64_from(&out, 48), ids[0].raw());
+        assert_eq!(u32_from(&out, 76), 0);
+        assert_eq!(u64_from(&out, 88), u64_from(&out, 80));
+        assert_eq!(
+            u64_from(&out, 80),
+            (*h).world.clock().now().as_micros_since_epoch() as u64
+        );
+        assert_eq!(
+            (row_count(&out), row_tag(&out, 0), row_tag(&out, 1)),
+            (2, 14, 15)
+        );
+        // Bless, ill: the cure row is a Recovered (12), still severity 0, end = applied.
+        let mut afflict = op(5, 0);
+        afflict.words = [ids[1].raw(), 5, 600_000_000, 0, 0, 0];
+        assert_eq!(ws_slice_apply(h, &afflict), OK);
+        assert_eq!(ws_slice_apply(h, &op(1, 3)), OK);
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(6, [ids[1].raw(), 0, 0, 0, 0, 0])),
+            OK
+        );
+        let root = last_root(&*h);
+        let out = consequences_of(h, root);
+        assert_eq!(u64_from(&out, 48), ids[1].raw());
+        assert_eq!(u32_from(&out, 76), 0);
+        assert_eq!(u64_from(&out, 88), u64_from(&out, 80));
+        assert_eq!(
+            (row_count(&out), row_tag(&out, 0), row_tag(&out, 1)),
+            (2, 14, 12)
+        );
+        ws_slice_destroy(h);
+
+        // Storm: subject 0, severity 0, end = storm end; rows 16, then 18 and 19.
+        let h = ws_slice_create(&config());
+        assert_eq!(ws_slice_apply(h, &slice_op(7, [MINUTE, 0, 0, 0, 0, 0])), OK);
+        let root = last_root(&*h);
+        let storm_end = (*h).world.storm().unwrap().end;
+        let out = consequences_of(h, root);
+        assert_eq!(u64_from(&out, 48), 0);
+        assert_eq!(u32_from(&out, 76), 0);
+        assert_eq!(u64_from(&out, 88), storm_end.as_micros_since_epoch() as u64);
+        assert_eq!(u64_from(&out, 88) - u64_from(&out, 80), MINUTE);
+        assert_eq!((row_count(&out), row_tag(&out, 0)), (1, 16));
+        assert_eq!((*h).world.apply(Operation::Steps(601)).unwrap().error, None);
+        let out = consequences_of(h, root);
+        assert_eq!(u64_from(&out, 48), 0);
+        assert_eq!(
+            (0..row_count(&out))
+                .map(|i| row_tag(&out, i))
+                .collect::<Vec<_>>(),
+            [16, 18, 19]
+        );
+        // The wire subject 0 is accepted only for a storm root.
+        let (group, _) = (*h)
+            .world
+            .consequences(ws_sim::ws_events::EventId(root))
+            .unwrap();
+        let mut forged = *group;
+        assert_eq!(inspection::header_subject(&forged), Ok(0));
+        forged.tag = 14;
+        assert!(inspection::header_subject(&forged).is_err());
+        forged.tag = 16;
+        forged.subject = Some((*h).world.population().residents().ids()[0]);
+        assert!(inspection::header_subject(&forged).is_err());
+        ws_slice_destroy(h);
+
+        // Gathering: subject is the building, severity 0, end = gathering end.
+        let h = gather_handle();
+        let building = featured_building(&*h, "rowhouse");
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(8, [building.raw(), 10 * MINUTE, 0, 0, 0, 0])),
+            OK
+        );
+        let root = last_root(&*h);
+        let end = (*h).world.gathering().unwrap().end;
+        let out = consequences_of(h, root);
+        assert_eq!(u64_from(&out, 48), building.raw());
+        assert_eq!(u32_from(&out, 76), 0);
+        assert_eq!(u64_from(&out, 88), end.as_micros_since_epoch() as u64);
+        assert_eq!(u64_from(&out, 88) - u64_from(&out, 80), 10 * MINUTE);
+        assert_eq!((row_count(&out), row_tag(&out, 0)), (1, 20));
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn inspection_accepts_kind3_away_from_home_only() {
+    use ws_sim::slice::inspect::{Entity, Location};
+    // SAFETY: one live exclusive handle and disjoint initialized outputs; destroyed once.
+    unsafe {
+        let h = gather_handle();
+        let target = featured_building(&*h, "rowhouse");
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(8, [target.raw(), 10 * 60_000_000, 0, 0, 0, 0])),
+            OK
+        );
+        let root = last_root(&*h);
+        let attendees: Vec<_> = (*h)
+            .world
+            .gathering()
+            .unwrap()
+            .attendees()
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        let away = |h: *mut WsSliceHandle| {
+            attendees.iter().copied().find(|id| {
+                let record = (*h).world.inspect(*id).unwrap();
+                let Entity::Resident {
+                    identity, state, ..
+                } = &record.entity
+                else {
+                    unreachable!()
+                };
+                identity.home != target && state.logical.location == Location::AtBuilding(target)
+            })
+        };
+        let mut guest = None;
+        for _ in 0..6000 {
+            guest = away(h);
+            if guest.is_some() {
+                break;
+            }
+            assert_eq!((*h).world.apply(Operation::Steps(1)).unwrap().error, None);
+        }
+        let guest = guest.expect("an attendee from another building reaches the target");
+        // The native record publishes kind 3 at the target, away from home.
+        let mut out = [0u8; 8192];
+        let mut written = 0;
+        assert_eq!(
+            ws_slice_inspect(h, guest.raw(), out.as_mut_ptr(), out.len(), &mut written),
+            OK
+        );
+        let state_at = 96 + u32_from(&out, 64) as usize;
+        assert_eq!(u32_from(&out, state_at + 4), 5); // Home activity
+        assert_eq!(u32_from(&out, state_at + 8), 3); // Socialize
+        assert_eq!(u32_from(&out, state_at + 12), 0); // at a building
+        assert_eq!(u64_from(&out, state_at + 32), target.raw());
+        assert_eq!(u32_from(&out, state_at + 80), 3);
+        assert_eq!(u64_from(&out, state_at + 88), root);
+        // No other override kind may stand away from home.
+        let gathering = (*h).world.gathering().map(|g| g.building);
+        let mut bytes = [0u8; inspection::MAX];
+        let record = (*h).world.inspect(guest).unwrap();
+        assert!(inspection::encode(&record, gathering, &mut bytes).is_ok());
+        for kind in [1, 2, 4] {
+            let mut forged = (*h).world.inspect(guest).unwrap();
+            forged.illness.as_mut().unwrap().override_kind = kind;
+            assert!(
+                inspection::encode(&forged, gathering, &mut bytes).is_err(),
+                "kind{kind}"
+            );
+        }
+        // Kind 3 away from home is valid only at the active gathering's building.
+        let record = (*h).world.inspect(guest).unwrap();
+        assert!(inspection::encode(&record, None, &mut bytes).is_err());
+        let elsewhere = featured_building(&*h, "two-family house");
+        assert!(inspection::encode(&record, Some(elsewhere), &mut bytes).is_err());
+        // A root-less override is incoherent.
+        let mut forged = (*h).world.inspect(guest).unwrap();
+        forged.illness.as_mut().unwrap().override_root = 0;
+        assert!(inspection::encode(&forged, gathering, &mut bytes).is_err());
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn event_words_rows_for_power_tags_match_adr_0038() {
+    use ws_sim::ws_events::{Activity, Payload};
+    let world = SliceSimulation::new(SliceConfig {
+        seed: 71449,
+        start: SimTime::EPOCH,
+        schedule_epoch: SimTime::EPOCH,
+    })
+    .unwrap();
+    let r = world.population().residents().ids()[0];
+    let b = world.population().world().buildings().ids()[0];
+    let (rr, br) = (r.raw(), b.raw());
+    let rows = [
+        (
+            14,
+            Payload::BlessApplied {
+                resident: r,
+                sequence: 3,
+                affected: 1,
+            },
+            [rr, 3, 1, 0, 0],
+        ),
+        (15, Payload::NeedsRelieved { resident: r }, [rr, 0, 0, 0, 0]),
+        (
+            16,
+            Payload::StormApplied {
+                sequence: 4,
+                duration_us: 60_000_000,
+            },
+            [4, 60_000_000, 0, 0, 0],
+        ),
+        (
+            17,
+            Payload::StayedInside {
+                resident: r,
+                building: b,
+                activity: Activity::Work,
+            },
+            [rr, br, 2, 0, 0],
+        ),
+        (18, Payload::StormKeptInside { count: 6 }, [6, 0, 0, 0, 0]),
+        (19, Payload::StormEnded { sequence: 4 }, [4, 0, 0, 0, 0]),
+        (
+            20,
+            Payload::GatheringCalled {
+                building: b,
+                sequence: 5,
+                duration_us: 600_000_000,
+                attendees: 7,
+            },
+            [br, 5, 600_000_000, 7, 0],
+        ),
+        (
+            21,
+            Payload::JoinedGathering {
+                resident: r,
+                building: b,
+            },
+            [rr, br, 0, 0, 0],
+        ),
+        (
+            22,
+            Payload::GatheringEnded {
+                building: b,
+                attendees: 2,
+            },
+            [br, 2, 0, 0, 0],
+        ),
+    ];
+    for (tag, payload, words) in rows {
+        assert_eq!(payload.tag(), tag);
+        assert_eq!(inspection::event_words(payload), Ok(words), "tag{tag}");
     }
 }

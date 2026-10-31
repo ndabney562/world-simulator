@@ -1,4 +1,4 @@
-//! ADR0031 separate real-slice ownership and bounded coarse ABI8 transport.
+//! ADR0031 separate real-slice ownership and bounded coarse ABI9 transport.
 use super::*;
 mod inspection;
 pub use inspection::{ws_slice_consequences, ws_slice_inspect};
@@ -15,7 +15,7 @@ const MAX_DYNAMIC: usize = SNAPSHOT_HEADER + (MAX_POPULATION + SUMMARY_COUNT) * 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceConfig {
-    /// Exact current native ABI8.
+    /// Exact current native ABI9.
     pub abi_version: u32,
     /// Exactly32.
     pub struct_size: u32,
@@ -30,16 +30,19 @@ pub struct WsSliceConfig {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceOperation {
-    /// Exact current ABI8.
+    /// Exact current ABI9.
     pub abi_version: u32,
     /// Exactly64.
     pub struct_size: u32,
-    /// 1steps,2scale,3host elapsed microseconds,4camera target/radius.
+    /// 1steps,2scale,3host elapsed microseconds,4camera target/radius,5illness,
+    /// 6bless,7storm,8gathering (ADR0038).
     pub tag: u32,
     /// Zero.
     pub reserved: u32,
     /// Tags1–3: unsigned word0 and remaining words0. Tag4: four finite f64
     /// bit patterns (ENU target metres,radius metres), last two words0.
+    /// Tag5: resident,severity(u32),duration_us. Tag6: resident. Tag7:
+    /// duration_us. Tag8: building,duration_us. Every unused word is zero.
     pub words: [u64; 6],
 }
 /// Opaque serialized real-slice owner. Never cast to/from the toy WsHandle.
@@ -330,6 +333,17 @@ fn operation(
             duration_us: c.words[2],
         });
     }
+    if c.tag == 8 {
+        if c.words[2..].iter().any(|v| *v != 0) {
+            return Err((INVALID_COMMAND, "gathering framing invalid"));
+        }
+        let building = ws_sim::EntityId::from_raw(c.words[0])
+            .map_err(|_| (INVALID_ARGUMENT, "invalid gathering target identity"))?;
+        return Ok(Operation::Gather {
+            building,
+            duration_us: c.words[1],
+        });
+    }
     if c.words[1..].iter().any(|v| *v != 0) {
         return Err((INVALID_COMMAND, "unused operation words must be zero"));
     }
@@ -344,6 +358,13 @@ fn operation(
             _ => return Err((INVALID_COMMAND, "invalid slice scale")),
         })),
         3 => Ok(Operation::HostElapsed(c.words[0])),
+        6 => Ok(Operation::Bless {
+            resident: ws_sim::EntityId::from_raw(c.words[0])
+                .map_err(|_| (INVALID_ARGUMENT, "invalid bless target identity"))?,
+        }),
+        7 => Ok(Operation::Storm {
+            duration_us: c.words[0],
+        }),
         _ => Err((INVALID_COMMAND, "unknown slice operation tag")),
     }
 }
@@ -512,7 +533,7 @@ pub unsafe extern "C" fn ws_slice_get_calendar_sky(
         })
     }
 }
-/// Saves the real slice synchronously to a format-4 save file.
+/// Saves the real slice synchronously to a format-5 save file.
 /// # Safety
 /// Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
 #[unsafe(no_mangle)]
@@ -546,7 +567,7 @@ pub unsafe extern "C" fn ws_slice_save(
         })
     }
 }
-/// Spawns a background thread saving the real slice to a format-4 save file.
+/// Spawns a background thread saving the real slice to a format-5 save file.
 /// # Safety
 /// Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
 #[unsafe(no_mangle)]
@@ -638,7 +659,7 @@ pub unsafe extern "C" fn ws_slice_save_status(handle: *mut WsSliceHandle) -> WsS
     }
     h.save_status
 }
-/// Loads a real slice from a format-4 save file. Returns null on failure.
+/// Loads a real slice from a format-4 or format-5 save file. Returns null on failure.
 /// # Safety
 /// Non-null path is null-terminated UTF-8.
 #[unsafe(no_mangle)]
