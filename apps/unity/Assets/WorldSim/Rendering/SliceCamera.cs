@@ -19,6 +19,12 @@ namespace WorldSim.Rendering
         public float Pitch { get; private set; }=60;
         public float FitDistance { get; private set; }
         public bool IsDefaultView => defaultView;
+        /// <summary>True when the last <see cref="Update"/> moved the view from player input.</summary>
+        public bool UserMoved { get; private set; }
+        Vector3 easeFrom,easeTo;
+        float easeFromDistance,easeToDistance;
+        double easeStart;
+        public bool Easing { get; private set; }
         public const float MinimumDistance=4,MaximumDistance=1500;
         static bool Finite(float f)=>!float.IsNaN(f)&&!float.IsInfinity(f);
         public SliceCamera(Camera camera,Bounds bounds)
@@ -76,10 +82,33 @@ namespace WorldSim.Rendering
             float metres=2*Distance*Mathf.Tan(camera.fieldOfView*Mathf.Deg2Rad*0.5f)/Mathf.Max(1,camera.pixelHeight);
             SetView(Target-(right*pixels.x+forward*pixels.y)*metres,Distance,Yaw,Pitch);
         }
+        /// <summary>Start a smooth move of the target (and zoom) from the current pose; yaw and pitch stay.</summary>
+        public void EaseTo(Vector3 target,float distance,double now)
+        {
+            easeFrom=Target;easeTo=target;easeFromDistance=Distance;easeToDistance=distance;easeStart=now;Easing=true;
+        }
+        /// <summary>Advance an ease begun by <see cref="EaseTo"/>; the curve is supplied by the caller.</summary>
+        public void StepEase(double now,Func<double,float> curve,double seconds)
+        {
+            if(!Easing) return;
+            float s=curve(now-easeStart);
+            SetView(Vector3.Lerp(easeFrom,easeTo,s),Mathf.Lerp(easeFromDistance,easeToDistance,s),Yaw,Pitch);
+            // Tolerance: (start+seconds)-start can round just below seconds.
+            if(now-easeStart>=seconds-1e-9) Easing=false;
+        }
+        /// <summary>Keep the view centred on a moving point (follow mode) without changing zoom or angle.</summary>
+        public void Track(Vector3 point) {SetView(new Vector3(point.x,0.85f,point.z),Distance,Yaw,Pitch);}
         public void Update(bool blocked)
         {
-            ResizeIfNeeded();
+            ResizeIfNeeded();UserMoved=false;
             if(blocked) {orbiting=false;panning=false;return;}
+            uint before=revision;
+            ReadInput();
+            // Any player move takes over from an ease or a follow.
+            if(revision!=before) {UserMoved=true;Easing=false;}
+        }
+        void ReadInput()
+        {
             if(Input.touchCount==2)
             {
                 var a=Input.GetTouch(0);var b=Input.GetTouch(1);
