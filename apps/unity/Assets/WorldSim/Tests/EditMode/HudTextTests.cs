@@ -28,6 +28,43 @@ namespace WorldSim.Tests.EditMode
             Assert.That(Feed(12,b:100),Is.EqualTo("Maria Lopez recovered."));
         }
         [Test]
+        public void FeedLinesForNewTags()
+        {
+            Assert.That(Feed(14),Is.EqualTo("Maria Lopez was blessed"));
+            Assert.That(Feed(15),Is.EqualTo("Maria Lopez feels refreshed"));
+            Assert.That(Feed(16),Is.EqualTo("A storm rolls in"));
+            Assert.That(Feed(17,b:3),Is.EqualTo("Maria Lopez stayed inside"));
+            Assert.That(Feed(18,a:4),Is.EqualTo("The storm kept 4 people inside"));
+            Assert.That(Feed(19),Is.EqualTo("The storm has passed"));
+            Assert.That(Feed(20,a:3),Is.EqualTo("A gathering was called"));
+            Assert.That(Feed(21,b:3),Is.EqualTo("Maria Lopez joined the gathering"));
+            Assert.That(Feed(22,a:3,b:5),Is.EqualTo("The gathering ended (5 came)"));
+        }
+        [Test]
+        public void FinishedPerRootTag()
+        {
+            SliceConsequences Group(ushort root,params uint[] tags)
+            {
+                var ev=new InspectionEvent[tags.Length];
+                for(int i=0;i<tags.Length;i++) ev[i]=new InspectionEvent {Tag=tags[i]};
+                return new SliceConsequences {RootTag=root,Events=ev};
+            }
+            Assert.That(HudText.Finished(Group(14,14)),Is.True,"A bless group is complete when committed.");
+            Assert.That(HudText.Finished(Group(14,14,15)),Is.True);
+            Assert.That(HudText.Finished(Group(16,16)),Is.False);
+            Assert.That(HudText.Finished(Group(16,16,18)),Is.False);
+            Assert.That(HudText.Finished(Group(16,16,18,19)),Is.True);
+            Assert.That(HudText.Finished(Group(20,20,21,21)),Is.False);
+            var ended=Group(20,20,21,21,22);ended.Events[3].B=2;
+            Assert.That(HudText.Finished(ended),Is.False,"Attendees are still on their way home.");
+            var home=Group(20,20,21,21,22,6);home.Events[3].B=2;
+            Assert.That(HudText.Finished(home),Is.False);
+            var all=Group(20,20,21,21,6,6,22);all.Events[5].B=2;
+            Assert.That(HudText.Finished(all),Is.True);
+            var none=Group(20,20,22);
+            Assert.That(HudText.Finished(none),Is.True,"Nobody came, nobody to wait for.");
+        }
+        [Test]
         public void FeedIgnoresEventsOutsideTheConsequenceVocabulary()
         {
             Assert.That(Feed(7),Is.Null);Assert.That(Feed(9),Is.Null);Assert.That(Feed(99),Is.Null);

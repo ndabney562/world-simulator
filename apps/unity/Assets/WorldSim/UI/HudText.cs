@@ -13,7 +13,7 @@ namespace WorldSim.UI
         public static string Activity(uint activity)=>activity<Activities.Length?Activities[activity]:"Unknown";
         public static string Job(uint role)=>role<Jobs.Length?Jobs[role]:"Unknown";
         public static string Name(SliceInspection r)=>r.GivenName+" "+r.FamilyName;
-        /// <summary>One feed line for an illness-consequence event (tags 5, 6, 10, 11, 12, 13); null for any other tag.</summary>
+        /// <summary>One feed line for an illness-consequence event (tags 5, 6, 10-22); null for any other tag.</summary>
         public static string Feed(InspectionEvent e,Func<ulong,string> name)
         {
             switch(e.Tag)
@@ -24,14 +24,30 @@ namespace WorldSim.UI
                 case 11:return name(e.A)+" checked on their neighbour "+name(e.B)+".";
                 case 6:return name(e.A)+" went home to rest.";
                 case 12:return name(e.A)+" recovered.";
+                case 14:return name(e.A)+" was blessed";
+                case 15:return name(e.A)+" feels refreshed";
+                case 16:return "A storm rolls in";
+                case 17:return name(e.A)+" stayed inside";
+                case 18:return "The storm kept "+e.A.ToString(CultureInfo.InvariantCulture)+" people inside";
+                case 19:return "The storm has passed";
+                case 20:return "A gathering was called";
+                case 21:return name(e.A)+" joined the gathering";
+                case 22:return "The gathering ended ("+e.B.ToString(CultureInfo.InvariantCulture)+" came)";
                 default:return null;
             }
         }
         /// <summary>True once a consequence chain can produce no further events.</summary>
         public static bool Finished(SliceConsequences c)
         {
-            foreach(var e in c.Events) if(e.Tag==12||(e.Tag==13&&e.E==0)) return true;
-            return false;
+            // Bless (14) commits whole; a storm is done at 19; a gathering once 22 is seen and every
+            // joined attendee has gone home (6 rows). Illness keeps its recovery / no-effect rule.
+            ulong attendees=0;int returned=0;bool ended=false;
+            foreach(var e in c.Events)
+            {
+                if(e.Tag==12||e.Tag==14||e.Tag==19||(e.Tag==13&&e.E==0)) return true;
+                if(e.Tag==22) {ended=true;attendees=e.B;} else if(e.Tag==6) returned++;
+            }
+            return ended&&(ulong)returned>=attendees;
         }
         public static string Resident(SliceInspection r)
         {

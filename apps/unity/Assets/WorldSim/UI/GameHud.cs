@@ -13,7 +13,9 @@ namespace WorldSim.UI
     [RequireComponent(typeof(SliceDemo))]
     public sealed class GameHud : MonoBehaviour
     {
-        sealed class Watch {public ulong Subject,Root;public bool Done;}
+        enum Power {None,Curse,Bless,Gather}
+        sealed class Watch {public ulong Subject,Root;public ushort RootTag;public bool Done;}
+        const ulong StormUs=3600000000,GatherUs=1800000000;
         const int FeedLines=8;
         const double PollSeconds=1;
         static readonly Color Panel=new Color(0.07f,0.08f,0.11f,0.92f),Accent=new Color(0.95f,0.7f,0.25f),Text=new Color(0.92f,0.92f,0.9f),Dim=new Color(0.62f,0.64f,0.68f);
@@ -23,7 +25,7 @@ namespace WorldSim.UI
         ThemeStyleSheet theme;
         VisualElement root,card,controls,feedPanel,powerBar,schedule;
         Label calendar,notice,stats,cardTitle,cardBody,feedEmpty,hint;
-        Button curse,closeCard;
+        Button curse,bless,storm,gather,closeCard;
         readonly Dictionary<uint,Button> speeds=new Dictionary<uint,Button>();
         readonly List<Watch> watches=new List<Watch>();
         readonly HashSet<ulong> seen=new HashSet<ulong>();
@@ -31,13 +33,25 @@ namespace WorldSim.UI
         readonly List<string> feed=new List<string>();
         readonly List<Label> feedLabels=new List<Label>();
         SliceInspection shown;
-        bool armed,built;
+        Power armed;bool built;
         double nextPoll,warningUntil;
         string warning="";
-        public bool PowerArmed=>armed;
+        public bool PowerArmed=>armed!=Power.None;
         public IReadOnlyList<string> Feed=>feed;
         /// <summary>Select or deselect the power; the next resident tap casts it.</summary>
-        public void TogglePower() {armed=!armed;}
+        public void TogglePower() {Toggle(Power.Curse);}
+        /// <summary>Select or deselect bless; the next resident tap casts it.</summary>
+        public void ToggleBless() {Toggle(Power.Bless);}
+        /// <summary>Select or deselect gathering; the next featured-building tap casts it.</summary>
+        public void ToggleGather() {Toggle(Power.Gather);}
+        void Toggle(Power p) {armed=armed==p?Power.None:p;}
+        /// <summary>Storm needs no target: it casts at once for one hour.</summary>
+        public void CastStorm()
+        {
+            armed=Power.None;
+            try {Watching(0,demo.Storm(StormUs),16);}
+            catch(System.Exception error) {Warn("The storm failed: "+error.Message);}
+        }
 
         void OnEnable()
         {
@@ -52,7 +66,7 @@ namespace WorldSim.UI
             if(demo!=null) {if(demo.UiHitTest==OverHud) demo.UiHitTest=null;demo.Inspected-=OnInspected;demo.Cast-=OnCast;demo.WorldReplaced-=OnWorldReplaced;}
             if(document!=null) Destroy(document);document=null;root=null;built=false;
             if(settings!=null) Destroy(settings);if(theme!=null) Destroy(theme);settings=null;theme=null;
-            watches.Clear();seen.Clear();names.Clear();feed.Clear();feedLabels.Clear();speeds.Clear();shown=null;armed=false;
+            watches.Clear();seen.Clear();names.Clear();feed.Clear();feedLabels.Clear();speeds.Clear();shown=null;armed=Power.None;
         }
         bool OverHud(Vector2 screen)
         {
@@ -107,7 +121,7 @@ namespace WorldSim.UI
 
             feedPanel=Box(strip,Panel);feedPanel.style.flexGrow=1;feedPanel.style.flexShrink=1;feedPanel.style.minWidth=200;
             Line(feedPanel,"What's happening",Accent,14);
-            feedEmpty=Line(feedPanel,"Choose a power below, then tap a resident.",Dim,12);
+            feedEmpty=Line(feedPanel,"Choose a power below, then tap a target.",Dim,12);
             for(int i=0;i<FeedLines;i++) {var l=Line(feedPanel,"",Text,12);l.style.marginTop=2;feedLabels.Add(l);}
 
             // Power bar: one button per god power; select, then tap a resident.
@@ -115,19 +129,35 @@ namespace WorldSim.UI
             hint=Line(powerBar,"",Accent,13);
             var bar=Box(powerBar,Panel);bar.style.flexDirection=FlexDirection.Row;
             curse=Action(bar,"Curse with illness",TogglePower);curse.style.fontSize=15;
+            bless=Action(bar,"Bless",ToggleBless);bless.style.fontSize=15;
+            storm=Action(bar,"Storm",CastStorm);storm.style.fontSize=15;
+            gather=Action(bar,"Gathering",ToggleGather);gather.style.fontSize=15;
             built=true;
         }
+        void Warn(string text) {warning=text;warningUntil=Time.realtimeSinceStartupAsDouble+3;}
+        void Watching(ulong subject,ulong root,ushort tag) {watches.Add(new Watch {Subject=subject,Root=root,RootTag=tag});nextPoll=0;}
         void OnInspected(SliceInspection r)
         {
-            if(!armed) return;
-            if(r.Kind!=1) {warning="Curses need a person: tap a resident.";warningUntil=Time.realtimeSinceStartupAsDouble+3;return;}
+            if(armed==Power.None) return;
+            if(armed==Power.Gather)
+            {
+                var geometry=demo.Geometry;
+                if(r.Kind!=2||geometry==null||!geometry.IsFeatured(r.Id)) {Warn("Gatherings need a home: tap a building.");return;}
+                try {Watching(r.Id,demo.Gather(r.Id,GatherUs),20);armed=Power.None;}
+                catch(System.Exception error) {Warn("The gathering failed: "+error.Message);}
+                return;
+            }
+            if(r.Kind!=1) {Warn(armed==Power.Bless?"Bless needs a person: tap a resident.":"Curses need a person: tap a resident.");return;}
+            if(armed==Power.Bless)
+            {
+                try {Watching(r.Id,demo.Bless(r.Id),14);armed=Power.None;}
+                catch(System.Exception error) {Warn("The blessing failed: "+error.Message);}
+                return;
+            }
             // Fresh tap sample has no root, so this applies the curse exactly once.
-            if(demo.InspectIllness()) armed=false;
+            if(demo.InspectIllness()) armed=Power.None;
         }
-        void OnCast(ulong subject,ulong root)
-        {
-            watches.Add(new Watch {Subject=subject,Root=root});nextPoll=0;
-        }
+        void OnCast(ulong subject,ulong root) {Watching(subject,root,13);}
         void OnWorldReplaced()
         {
             watches.Clear();seen.Clear();names.Clear();Add("Loaded a saved world.");
@@ -147,7 +177,7 @@ namespace WorldSim.UI
             {
                 if(w.Done) continue;
                 SliceConsequences c;
-                try {c=demo.Consequences(w.Subject,w.Root);} catch(System.Exception) {w.Done=true;continue;}
+                try {c=demo.Consequences(w.Subject,w.Root,w.RootTag);} catch(System.Exception) {w.Done=true;continue;}
                 foreach(var e in c.Events)
                 {
                     if(!seen.Add(e.Id)) continue;
@@ -173,8 +203,9 @@ namespace WorldSim.UI
             calendar.text=demo.CalendarText;notice.text=demo.Notice;stats.text=demo.StatusText;
             uint current=demo.CurrentFrame.Scale;
             foreach(var pair in speeds) pair.Value.style.backgroundColor=pair.Key==current?new Color(0.55f,0.4f,0.12f):new Color(0.2f,0.22f,0.28f);
-            curse.style.backgroundColor=armed?new Color(0.55f,0.12f,0.2f):new Color(0.2f,0.22f,0.28f);
-            hint.text=Time.realtimeSinceStartupAsDouble<warningUntil?warning:armed?"Tap a resident to cast.":"";
+            foreach(var (button,power) in new[]{(curse,Power.Curse),(bless,Power.Bless),(gather,Power.Gather)})
+                button.style.backgroundColor=armed==power?new Color(0.55f,0.12f,0.2f):new Color(0.2f,0.22f,0.28f);
+            hint.text=Time.realtimeSinceStartupAsDouble<warningUntil?warning:armed==Power.Gather?"Tap a building to cast.":armed!=Power.None?"Tap a resident to cast.":"";
             var inspection=demo.CurrentInspection;
             if(inspection!=shown)
             {
