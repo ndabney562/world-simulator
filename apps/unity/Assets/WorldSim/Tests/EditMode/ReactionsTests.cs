@@ -33,7 +33,7 @@ namespace WorldSim.Tests.EditMode
             var s=new ResidentStatus();
             s.Apply(Row(13,e:1),13,10*Hour);
             // A bless cure puts the Recovered row in the bless group (ADR 0038 §2).
-            s.Apply(Row(14,e:1,time:Hour),14,0);s.Apply(Row(12,time:Hour),14,0);
+            s.Apply(Row(14,c:1,time:Hour),14,0);s.Apply(Row(12,time:Hour),14,0);
             Assert.That(s.Get(1,Hour+1),Is.EqualTo(StatusIcon.Recovering));
         }
         [Test]

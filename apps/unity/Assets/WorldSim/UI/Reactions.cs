@@ -97,7 +97,9 @@ namespace WorldSim.UI
         /// <summary>Follow a resident (0 stops). Following eases there first, then tracks every frame.</summary>
         public void Follow(ulong id)
         {
-            following=id;if(id==0||!Locate(id,out var where)) return;
+            // Own the current pose even when there is nowhere to ease to, so following is not read as a takeover.
+            following=id;if(demo.Orbit!=null) owned=demo.Orbit.Revision;
+            if(id==0||!Locate(id,out var where)) return;
             Ease(new Vector3(where.x,0.85f,where.z),ResidentZoom,Time.realtimeSinceStartupAsDouble);
         }
         void Ease(Vector3 target,float zoom,double now)
