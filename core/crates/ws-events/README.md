@@ -56,4 +56,4 @@ GP-002 appends tags 14 through 22. Roots (tags 14, 16, 20, plus 13) carry `Origi
 | 21 | `social.joined_gathering` | resident, building | 8192 |
 | 22 | `social.gathering_ended` | building, attendees | 8192 |
 
-Digest words are the fields in the order above; unknown resident or building IDs are rejected. Producer system numbers, participants and cause links for these tags are enforced by the producers in later GP-002 work, not yet here. Existing tags, layouts and goldens are unchanged.
+Digest words are the fields in the order above; unknown resident or building IDs are rejected. Producer system numbers (D4): roots use system 10; bless effects 84, storm effects 85, gathering effects 86; `ReturnedHome` keeps 50. Importance: roots 32768; `StayedInside` matches `MissedDuty`, `JoinedGathering` matches `NeighbourCheckIn`, and `NeedsRelieved`, `StormKeptInside`, `StormEnded` and `GatheringEnded` match `Recovered`. Participants and cause links are enforced by the `ws-sim` producers. Existing tags, layouts and goldens are unchanged.

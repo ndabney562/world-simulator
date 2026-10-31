@@ -106,3 +106,20 @@ Every intervention has an inspector record: what it targeted, what it changed at
 ## Accepted reversible powers increment
 
 [ADR0038](../adr/0038-bless-storm-gathering-powers.md) accepts #125's three reversible powers: bless (early recovery or relieved needs), a one-hour storm that defers baseline departures, and a gathering that brings up to seven neighbours to one building under a new override kind. Each is a slice operation with a root event, bounded consequences that rebuild identically on load, and save format 5. No death, no new UI mechanism.
+
+### Implemented in GP-002 (#125, branch `claude/125-god-powers-impl`)
+
+The three powers are implemented end to end: event payloads 14 to 22, `ws-life` storm holds and routine kind 3, `ws-sim` episodes, save format 5, ABI 9 and the Unity HUD. Decisions made while implementing, in addition to ADR 0038:
+
+- **D1, storm hold state.** Saved resident state has no `logical` field (it is recomputed from the routine or baseline timetable), so a storm-deferred resident needs saved state. `ResidentStateSnapshot` gains `storm_hold: Option<StormHold>`, saved in each format-5 `slice_behavior` row and hashed only when `Some`, so existing goldens are unchanged. It is not an override and inspection never reports it.
+- **D2, gathering distance.** The block dataset has no integer-millimetre positions; `SourceBuilding.centroid` is a `GeoPoint` in pico-degrees. Distance uses a fixed integer equirectangular conversion: `dy_mm = Δlat * 111_133 / 10^9`, `dx_mm = Δlon * 84_383 / 10^9`, in `i128` (mm per micro-degree at latitude 40.622 degrees). Eligible when `dx² + dy² <= 150_000²`. A golden test pins the six pairwise distances between the four featured buildings.
+- **D3, post-storm resume (revised after the Task 3 review).** At the first re-evaluation at or after `storm.end`, a held resident whose baseline is still inside the deferred row's walk window departs now with the row's own duration. Otherwise they walk (route walking time) from the held building to where the baseline places them now, then rejoin from there, or rejoin at once if already there. The first rule (hold until rejoin) stranded residents for hours. The hold stores its phase (deferring or resuming) explicitly and never derives it from the storm window.
+- **D4, producer system numbers.** Roots use system 10; bless effects 84, storm effects 85, gathering effects 86; `ReturnedHome` keeps 50. Roots have importance 32768; other new tags reuse the level of their nearest ADR 0034 analogue.
+
+Behaviour worth knowing:
+
+- **Bless cure.** The illness routine is recomputed as natural recovery would be. The illness group's `end` stays the originally scheduled end, and the illness group gets no `Recovered` row: the bless group owns it.
+- **Save format 5** persists the slice storm and a separate `ws-life` storm window. The window outlives the storm episode until every hold rejoins. It also persists the gathering with its `joined` counter and each attendee's phase, and each resident's storm hold, phase included. Format 4 still loads, with no episodes and no holds.
+- **ABI 9** adds the read-only export `ws_slice_last_root(handle, uint64_t*)`, returning the root of the most recently accepted intervention (operations 5 to 8) or 0; it exists because a storm root has no actor. The consequence header subject is 0 only for a storm root. The native inspection encoder refuses incoherent override state, and override kind 3 is the only kind allowed away from home. The ABI 8 fixtures and `abi-v8-smoke.c` are kept; v9 fixtures and `abi-v9-smoke.c` are added.
+- **HUD.** Bless and Gathering are select-then-tap, Storm casts for one hour, and a Gathering from the HUD lasts 30 minutes.
+

@@ -1,5 +1,9 @@
 # Architecture Proposal Changelog
 
+## GP-002 implementation (2026-10-30)
+
+Implements accepted ADR 0038 (#125) on `claude/125-god-powers-impl`: bless, storm and gathering as slice operations 6 to 8, event payloads 14 to 22, `ws-life` storm holds and routine kind 3, `ws-sim` episodes, save format 5 (format 4 still loads), ABI 9 with the additive `ws_slice_last_root` export, and Unity HUD buttons and feed. Decisions added by the plan: D1 saved per-resident storm hold; D2 fixed integer equirectangular gathering distance (150 000 mm reach, constants pinned by a golden); D3 revised post-storm resume (depart now inside the row's walk window, otherwise walk then rejoin, with the hold phase stored explicitly); D4 producer systems 10, 84, 85, 86 and root importance 32768. A bless cure leaves the illness group's `end` unchanged and gives it no `Recovered` row. The ABI 8 fixtures and `abi-v8-smoke.c` are kept beside the new v9 ones. Pending PR and review.
+
 ## ADR 0038 accepted (2026-10-30)
 
 Claude accepted ADR 0038 under the standing delegation (#122, PR #123) after a fresh-context review on PR #129 found three Majors, all fixed in the text: producer-defined consequence-index membership that rebuilds identically on load (gathering capped at seven attendees, `StayedInside` excluded), a dedicated override kind 3 for gatherings instead of reusing the neighbour visit, and a single storm deferral rule with storm/gathering mutual exclusion. Round 2 added per-root consequence header and row rules with a root-only consequence read, bless recovery indexed under the bless root, and ABI 8 → 9.

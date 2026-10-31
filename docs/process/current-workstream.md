@@ -20,6 +20,7 @@ Costs, new credentials/accounts, repository settings, test weakening, Apple sign
 | Illness #74 | #103 merged at `e5276e347fc68ab18fad8497055f00e7ea50f343`; reviewed head `8269e5bb9d96cb31eeb02fb21e8e4d4c260132f0`, all five checks passed | Completed; final device coverage remains #76 |
 | Persistence #53 / #75 | Merged in #108 / #109; format 4 under accepted ADR0036 | Preserve native save/load coverage; browser durability is separate |
 | Browser #106 / #107 | Spike #111 and accepted ADR0035 (acceptance record PR #113) #110 merged | #112: pinned complete-player build and desktop release preparation; phone browsers later |
+| God powers GP-002 #125 | ADR 0038 accepted; bless, storm and gathering implemented on `claude/125-god-powers-impl` (save format 5, ABI 9, HUD); decisions D1 to D4 in [architecture 13](../architecture/13-god-interventions.md) | Pending PR and fresh-context review; merge on green under the standing delegation |
 | Final run #76 | Open | Noah: iPhone evidence and stage declaration |
 
 #53 delivered baseline/delta storage; #75 delivered slice state, background saving and Unity controls under accepted ADR0036. Do not repeat completed persistence work. #76 records every criterion as met, explicitly waived by Noah, or open with a follow-up. Neither engineering integration nor a desktop benchmark closes device criteria.
