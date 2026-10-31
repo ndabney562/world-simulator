@@ -17,13 +17,15 @@ namespace WorldSim.UI
         public const ulong StormUs=3600000000,GatherUs=1800000000;
         const int FeedLines=8;
         const double PollSeconds=1;
+        const int GoalRows=4;
         static readonly Color Panel=new Color(0.07f,0.08f,0.11f,0.92f),Accent=new Color(0.95f,0.7f,0.25f),Text=new Color(0.92f,0.92f,0.9f),Dim=new Color(0.62f,0.64f,0.68f);
         SliceDemo demo;
         UIDocument document;
         PanelSettings settings;
         ThemeStyleSheet theme;
         VisualElement root,card,controls,feedPanel,powerBar,schedule;
-        Label calendar,notice,stats,cardTitle,cardBody,feedEmpty,hint;
+        Label calendar,notice,stats,cardTitle,cardBody,cardFaith,faithMeter,feedEmpty,hint;
+        readonly Label[] goalLabels=new Label[GoalRows];
         Button curse,bless,storm,gather,closeCard,follow;
         Reactions reactions;
         readonly Dictionary<uint,Button> speeds=new Dictionary<uint,Button>();
@@ -36,6 +38,11 @@ namespace WorldSim.UI
         Power armed;bool built;
         double nextPoll,warningUntil;
         string warning="";
+        // Faith and goals: polled at most once a real second; strings are built on the poll only.
+        SliceGod god;double nextGod;long godDay;bool haveGod;
+        readonly bool[] goalDone=new bool[GoalRows];
+        public string MeterText=>faithMeter!=null?faithMeter.text:"";
+        public string CardFaithText=>cardFaith!=null&&cardFaith.resolvedStyle.display!=DisplayStyle.None?cardFaith.text:"";
         public bool PowerArmed=>armed!=Power.None;
         public IReadOnlyList<string> Feed=>feed;
         /// <summary>Each consequence row the first time a poll sees it, with its group.</summary>
@@ -79,7 +86,7 @@ namespace WorldSim.UI
             if(demo!=null) {if(demo.UiHitTest==OverHud) demo.UiHitTest=null;demo.Inspected-=OnInspected;demo.Cast-=OnCast;demo.WorldReplaced-=OnWorldReplaced;}
             if(document!=null) Destroy(document);document=null;root=null;built=false;
             if(settings!=null) Destroy(settings);if(theme!=null) Destroy(theme);settings=null;theme=null;
-            watches.Clear();seen.Clear();names.Clear();feed.Clear();feedLabels.Clear();speeds.Clear();shown=null;armed=Power.None;
+            watches.Clear();seen.Clear();names.Clear();god=null;haveGod=false;nextGod=0;feed.Clear();feedLabels.Clear();speeds.Clear();shown=null;armed=Power.None;
         }
         bool OverHud(Vector2 screen)
         {
@@ -125,6 +132,8 @@ namespace WorldSim.UI
             var view=Row(controls);Action(view,"Overview",demo.ResetView);Action(view,"Street",demo.RequestStreetView);Action(view,"Save",demo.SaveSlice);Action(view,"Load",demo.LoadSlice);
             notice=Line(controls,"",Accent,12);
             stats=Line(controls,"",Dim,10);
+            faithMeter=Line(controls,"Faith 0",Accent,13);faithMeter.style.marginTop=4;
+            for(int i=0;i<GoalRows;i++) {goalLabels[i]=Line(controls,"",Text,11);goalLabels[i].style.display=DisplayStyle.None;}
 
             card=Box(strip,Panel);card.style.width=320;card.style.flexShrink=1;card.style.marginRight=8;
             var head=Row(card);head.style.justifyContent=Justify.SpaceBetween;head.style.flexWrap=Wrap.NoWrap;
@@ -133,6 +142,7 @@ namespace WorldSim.UI
             follow=Action(buttons,"Follow",ToggleFollow);follow.style.marginTop=0;
             closeCard=Action(buttons,"Close",demo.ClearInspection);closeCard.style.marginTop=0;
             cardBody=Line(card,"",Text,13);
+            cardFaith=Line(card,"",Dim,13);
             var scroll=new ScrollView(ScrollViewMode.Vertical);scroll.style.flexGrow=1;scroll.style.marginTop=4;card.Add(scroll);schedule=scroll.contentContainer;
 
             feedPanel=Box(strip,Panel);feedPanel.style.flexGrow=1;feedPanel.style.flexShrink=1;feedPanel.style.minWidth=200;
@@ -179,7 +189,7 @@ namespace WorldSim.UI
         }
         void OnWorldReplaced()
         {
-            watches.Clear();seen.Clear();names.Clear();Add("Loaded a saved world.");
+            watches.Clear();seen.Clear();names.Clear();haveGod=false;god=null;nextGod=0;Add("Loaded a saved world.");
         }
         string NameOf(ulong id)
         {
@@ -207,6 +217,35 @@ namespace WorldSim.UI
             }
             watches.RemoveAll(w=>w.Done);
         }
+        /// <summary>Reads faith and goals (at most once a second), refreshes the meter, goal rows and card line, and
+        /// adds a feed line when a goal turns done between two polls of the same day.</summary>
+        void PollGod(double now)
+        {
+            SliceGod g;
+            try {g=demo.God();} catch(System.Exception) {nextGod=now+PollSeconds;return;}
+            nextGod=now+PollSeconds;
+            int n=System.Math.Min(g.Goals.Length,GoalRows);
+            for(int i=0;i<n;i++)
+            {
+                if(haveGod&&g.Day==godDay&&g.Goals[i].Done&&!goalDone[i]) Add(HudText.GoalComplete(g.Goals[i]));
+                goalDone[i]=g.Goals[i].Done;
+            }
+            god=g;godDay=g.Day;haveGod=true;
+            faithMeter.text=HudText.Faith(g.BlockFaith);
+            for(int i=0;i<GoalRows;i++)
+            {
+                bool on=i<n;goalLabels[i].style.display=on?DisplayStyle.Flex:DisplayStyle.None;
+                if(on) goalLabels[i].text=HudText.GoalLine(g.Goals[i]);
+            }
+            UpdateCardFaith();
+        }
+        void UpdateCardFaith()
+        {
+            var r=shown;
+            bool on=r!=null&&r.Kind==1&&god!=null;
+            cardFaith.style.display=on?DisplayStyle.Flex:DisplayStyle.None;
+            if(on) cardFaith.text=HudText.CardFaith(god.FaithOf(r.Id));
+        }
         void Update()
         {
             if(document==null||demo==null) return;
@@ -216,6 +255,7 @@ namespace WorldSim.UI
             // A new cast polls once at any speed (its events are already committed); repeats
             // wait while paused, since chains cannot progress and each poll forces a pacing boundary.
             if(watches.Count>0&&now>=nextPoll&&(nextPoll==0||demo.CurrentFrame.Scale!=0)) {Poll();nextPoll=now+PollSeconds;}
+            if(now>=nextGod) PollGod(now);
             Refresh();
         }
         void Refresh()
@@ -236,6 +276,7 @@ namespace WorldSim.UI
                     cardBody.text=inspection.Kind==1?HudText.Resident(inspection):HudText.Building(inspection);
                     if(inspection.Kind==1) {Line(schedule,"Today",Accent,12);foreach(var row in HudText.TodaySchedule(inspection)) Line(schedule,row,Dim,12);}
                 }
+                UpdateCardFaith();
             }
             card.style.display=inspection!=null?DisplayStyle.Flex:DisplayStyle.None;
             bool resident=inspection!=null&&inspection.Kind==1&&reactions!=null;

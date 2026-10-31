@@ -59,6 +59,27 @@ namespace WorldSim.UI
             if(c.RootTag==20) return ended&&(home.IsSupersetOf(joined)||(decimal)c.Time>=(decimal)c.End+GatheringGraceUs);
             return (c.RootTag==13||c.RootTag==0)&&c.End!=0&&c.Time>=c.End;
         }
+        /// <summary>Faith meter text: "Faith +12", "Faith 0", "Faith -7" (ASCII minus).</summary>
+        public static string Faith(int blockFaith)=>blockFaith==0?"Faith 0":"Faith "+(blockFaith>0?"+":"")+blockFaith.ToString(CultureInfo.InvariantCulture);
+        /// <summary>The goal in plain words, singular for a target of 1 (kinds 1-4: gathering, bless, cure, storm).</summary>
+        public static string Goal(SliceGoal g)
+        {
+            string n=g.Target.ToString(CultureInfo.InvariantCulture);bool one=g.Target==1;
+            switch(g.Kind)
+            {
+                case 1:return one?"Bring 1 person to a gathering":"Bring "+n+" people to a gathering";
+                case 2:return one?"Bless 1 person":"Bless "+n+" different people";
+                case 3:return "Cure someone with a blessing";
+                case 4:return one?"Keep 1 person inside during a storm":"Keep "+n+" people inside during a storm";
+                default:return "Goal";
+            }
+        }
+        /// <summary>Goal-list row: "{goal} \u2014 {p}/{N}", or "Done: {goal}".</summary>
+        public static string GoalLine(SliceGoal g)=>g.Done?"Done: "+Goal(g):Goal(g)+" \u2014 "+g.Progress.ToString(CultureInfo.InvariantCulture)+"/"+g.Target.ToString(CultureInfo.InvariantCulture);
+        public static string GoalComplete(SliceGoal g)=>"Goal complete: "+Goal(g);
+        /// <summary>How a resident feels about the player: devoted (&gt;= 40), trusting (&gt;= 10), unsure (&gt; -10), wary (&gt; -40), fearful.</summary>
+        public static string FaithWord(int faith)=>faith>=40?"devoted":faith>=10?"trusting":faith>-10?"unsure":faith>-40?"wary":"fearful";
+        public static string CardFaith(int faith)=>"Faith: "+FaithWord(faith);
         public static string Resident(SliceInspection r)
         {
             return string.Format(CultureInfo.InvariantCulture,"Age {0} · {1}\nHealth {2}/100{3}\nNow: {4}",
