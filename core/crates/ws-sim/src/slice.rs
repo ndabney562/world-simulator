@@ -10,10 +10,16 @@ use ws_life::{InvalidPopulation, RULES_VERSION, Schedules};
 use ws_rng::{Purpose, SipHasher24};
 use ws_world::slice::population::{PopulatedSlice, PopulationError};
 
+#[path = "slice/god.rs"]
+mod god;
 #[path = "slice/illness.rs"]
 pub mod illness;
 #[path = "slice/powers.rs"]
 mod powers;
+pub use god::{
+    Caps, FAITH_MAX, FAITH_MIN, Goal, GoalFact, GoalKind, Goals, God, GodError, MAX_GOALS,
+    Observed, day_of, generate as generate_goals,
+};
 pub use powers::{Gathering, MAX_ATTENDEES, Phase, REACH_MM, Storm, distance_ok, offset_mm};
 
 #[path = "slice_inspect.rs"]
@@ -182,6 +188,7 @@ pub struct SliceSimulation {
     vitals: ws_world::slice::vitals::Vitals,
     illness: illness::Illness,
     powers: powers::Powers,
+    god: god::God,
     schedules: Schedules,
     behavior: Behavior,
     lod: Controller,
@@ -254,12 +261,14 @@ impl SliceSimulation {
             .map_err(SliceError::History)?
             .commit();
         let next_change = schedules.next_change(config.start);
+        let god = fresh_god(config, &population, &vitals, config.start);
         Ok(Self {
             config,
             population,
             vitals,
             illness: illness::Illness::default(),
             powers: powers::Powers::default(),
+            god,
             schedules,
             behavior,
             lod,
@@ -338,6 +347,23 @@ impl SliceSimulation {
     /// Canonical state/configuration in explicit integer words. Host pacing,
     /// factual/operation histories, capacities and derived boundary cache are separate.
     pub fn state_hash(&self) -> u64 {
+        let state = self.state_hash_without_god();
+        // ADR 0039 §4: an untouched god is a pure function of hashed state
+        // and the day, so it is mixed only once faith or a goal has moved.
+        if !self.god.touched() {
+            return state;
+        }
+        ws_rng::hash(
+            0,
+            Purpose::new("ws-sim/slice-state/v5").value(),
+            &[state, self.god.hash()],
+        )
+    }
+    /// [`Self::state_hash`] without the ADR 0039 god block: the hash a
+    /// format-4 or format-5 save of this world reloads to, since those
+    /// formats restore faith 0 and freshly generated goals.
+    #[doc(hidden)]
+    pub fn state_hash_without_god(&self) -> u64 {
         let vitals = ws_rng::hash(
             0,
             Purpose::new("ws-sim/slice-state/v2").value(),
@@ -365,6 +391,14 @@ impl SliceSimulation {
             Purpose::new("ws-sim/slice-state/v4").value(),
             &[state, self.powers.hash()],
         )
+    }
+    /// Resident faith and the day's goals (ADR 0039).
+    pub const fn god(&self) -> &god::God {
+        &self.god
+    }
+    /// Goal feasibility caps from the current committed state (ADR 0039 §2).
+    pub fn caps(&self) -> god::Caps {
+        caps(&self.population, &self.vitals)
     }
     fn legacy_state_hash(&self) -> u64 {
         let b = self.population.baseline();
@@ -802,6 +836,14 @@ impl SliceSimulation {
             .map_err(|_| SliceError::History(EventError::Resource))?;
         facts.append(&mut gathering_facts);
         facts.sort_unstable_by_key(|c| (c.system, c.sequence));
+        let god = god_pass(
+            &self.god,
+            self.config,
+            &self.population,
+            &self.vitals,
+            &mut facts,
+            clock.now(),
+        )?;
         let updates = self.illness.stage_index(
             &self.events,
             &facts,
@@ -815,10 +857,144 @@ impl SliceSimulation {
         lod.commit();
         self.illness.commit(illness_plan, updates, &mut self.vitals);
         self.powers = powers;
+        self.god = god;
         self.next_change = next;
         self.clock = clock;
         Ok(())
     }
+}
+/// Producer system for `GoalCompleted` (ADR 0039 §3), after every other producer.
+const GOAL_SYSTEM: u16 = 87;
+/// ADR 0039 §2 caps: the most living residents whose home lies within reach
+/// of any one featured residential building, living and retained residents.
+fn caps(population: &PopulatedSlice, vitals: &ws_world::slice::vitals::Vitals) -> god::Caps {
+    use ws_world::slice::vitals::Life;
+    let buildings = population.world().buildings();
+    let alive = |id| vitals.get(id).is_some_and(|v| v.life() == Life::Alive);
+    let gathering_reach = buildings
+        .iter()
+        .filter(|(_, b)| b.residential_units > 0)
+        .map(|(_, target)| {
+            population
+                .residents()
+                .iter()
+                .filter(|(id, r)| {
+                    alive(*id)
+                        && buildings
+                            .get(r.home)
+                            .is_some_and(|home| powers::distance_ok(home, target))
+                })
+                .count() as u32
+        })
+        .max()
+        .unwrap_or(0);
+    let ids = population.residents().ids();
+    god::Caps {
+        gathering_reach,
+        living: ids.iter().filter(|id| alive(**id)).count() as u32,
+        residents: ids.len() as u32,
+    }
+}
+/// Faith 0 for every retained resident and the goals of `now`'s day, as at a
+/// day boundary (creation, and restore until saves carry god state).
+fn fresh_god(
+    config: SliceConfig,
+    population: &PopulatedSlice,
+    vitals: &ws_world::slice::vitals::Vitals,
+    now: SimTime,
+) -> god::God {
+    let day = god::day_of(now, config.schedule_epoch);
+    god::God::new(
+        population.residents().ids(),
+        god::generate(config.seed, day, caps(population, vitals)),
+    )
+}
+/// ADR 0039 post-pass over one commit batch whose candidates are final and
+/// sorted. Rolls the goal day first when `now` is in a new day (so this batch
+/// counts toward it), applies the faith and goal rules in batch order, and
+/// appends one `GoalCompleted` per completed goal, `ContributedTo/Direct` the
+/// triggering candidate by in-batch link. Returns the next god, which the
+/// caller publishes only after the events commit.
+fn god_pass(
+    current: &god::God,
+    config: SliceConfig,
+    population: &PopulatedSlice,
+    vitals: &ws_world::slice::vitals::Vitals,
+    facts: &mut Vec<Candidate>,
+    now: SimTime,
+) -> Result<god::God, SliceError> {
+    use ws_events::{Cause, Confidence, Relation, Target};
+    let day = god::day_of(now, config.schedule_epoch);
+    let rolled;
+    let base = if day == current.goals().day {
+        current
+    } else {
+        rolled = current.roll_day(
+            day,
+            god::generate(config.seed, day, caps(population, vitals)),
+        );
+        &rolled
+    };
+    // A cure is a `Recovered` caused in this batch by a bless of that resident.
+    let mut cured = Vec::new();
+    for c in facts.iter() {
+        let Payload::Recovered { resident, .. } = c.payload else {
+            continue;
+        };
+        let by_bless = c.causes.iter().any(|l| {
+            l.relation == Relation::CausedBy
+                && matches!(l.target, Target::Local(j)
+                    if matches!(facts.get(j as usize).map(|f| f.payload),
+                        Some(Payload::BlessApplied { resident: r, .. }) if r == resident))
+        });
+        if by_bless {
+            cured
+                .try_reserve(1)
+                .map_err(|_| SliceError::History(EventError::Resource))?;
+            cured.push(resident);
+        }
+    }
+    let mut observed = Vec::new();
+    observed
+        .try_reserve(facts.len())
+        .map_err(|_| SliceError::History(EventError::Resource))?;
+    observed.extend(facts.iter().enumerate().map(|(index, c)| god::Observed {
+        index,
+        payload: &c.payload,
+    }));
+    let (next, completed) = base.plan(&observed, &cured);
+    drop(observed);
+    facts
+        .try_reserve(completed.len())
+        .map_err(|_| SliceError::History(EventError::Resource))?;
+    // Sequences follow append (trigger) order, not slot order: two goals
+    // completed by different triggers may have descending slots, and
+    // `EventStore::prepare` needs strictly ascending (system, sequence).
+    for (sequence, g) in completed.into_iter().enumerate() {
+        let mut c = Candidate::new(
+            now,
+            GOAL_SYSTEM,
+            sequence as u64,
+            Payload::GoalCompleted {
+                day,
+                slot: g.slot,
+                kind: g.kind as u8,
+                target: g.target,
+            },
+            Origin::System(GOAL_SYSTEM),
+        );
+        c.causes
+            .push(Cause {
+                target: Target::Local(
+                    u32::try_from(g.trigger).map_err(|_| SliceError::History(EventError::Limit))?,
+                ),
+                relation: Relation::ContributedTo,
+                confidence: Confidence::Direct,
+            })
+            .map_err(SliceError::History)?;
+        facts.push(c);
+    }
+    Ok(next)
 }
 fn lod_error(error: LodError) -> SliceError {
     match error {

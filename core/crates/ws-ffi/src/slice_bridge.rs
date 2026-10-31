@@ -1,4 +1,4 @@
-//! ADR0031 separate real-slice ownership and bounded coarse ABI9 transport.
+//! ADR0031 separate real-slice ownership and bounded coarse ABI10 transport.
 use super::*;
 mod inspection;
 pub use inspection::{ws_slice_consequences, ws_slice_inspect};
@@ -15,7 +15,7 @@ const MAX_DYNAMIC: usize = SNAPSHOT_HEADER + (MAX_POPULATION + SUMMARY_COUNT) * 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceConfig {
-    /// Exact current native ABI9.
+    /// Exact current native ABI10.
     pub abi_version: u32,
     /// Exactly32.
     pub struct_size: u32,
@@ -30,7 +30,7 @@ pub struct WsSliceConfig {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceOperation {
-    /// Exact current ABI9.
+    /// Exact current ABI10.
     pub abi_version: u32,
     /// Exactly64.
     pub struct_size: u32,
@@ -731,6 +731,108 @@ pub unsafe extern "C" fn ws_slice_last_root(
             }
             let value = h.world.last_root().map_or(0, |r| r.0);
             root.write(value);
+            Ok(())
+        })
+    }
+}
+/// One daily goal row, 16 bytes aligned 4 (ADR 0039 section 5).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct WsSliceGoal {
+    /// Goal template: 1 gathering, 2 bless distinct, 3 cure, 4 storm; 0 unused.
+    pub kind: u32,
+    /// Progress needed.
+    pub target: u32,
+    /// Progress so far today.
+    pub progress: u32,
+    /// 1 once completed today, else 0.
+    pub done: u32,
+}
+/// One resident's faith row, 16 bytes aligned 8.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct WsSliceFaith {
+    /// Resident EntityId raw value; 0 for an unused row.
+    pub id: u64,
+    /// Faith, -100 to 100.
+    pub faith: i32,
+    /// Zero.
+    pub reserved: u32,
+}
+/// Resident faith and the day's goals, 560 bytes aligned 8 (ADR 0039 section 5).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct WsSliceGod {
+    /// Exactly 560; the caller sets it before the call.
+    pub struct_size: u32,
+    /// Zero.
+    pub reserved: u32,
+    /// Day number the goals belong to.
+    pub day: i64,
+    /// Block faith: mean resident faith, truncated toward zero.
+    pub block_faith: i32,
+    /// Goals in use, 0 to 3.
+    pub goal_count: u32,
+    /// Goal rows; rows beyond `goal_count` are zero.
+    pub goals: [WsSliceGoal; 3],
+    /// Faith rows in use, 0 to 30.
+    pub resident_count: u32,
+    /// Zero.
+    pub reserved2: u32,
+    /// Faith rows in ascending resident ID; rows beyond `resident_count` are zero.
+    pub residents: [WsSliceFaith; 30],
+}
+const _: () = assert!(size_of::<WsSliceGod>() == 560 && align_of::<WsSliceGod>() == 8);
+/// Pure read of resident faith, block faith and the day's goals (ADR 0039).
+/// Never steps, flushes or publishes. The whole struct is written only on
+/// success, with unused rows and reserved fields zero.
+/// # Safety
+/// Handle is live/exclusive; output is aligned writable 560-byte storage
+/// disjoint from the handle, with `struct_size` set to 560.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_god(
+    handle: *mut WsSliceHandle,
+    output: *mut WsSliceGod,
+) -> WsStatus {
+    // SAFETY: caller supplies the live opaque handle and disjoint aligned output;
+    // only the initialized struct_size field is read before the full write.
+    unsafe {
+        operate_slice(handle, |h| {
+            if output.is_null() || !output.is_aligned() {
+                return Err((INVALID_ARGUMENT, "god output is null or unaligned"));
+            }
+            if std::ptr::addr_of!((*output).struct_size).read() != 560 {
+                return Err((VERSION_MISMATCH, "god struct size must be 560"));
+            }
+            let god = h.world.god();
+            let mut value: WsSliceGod = std::mem::zeroed();
+            value.struct_size = 560;
+            value.day = god.goals().day;
+            value.block_faith = god.block_faith();
+            let goals = god.goals().goals();
+            value.goal_count = goals.len().min(3) as u32;
+            for (row, goal) in value.goals.iter_mut().zip(goals) {
+                *row = WsSliceGoal {
+                    kind: u32::from(goal.kind as u8),
+                    target: u32::from(goal.target),
+                    progress: u32::from(goal.progress),
+                    done: u32::from(goal.done),
+                };
+            }
+            let faith = god.faith();
+            value.resident_count = faith.len().min(MAX_POPULATION) as u32;
+            for (row, (id, f)) in value.residents.iter_mut().zip(faith) {
+                *row = WsSliceFaith {
+                    id: id.raw(),
+                    faith: i32::from(*f),
+                    reserved: 0,
+                };
+            }
+            #[cfg(test)]
+            if h.panic_before_output {
+                panic!("god output fault");
+            }
+            output.write(value);
             Ok(())
         })
     }

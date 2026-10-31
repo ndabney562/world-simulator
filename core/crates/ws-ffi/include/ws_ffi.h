@@ -12,7 +12,7 @@
 /**
  * Exact native/managed contract version.
  */
-#define ABI_VERSION 9
+#define ABI_VERSION 10
 
 /**
  * Most residents per building a config may ask for.
@@ -136,7 +136,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current native ABI9.
+   * Exact current native ABI10.
    */
   uint32_t abi_version;
   /**
@@ -162,7 +162,7 @@ typedef struct {
  */
 typedef struct {
   /**
-   * Exact current ABI9.
+   * Exact current ABI10.
    */
   uint32_t abi_version;
   /**
@@ -317,6 +317,88 @@ typedef struct {
    */
   double elevation_deg;
 } WsCalendarSky;
+
+/**
+ * One daily goal row, 16 bytes aligned 4 (ADR 0039 section 5).
+ */
+typedef struct {
+  /**
+   * Goal template: 1 gathering, 2 bless distinct, 3 cure, 4 storm; 0 unused.
+   */
+  uint32_t kind;
+  /**
+   * Progress needed.
+   */
+  uint32_t target;
+  /**
+   * Progress so far today.
+   */
+  uint32_t progress;
+  /**
+   * 1 once completed today, else 0.
+   */
+  uint32_t done;
+} WsSliceGoal;
+
+/**
+ * One resident's faith row, 16 bytes aligned 8.
+ */
+typedef struct {
+  /**
+   * Resident EntityId raw value; 0 for an unused row.
+   */
+  uint64_t id;
+  /**
+   * Faith, -100 to 100.
+   */
+  int32_t faith;
+  /**
+   * Zero.
+   */
+  uint32_t reserved;
+} WsSliceFaith;
+
+/**
+ * Resident faith and the day's goals, 560 bytes aligned 8 (ADR 0039 section 5).
+ */
+typedef struct {
+  /**
+   * Exactly 560; the caller sets it before the call.
+   */
+  uint32_t struct_size;
+  /**
+   * Zero.
+   */
+  uint32_t reserved;
+  /**
+   * Day number the goals belong to.
+   */
+  int64_t day;
+  /**
+   * Block faith: mean resident faith, truncated toward zero.
+   */
+  int32_t block_faith;
+  /**
+   * Goals in use, 0 to 3.
+   */
+  uint32_t goal_count;
+  /**
+   * Goal rows; rows beyond `goal_count` are zero.
+   */
+  WsSliceGoal goals[3];
+  /**
+   * Faith rows in use, 0 to 30.
+   */
+  uint32_t resident_count;
+  /**
+   * Zero.
+   */
+  uint32_t reserved2;
+  /**
+   * Faith rows in ascending resident ID; rows beyond `resident_count` are zero.
+   */
+  WsSliceFaith residents[30];
+} WsSliceGod;
 
 /**
  * Validated UTC input label, exactly40 bytes aligned to4.
@@ -580,6 +662,16 @@ WsSliceHandle *ws_slice_load(const char *path_utf8);
  * Handle is live/exclusive; root is aligned writable u64 storage disjoint from the handle.
  */
 WsStatus ws_slice_last_root(WsSliceHandle *handle, uint64_t *root);
+
+/**
+ * Pure read of resident faith, block faith and the day's goals (ADR 0039).
+ * Never steps, flushes or publishes. The whole struct is written only on
+ * success, with unused rows and reserved fields zero.
+ * # Safety
+ * Handle is live/exclusive; output is aligned writable 560-byte storage
+ * disjoint from the handle, with `struct_size` set to 560.
+ */
+WsStatus ws_slice_god(WsSliceHandle *handle, WsSliceGod *output);
 
 /**
  * Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.

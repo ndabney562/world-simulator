@@ -123,3 +123,18 @@ Behaviour worth knowing:
 - **ABI 9** adds the read-only export `ws_slice_last_root(handle, uint64_t*)`, returning the root of the most recently accepted intervention (operations 5 to 8) or 0; it exists because a storm root has no actor. The consequence header subject is 0 only for a storm root. The native inspection encoder refuses incoherent override state, and override kinds 3 and 4 are the only kinds allowed away from home. The ABI 8 fixtures and `abi-v8-smoke.c` are kept; v9 fixtures and `abi-v9-smoke.c` are added.
 - **HUD.** Bless and Gathering are select-then-tap, Storm casts for one hour, and a Gathering from the HUD lasts 30 minutes.
 
+
+## Accepted faith and daily goals increment
+
+[ADR0039](../adr/0039-faith-and-daily-goals.md) accepts #127's resident faith and daily goals. Each resident holds faith from -100 to 100 (bless +15, an affecting curse -20, staying inside -5, joining a gathering +10, each completed goal +10 to everyone); the block faith meter is the truncated mean. Each model day generates one to three goals from the seed, the day and state at the boundary; every goal needs a cast, and only a completion records an event. Faith is a rule on existing events, not events of its own.
+
+### Implemented in GP-004 (#127, branch `claude/127-faith-goals`)
+
+Faith and goals are implemented end to end: event payload 23 `GoalCompleted`, `ws-sim` owned `God` state and a per-commit `god_pass`, save format 6, ABI 10 with the read-only `ws_slice_god`, and the Unity faith meter, goal list and card faith word. Rulings made while implementing, in addition to ADR 0039 (recorded as its marked amendment):
+
+- **D1, faith storage.** Faith is saved in its own `slice_faith` table (`resident_id`, `faith`), not appended to the resident row. The `slice_goals` blob also stores the current gathering (building, joined).
+- **R1, gathering progress.** Progress is the largest count of `JoinedGathering` rows sharing one building recorded today; the core keeps the current gathering's (building, joined) and saves it.
+- **R2, bless goal.** "Bless N different people" is skipped, like an unreachable gathering, when no resident is living, so no goal completes without a cast.
+- **Event sequence.** `GoalCompleted`'s sequence is its position among the batch's completions; the slot is in the payload. It is linked `ContributedTo/Direct` the triggering candidate and never indexed in consequences.
+- **Goal reward order.** The `GoalCompleted` +10 applies immediately after its triggering candidate, before the rest of the batch (ADR 0039 amendment).
+- **Old saves.** Formats 4 and 5 load with faith 0 and freshly generated goals for the restored day. The state hash mixes the god block only once any faith is nonzero or any goal has progress, so worlds that use no power keep their goldens.

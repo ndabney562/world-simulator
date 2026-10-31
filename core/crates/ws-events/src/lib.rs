@@ -396,6 +396,17 @@ pub enum Payload {
         /// Residents that recorded `JoinedGathering`.
         attendees: u32,
     },
+    /// A daily goal was completed (ADR 0039).
+    GoalCompleted {
+        /// Day the goal belongs to.
+        day: i64,
+        /// Goal slot within the day.
+        slot: u8,
+        /// Goal kind code.
+        kind: u8,
+        /// Goal target code.
+        target: u8,
+    },
     /// An ill resident arrived at its home.
     ReturnedHome {
         /// The resident.
@@ -421,6 +432,7 @@ impl Payload {
             Self::GatheringCalled { .. } => "intervention.gathering_called",
             Self::JoinedGathering { .. } => "social.joined_gathering",
             Self::GatheringEnded { .. } => "social.gathering_ended",
+            Self::GoalCompleted { .. } => "god.goal_completed",
             Self::WorldCreated { .. } => "sim.world_created",
             Self::CommandApplied { .. } => "sim.command_applied",
             Self::LodChanged { .. } => "sim.lod_changed",
@@ -449,6 +461,7 @@ impl Payload {
             Self::GatheringCalled { .. } => 20,
             Self::JoinedGathering { .. } => 21,
             Self::GatheringEnded { .. } => 22,
+            Self::GoalCompleted { .. } => 23,
             Self::WorldCreated { .. } => 0,
             Self::CommandApplied { .. } => 1,
             Self::LodChanged { .. } => 2,
@@ -472,7 +485,8 @@ impl Payload {
             | Self::NeedsRelieved { .. }
             | Self::StormKeptInside { .. }
             | Self::StormEnded { .. }
-            | Self::GatheringEnded { .. } => 8192,
+            | Self::GatheringEnded { .. }
+            | Self::GoalCompleted { .. } => 8192,
             Self::SliceIllnessApplied { .. }
             | Self::BlessApplied { .. }
             | Self::StormApplied { .. }
@@ -664,6 +678,17 @@ impl Event {
                 building,
                 attendees,
             } => sink(&[building.raw(), u64::from(attendees)]),
+            Payload::GoalCompleted {
+                day,
+                slot,
+                kind,
+                target,
+            } => sink(&[
+                day as u64,
+                u64::from(slot),
+                u64::from(kind),
+                u64::from(target),
+            ]),
             Payload::WorldCreated {
                 seed,
                 dataset,
@@ -1220,7 +1245,9 @@ impl EventStore {
                         return Err(EventError::UnknownActor);
                     }
                 }
-                Payload::StormKeptInside { .. } | Payload::StormEnded { .. } => {}
+                Payload::StormKeptInside { .. }
+                | Payload::StormEnded { .. }
+                | Payload::GoalCompleted { .. } => {}
                 Payload::WorldCreated { .. } => {
                     if c.system != 0 || c.lod != 0 {
                         return Err(EventError::Order);

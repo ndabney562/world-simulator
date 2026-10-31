@@ -34,8 +34,8 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void SharedUtcAndSkyByteFixturesMatchNativeLayoutAndInvalidRecordsAreRejected()
         {
-            var label = new NativeUtcLabel { Version = 9, Size = 40, Year = 2026, Month = 6, Day = 21, Hour = 17 };
-            CollectionAssert.AreEqual(Fixture("utc-label-v9.hex"), NativeBytes(label));
+            var label = new NativeUtcLabel { Version = 10, Size = 40, Year = 2026, Month = 6, Day = 21, Hour = 17 };
+            CollectionAssert.AreEqual(Fixture("utc-label-v10.hex"), NativeBytes(label));
             using (var world = new NativeWorld(7, 6, NativeWorld.UtcToSim(2026, 6, 21, 17, 0, 0)))
             {
                 var sky = world.GetCalendarSky();
@@ -43,7 +43,7 @@ namespace WorldSim.Tests.EditMode
                 // The shared transport fixture uses a deliberate zero hash
                 // sentinel; canonical hash/query invariance is tested separately.
                 sky.StateHash = 0;
-                CollectionAssert.AreEqual(Fixture("calendar-sky-v9.hex"), NativeBytes(sky));
+                CollectionAssert.AreEqual(Fixture("calendar-sky-v10.hex"), NativeBytes(sky));
                 Assert.That(world.GetCalendarSky().StateHash, Is.EqualTo(realHash));
                 sky = world.GetCalendarSky(); sky.Version = 3;
                 Assert.Throws<InvalidOperationException>(() => sky.Validate());
