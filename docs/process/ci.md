@@ -147,3 +147,5 @@ The first ARM Linux run at `2079dc51577bc31de380adb3355c3b80212105b0` acquired a
 GP-002 (ADR0038) advances current consumers to ABI9: `abi-v9-smoke.c` keeps the ABI8 consumer checks and adds tag6–8 framing, journalled semantic rejection, `ws_slice_last_root` and root-only storm consequences; ABI1–8 fixtures and consumer sources remain.
 
 GP-004 (ADR0039) advances current consumers to ABI10: `abi-v10-smoke.c` keeps the ABI9 checks and adds `ws_slice_god` layout, `struct_size` and row checks; ABI1–9 fixtures and consumer sources remain.
+
+The older ABI smoke sources (`abi-v3-smoke.c` to `abi-v9-smoke.c`) are kept in the tree for reference but are not compiled; only `abi-v10-smoke.c` is built and run.

@@ -51,6 +51,14 @@ The post-pass first checks the day: when the tick's time is in a new day it repl
 
 **4. Persistence and determinism.** Save format 6 appends `faith` to each resident's slice row and adds one `slice_goals` table: day, count, and per slot kind, target, progress, done, plus up to three blessed resident IDs for kind 2. The loader reads formats 4, 5 and 6; writers write 6. Formats 4 and 5 load with faith 0 and the current day's goals generated as at a day boundary. The canonical state hash appends a `god` block only when any faith is nonzero or any goal has progress or is done; an untouched goal set is a pure function of hashed state and the day, so existing goldens stay byte-identical when no power is used. New goldens cover each goal kind's completion from a fixed seed, replayed in the same and in a separate process; one test saves mid-day with partial progress and asserts the reload continues identically.
 
+*Amendment (2026-10-31, during implementation).* The accepted §4 text above is kept; these rulings from the build supersede it where they differ.
+
+- **Faith storage (D1).** Faith is saved in its own table, `slice_faith (resident_id INTEGER PRIMARY KEY, faith INTEGER NOT NULL)`, one row per retained resident, not appended to the resident's slice row. The `slice_goals` blob also stores the current gathering, its building and `joined` count (R1), so a reload mid-day continues the count.
+- **Gathering progress (R1).** Progress for "Bring N people to a gathering" is the largest count of `JoinedGathering` rows sharing one building recorded today. The core keeps the current gathering's (building, joined) and saves it.
+- **Bless goal without a cast (R2).** "Bless N different people" is skipped, like an unreachable gathering, when no resident is living, so no goal can complete in a world with no cast.
+- **Event sequence.** `GoalCompleted`'s event sequence is its position among the batch's completions, not its slot; the slot is in the payload.
+- **Old formats.** Formats 4 and 5 load with faith 0 and freshly generated goals. Old-format test writers use a hidden `state_hash_without_god()` for their header.
+
 **5. FFI.** One read-only export:
 
 ```c
