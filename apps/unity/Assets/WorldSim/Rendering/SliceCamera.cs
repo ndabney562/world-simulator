@@ -19,8 +19,8 @@ namespace WorldSim.Rendering
         public float Pitch { get; private set; }=60;
         public float FitDistance { get; private set; }
         public bool IsDefaultView => defaultView;
-        /// <summary>True when the last <see cref="Update"/> moved the view from player input.</summary>
-        public bool UserMoved { get; private set; }
+        /// <summary>Bumped by every pose change; a caller automating the camera detects any other mover by it.</summary>
+        public uint Revision => revision;
         Vector3 easeFrom,easeTo;
         float easeFromDistance,easeToDistance;
         double easeStart;
@@ -96,19 +96,15 @@ namespace WorldSim.Rendering
             // Tolerance: (start+seconds)-start can round just below seconds.
             if(now-easeStart>=seconds-1e-9) Easing=false;
         }
+        /// <summary>Move the end of a running ease, e.g. to a walker who has moved since it began.</summary>
+        public void RetargetEase(Vector3 target) {easeTo=target;}
+        public void CancelEase() {Easing=false;}
         /// <summary>Keep the view centred on a moving point (follow mode) without changing zoom or angle.</summary>
         public void Track(Vector3 point) {SetView(new Vector3(point.x,0.85f,point.z),Distance,Yaw,Pitch);}
         public void Update(bool blocked)
         {
-            ResizeIfNeeded();UserMoved=false;
+            ResizeIfNeeded();
             if(blocked) {orbiting=false;panning=false;return;}
-            uint before=revision;
-            ReadInput();
-            // Any player move takes over from an ease or a follow.
-            if(revision!=before) {UserMoved=true;Easing=false;}
-        }
-        void ReadInput()
-        {
             if(Input.touchCount==2)
             {
                 var a=Input.GetTouch(0);var b=Input.GetTouch(1);

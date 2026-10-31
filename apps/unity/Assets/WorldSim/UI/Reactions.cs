@@ -12,7 +12,7 @@ namespace WorldSim.UI
     /// Presentation only: reads the frame and the HUD's polled consequence rows, never writes
     /// simulation state. Warmed drawing reuses fixed matrix arrays and allocates nothing.
     /// </summary>
-    [RequireComponent(typeof(SliceDemo))]
+    [RequireComponent(typeof(SliceDemo),typeof(GameHud))]
     public sealed class Reactions : MonoBehaviour
     {
         struct Effect {public EffectKind Kind;public Vector3 At;public double Start;}
@@ -38,6 +38,8 @@ namespace WorldSim.UI
         SliceGeometry indexed;
         Bounds drawBounds;
         ulong following;
+        // The camera revision after this component's last write; any other change is a takeover.
+        uint owned;
         /// <summary>Statuses shown now, for tests.</summary>
         public ResidentStatus Status=>status;
         /// <summary>The resident the camera follows, or 0.</summary>
@@ -74,7 +76,7 @@ namespace WorldSim.UI
             status.Clear();effectCount=0;following=0;indexed=null;buildings.Clear();
         }
         void OnConsequence(InspectionEvent e,SliceConsequences c) {status.Apply(e,c.RootTag,c.End);}
-        void OnWorldReplaced() {status.Clear();effectCount=0;following=0;}
+        void OnWorldReplaced() {status.Clear();effectCount=0;following=0;demo.Orbit?.CancelEase();}
         void OnCasted(ushort tag,ulong subject)
         {
             Index();if(indexed==null) return;
@@ -83,19 +85,25 @@ namespace WorldSim.UI
             if(tag==HudCasts.GatherTag)
             {
                 if(!buildings.TryGetValue(subject,out var home)) return;
-                var at=new Vector3(home.Centroid.x,indexed.Bounds.min.y+0.05f,home.Centroid.y);
-                AddEffect(EffectKind.Gathering,at,now);orbit?.EaseTo(new Vector3(at.x,0.85f,at.z),Mathf.Min(orbit.Distance,BuildingZoom),now);
+                // On the roof: an opaque ring at ground level would spend its life inside the walls.
+                var at=new Vector3(home.Centroid.x,home.Height+0.1f,home.Centroid.y);
+                AddEffect(EffectKind.Gathering,at,now);Ease(new Vector3(at.x,0.85f,at.z),BuildingZoom,now);
                 return;
             }
             if(!Locate(subject,out var where)) return;
             AddEffect(tag==HudCasts.BlessTag?EffectKind.Bless:EffectKind.Curse,where,now);
-            orbit?.EaseTo(new Vector3(where.x,0.85f,where.z),Mathf.Min(orbit.Distance,ResidentZoom),now);
+            Ease(new Vector3(where.x,0.85f,where.z),ResidentZoom,now);
         }
         /// <summary>Follow a resident (0 stops). Following eases there first, then tracks every frame.</summary>
         public void Follow(ulong id)
         {
-            following=id;if(id==0||demo.Orbit==null||!Locate(id,out var where)) return;
-            demo.Orbit.EaseTo(new Vector3(where.x,0.85f,where.z),Mathf.Min(demo.Orbit.Distance,ResidentZoom),Time.realtimeSinceStartupAsDouble);
+            following=id;if(id==0||!Locate(id,out var where)) return;
+            Ease(new Vector3(where.x,0.85f,where.z),ResidentZoom,Time.realtimeSinceStartupAsDouble);
+        }
+        void Ease(Vector3 target,float zoom,double now)
+        {
+            var orbit=demo.Orbit;if(orbit==null) return;
+            orbit.EaseTo(target,Mathf.Min(orbit.Distance,zoom),now);owned=orbit.Revision;
         }
         void AddEffect(EffectKind kind,Vector3 at,double now)
         {
@@ -139,11 +147,18 @@ namespace WorldSim.UI
         {
             if(demo==null||demo.Geometry==null||box==null) return;
             Index();double now=Time.realtimeSinceStartupAsDouble;var orbit=demo.Orbit;
-            if(following!=0&&(orbit==null||orbit.UserMoved||demo.CurrentInspection==null||demo.CurrentInspection.Id!=following)) following=0;
-            if(orbit!=null)
+            if(following!=0&&(orbit==null||demo.CurrentInspection==null||demo.CurrentInspection.Id!=following)) following=0;
+            if(orbit!=null&&(orbit.Easing||following!=0))
             {
-                if(orbit.Easing) orbit.StepEase(now,ReactionMath.Ease,ReactionMath.EaseSeconds);
-                else if(following!=0&&Locate(following,out var where)) orbit.Track(where);
+                // Player input, Overview, Street or a resize moved the camera since our last write: hand it back.
+                if(orbit.Revision!=owned) {orbit.CancelEase();following=0;}
+                else
+                {
+                    Vector3 where=default;bool here=following!=0&&Locate(following,out where);
+                    if(orbit.Easing) {if(here) orbit.RetargetEase(new Vector3(where.x,0.85f,where.z));orbit.StepEase(now,ReactionMath.Ease,ReactionMath.EaseSeconds);}
+                    else if(here) orbit.Track(where);
+                    owned=orbit.Revision;
+                }
             }
             Draw(now);
         }

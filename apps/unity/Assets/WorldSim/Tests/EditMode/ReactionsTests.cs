@@ -28,6 +28,15 @@ namespace WorldSim.Tests.EditMode
             Assert.That(s.Get(1,3*Hour),Is.EqualTo(StatusIcon.None));
         }
         [Test]
+        public void BlessCureMovesSickToRecovering()
+        {
+            var s=new ResidentStatus();
+            s.Apply(Row(13,e:1),13,10*Hour);
+            // A bless cure puts the Recovered row in the bless group (ADR 0038 §2).
+            s.Apply(Row(14,e:1,time:Hour),14,0);s.Apply(Row(12,time:Hour),14,0);
+            Assert.That(s.Get(1,Hour+1),Is.EqualTo(StatusIcon.Recovering));
+        }
+        [Test]
         public void NoEffectCurseShowsNothingAndNeighbourVisitLastsItsDuration()
         {
             var s=new ResidentStatus();
@@ -94,6 +103,11 @@ namespace WorldSim.Tests.EditMode
                 orbit.StepEase(10+ReactionMath.EaseSeconds,ReactionMath.Ease,ReactionMath.EaseSeconds);
                 Assert.That(orbit.Target.x,Is.EqualTo(20).Within(1e-4));Assert.That(orbit.Target.z,Is.EqualTo(-10).Within(1e-4));Assert.That(orbit.Distance,Is.EqualTo(60).Within(1e-4));
                 Assert.That(orbit.Easing,Is.False);Assert.That(orbit.Yaw,Is.EqualTo(30));Assert.That(orbit.Pitch,Is.EqualTo(50));
+                uint before=orbit.Revision;orbit.EaseTo(new Vector3(0,0.85f,0),60,20);orbit.RetargetEase(new Vector3(-8,0.85f,4));
+                Assert.That(orbit.Revision,Is.EqualTo(before),"Starting or retargeting an ease does not move the camera yet.");
+                orbit.StepEase(20+ReactionMath.EaseSeconds,ReactionMath.Ease,ReactionMath.EaseSeconds);
+                Assert.That(orbit.Target.x,Is.EqualTo(-8).Within(1e-4));Assert.That(orbit.Revision,Is.Not.EqualTo(before));
+                orbit.EaseTo(Vector3.zero,60,30);orbit.CancelEase();Assert.That(orbit.Easing,Is.False);
                 orbit.Track(new Vector3(5,3,7));
                 Assert.That(orbit.Target,Is.EqualTo(new Vector3(5,0.85f,7)));Assert.That(orbit.Distance,Is.EqualTo(60).Within(1e-4));Assert.That(orbit.Yaw,Is.EqualTo(30));
             }
@@ -124,26 +138,36 @@ namespace WorldSim.Tests.EditMode
             Assert.That(cast,Is.True,"A visible resident must be tappable.");
             Assert.That(reactions.ActiveEffects,Is.EqualTo(1),"The curse shows where it lands.");
             Assert.That(demo.Orbit.Easing,Is.True,"The camera eases to the target.");
+            // Warmed drawing allocates nothing, with a live effect and advancing time.
+            double start=Time.realtimeSinceStartupAsDouble;
+            for(int i=0;i<10;i++) reactions.Draw(start+i*0.01);
+            long allocation=GC.GetAllocatedBytesForCurrentThread();
+            for(int i=10;i<20;i++) reactions.Draw(start+i*0.01);
+            Assert.That(GC.GetAllocatedBytesForCurrentThread()-allocation,Is.Zero,"Warmed reactions must reuse matrices and materials.");
+            Assert.That(reactions.ActiveEffects,Is.EqualTo(1));
             ulong patient=demo.CurrentInspection.Id;
             for(int i=0;i<3;i++) yield return null;
             Assert.That(reactions.Status.Get(patient,demo.CurrentFrame.SimTimeMicroseconds),Is.EqualTo(StatusIcon.Sick));
             Assert.That(reactions.DrawnIcons,Is.GreaterThanOrEqualTo(1));
-            // Follow, then closing the card stops it.
+            // Follow, then Overview hands the camera back: no pull to the resident, the default fit holds.
+            hud.ToggleFollow();Assert.That(reactions.Following,Is.EqualTo(patient));
+            double until=Time.realtimeSinceStartupAsDouble+1;
+            while(Time.realtimeSinceStartupAsDouble<until) yield return null;
+            Assert.That(reactions.Following,Is.EqualTo(patient),"Following holds while nothing else moves the camera.");
+            demo.ResetView();
+            until=Time.realtimeSinceStartupAsDouble+0.5;
+            while(Time.realtimeSinceStartupAsDouble<until) yield return null;
+            Assert.That(reactions.Following,Is.Zero);Assert.That(demo.Orbit.IsDefaultView,Is.True);Assert.That(demo.Orbit.Easing,Is.False);
+            // Following again, then closing the card stops it.
             hud.ToggleFollow();Assert.That(reactions.Following,Is.EqualTo(patient));
             yield return null;demo.ClearInspection();
             // Editor updates outpace player frames at 60 fps: wait real time, not a frame count.
-            double until=Time.realtimeSinceStartupAsDouble+1;
+            until=Time.realtimeSinceStartupAsDouble+1;
             while(reactions.Following!=0&&Time.realtimeSinceStartupAsDouble<until) yield return null;
             Assert.That(reactions.Following,Is.Zero);
             hud.CastStorm();until=Time.realtimeSinceStartupAsDouble+1;
             while(!reactions.StormVisible&&Time.realtimeSinceStartupAsDouble<until) yield return null;
             Assert.That(reactions.StormVisible,Is.True,"The storm cloud shows at once.");
-            // Warmed drawing allocates nothing.
-            double now=Time.realtimeSinceStartupAsDouble;
-            for(int i=0;i<10;i++) reactions.Draw(now);
-            long allocation=GC.GetAllocatedBytesForCurrentThread();
-            for(int i=0;i<10;i++) reactions.Draw(now);
-            Assert.That(GC.GetAllocatedBytesForCurrentThread()-allocation,Is.Zero,"Warmed reactions must reuse matrices and materials.");
             yield return new ExitPlayMode();
         }
     }
