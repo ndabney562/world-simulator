@@ -38,6 +38,10 @@ class CheckVersions(unittest.TestCase):
         errors = self.errors(**{"apps__unity__README.md": "Current ABI: **9**.\n## Real block (current ABI7)\n"})
         self.assertEqual(errors, ["apps/unity/README.md:2: says ABI 7, code has 9"])
 
+    def test_stale_current_abi_is_claim_fails(self):
+        errors = self.errors(**{"core__crates__ws-ffi__README.md": "Current ABI: **9** here.\nCurrent ABI is6. The current ABI is9.\n"})
+        self.assertEqual(errors, ["core/crates/ws-ffi/README.md:2: says ABI 6, code has 9"])
+
     def test_stale_writer_format_claim_fails(self):
         errors = self.errors(**{"core__crates__ws-persist__README.md": "Current save format: **5**.\nWriters always write format 3.\n"})
         self.assertEqual(errors, ["core/crates/ws-persist/README.md:2: says format 3, code has 5"])

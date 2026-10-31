@@ -84,8 +84,8 @@ def check_adr_index(errors):
 ABI_CONST = ("core/crates/ws-ffi/src/lib.rs", r"pub const ABI_VERSION: u32 = (\d+);")
 FORMAT_CONST = ("core/crates/ws-persist/src/header.rs", r"pub const FORMAT_VERSION: u32 = (\d+);")
 CLAIMS = [
-    ("ABI", re.compile(r"current ABI:?\s*\**\s*(\d+)", re.I)),
-    ("format", re.compile(r"current save format:?\s*\**\s*(\d+)", re.I)),
+    ("ABI", re.compile(r"current ABI(?:\s+is)?:?\s*\**\s*v?(\d+)", re.I)),
+    ("format", re.compile(r"current save format(?:\s+is)?:?\s*\**\s*v?(\d+)", re.I)),
     ("format", re.compile(r"writers (?:always )?write format (\d+)", re.I)),
 ]
 REQUIRED = [
