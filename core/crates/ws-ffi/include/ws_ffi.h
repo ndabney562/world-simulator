@@ -571,6 +571,17 @@ WsStatus ws_slice_save_status(WsSliceHandle *handle);
 WsSliceHandle *ws_slice_load(const char *path_utf8);
 
 /**
+ * Pure read of the root EventId of the most recently accepted intervention
+ * (operation tags5–8), or0 when none has been accepted. Read from the derived
+ * consequence index (rebuilt from history on load), so a rejected operation
+ * leaves it unchanged and it survives save/load.
+ * Never steps, flushes or publishes; root is written only on success.
+ * # Safety
+ * Handle is live/exclusive; root is aligned writable u64 storage disjoint from the handle.
+ */
+WsStatus ws_slice_last_root(WsSliceHandle *handle, uint64_t *root);
+
+/**
  * Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.
  * # Safety
  * Non-null handle is live/exclusive; positive capacity requires a writable buffer.

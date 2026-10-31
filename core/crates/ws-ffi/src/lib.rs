@@ -16,7 +16,7 @@ mod slice_bridge;
 pub use slice_bridge::{
     WsSliceConfig, WsSliceHandle, WsSliceOperation, ws_slice_apply, ws_slice_consequences,
     ws_slice_create, ws_slice_destroy, ws_slice_fill_geometry, ws_slice_fill_snapshot,
-    ws_slice_get_calendar_sky, ws_slice_inspect, ws_slice_last_error,
+    ws_slice_get_calendar_sky, ws_slice_inspect, ws_slice_last_error, ws_slice_last_root,
 };
 mod calendar;
 pub use calendar::{WsCalendarSky, WsUtcLabel, ws_get_calendar_sky, ws_utc_to_sim};

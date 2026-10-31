@@ -47,6 +47,7 @@ def main():
         getattr(lib, name).argtypes = [c.c_void_p, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
     lib.ws_slice_consequences.argtypes = [c.c_void_p, c.c_uint64, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
     lib.ws_slice_inspect.argtypes = [c.c_void_p, c.c_uint64, c.c_void_p, c.c_size_t, c.POINTER(c.c_size_t)]
+    lib.ws_slice_last_root.argtypes = [c.c_void_p, c.POINTER(c.c_uint64)]
     lib.ws_slice_get_calendar_sky.argtypes = [c.c_void_p, c.POINTER(Sky)]
     assert (c.sizeof(Utc), c.sizeof(Config), c.sizeof(Operation), c.sizeof(Sky), c.alignment(Sky)) == (40, 32, 64, 160, 8)
     utc = Utc(ABI, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
@@ -103,14 +104,10 @@ def main():
             words = (c.c_uint64 * 6)(*(list(words) + [0] * (6 - len(words))))
             assert lib.ws_slice_apply(handle, c.byref(Operation(ABI, 64, tag, 0, words))) == 0
 
-        def find_root(after, tag):
-            # Event IDs are dense and ascending; probe forward for the first
-            # committed root of this tag (the storm root has no actor to inspect).
-            for candidate in range(after + 1, after + 4096):
-                if lib.ws_slice_consequences(handle, candidate, out, len(out), c.byref(size)) == 0 \
-                        and struct.unpack_from("<I", out.raw, 96 + 32)[0] == tag:
-                    return candidate
-            raise SystemExit("no root with tag %d after %d" % (tag, after))
+        def last_root():
+            value = c.c_uint64()
+            assert lib.ws_slice_last_root(handle, c.byref(value)) == 0
+            return value.value
 
         def consequences(name, root):
             assert lib.ws_slice_consequences(handle, root, out, len(out), c.byref(size)) == 0
@@ -120,17 +117,18 @@ def main():
 
         # ADR0038 samples after the existing sequence: a bless curing the
         # sample illness, a one-minute storm run past its end, then a gathering call.
+        assert last_root() == root
         apply(6, entity)
-        bless = find_root(root, 14)
+        bless = last_root()
         consequences("consequences-bless", bless)
         apply(7, 60000000)
-        storm = find_root(bless, 16)
+        storm = last_root()
         for _ in range(7):
             apply(1, 100)
         consequences("consequences-storm", storm)
         building = struct.unpack_from("<Q", snapshot, 128 + 30 * 48)[0]
         apply(8, building, 600000000)
-        consequences("consequences-gathering", find_root(storm, 20))
+        consequences("consequences-gathering", last_root())
     finally:
         lib.ws_slice_destroy(handle)
 

@@ -711,6 +711,30 @@ pub unsafe extern "C" fn ws_slice_load(path_utf8: *const std::ffi::c_char) -> *m
         }
     }
 }
+/// Pure read of the root EventId of the most recently accepted intervention
+/// (operation tags5–8), or0 when none has been accepted. Read from the derived
+/// consequence index (rebuilt from history on load), so a rejected operation
+/// leaves it unchanged and it survives save/load.
+/// Never steps, flushes or publishes; root is written only on success.
+/// # Safety
+/// Handle is live/exclusive; root is aligned writable u64 storage disjoint from the handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ws_slice_last_root(
+    handle: *mut WsSliceHandle,
+    root: *mut u64,
+) -> WsStatus {
+    // SAFETY: caller supplies the live opaque handle and disjoint aligned output.
+    unsafe {
+        operate_slice(handle, |h| {
+            if root.is_null() || !root.is_aligned() {
+                return Err((INVALID_ARGUMENT, "last root output is null or unaligned"));
+            }
+            let value = h.world.last_root().map_or(0, |r| r.0);
+            root.write(value);
+            Ok(())
+        })
+    }
+}
 /// Copies the bounded diagnostic, including on a poisoned handle. Null reads TLS.
 /// # Safety
 /// Non-null handle is live/exclusive; positive capacity requires a writable buffer.

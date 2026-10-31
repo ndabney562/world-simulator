@@ -1302,3 +1302,115 @@ fn event_words_rows_for_power_tags_match_adr_0038() {
         assert_eq!(inspection::event_words(payload), Ok(words), "tag{tag}");
     }
 }
+
+#[test]
+fn last_root_tracks_accepted_interventions_only() {
+    const MINUTE: u64 = 60_000_000;
+    // SAFETY: live exclusive handles, aligned initialized control storage; destroyed once.
+    unsafe {
+        let h = gather_handle();
+        let read = |h: *mut WsSliceHandle| {
+            let mut root = u64::MAX;
+            assert_eq!(ws_slice_last_root(h, &mut root), OK);
+            root
+        };
+        assert_eq!(read(h), 0);
+        let resident = (*h).world.population().residents().ids()[0];
+        let building = featured_building(&*h, "rowhouse");
+        let before = ((*h).world.checkpoint(), (*h).world.operation_digest());
+        assert_eq!(read(h), 0);
+        assert_eq!(
+            ((*h).world.checkpoint(), (*h).world.operation_digest()),
+            before
+        );
+        let mut afflict = op(5, 0);
+        afflict.words = [resident.raw(), 5, MINUTE, 0, 0, 0];
+        assert_eq!(ws_slice_apply(h, &afflict), OK);
+        let curse = read(h);
+        assert_eq!(curse, (*h).world.illness_state(resident).unwrap().own_root);
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(6, [resident.raw(), 0, 0, 0, 0, 0])),
+            OK
+        );
+        let bless = read(h);
+        assert!(bless > curse);
+        assert_eq!(row_tag(&consequences_of(h, bless), 0), 14);
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(8, [building.raw(), 10 * MINUTE, 0, 0, 0, 0])),
+            OK
+        );
+        let gather = read(h);
+        assert_eq!(gather, (*h).world.gathering().unwrap().root.0);
+        // Rejected (Busy) and malformed operations leave the value unchanged.
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(7, [MINUTE, 0, 0, 0, 0, 0])),
+            STEP_FAILED
+        );
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(7, [MINUTE, 1, 0, 0, 0, 0])),
+            INVALID_COMMAND
+        );
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(6, [building.raw(), 0, 0, 0, 0, 0])),
+            STEP_FAILED
+        );
+        assert_eq!(read(h), gather);
+        // Ordinary steps add no intervention root.
+        for _ in 0..200 {
+            if (*h).world.gathering().is_none() {
+                break;
+            }
+            assert_eq!((*h).world.apply(Operation::Steps(100)).unwrap().error, None);
+        }
+        assert!((*h).world.gathering().is_none());
+        assert_eq!(read(h), gather);
+        assert_eq!(ws_slice_apply(h, &slice_op(7, [MINUTE, 0, 0, 0, 0, 0])), OK);
+        let storm = read(h);
+        assert_eq!(storm, (*h).world.storm().unwrap().root.0);
+        let out = consequences_of(h, storm);
+        assert_eq!((u64_from(&out, 48), row_tag(&out, 0)), (0, 16));
+        // Null, misaligned and poisoned handling like the sibling exports.
+        let mut root = 7u64;
+        assert_eq!(ws_slice_last_root(null_mut(), &mut root), INVALID_ARGUMENT);
+        assert_eq!(root, 7);
+        assert_eq!(ws_slice_last_root(h, null_mut()), INVALID_ARGUMENT);
+        let mut control = [0u64; 2];
+        let bad = control.as_mut_ptr().cast::<u8>().add(1).cast::<u64>();
+        assert_eq!(ws_slice_last_root(h, bad), INVALID_ARGUMENT);
+        assert_eq!(control, [0; 2]);
+        assert_eq!(operate_slice(h, |_| panic!("last root poison test")), PANIC);
+        assert_eq!(ws_slice_last_root(h, &mut root), POISONED);
+        assert_eq!(root, 7);
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn last_root_survives_save_and_load() {
+    // SAFETY: live exclusive handles and a valid C path; each destroyed once.
+    unsafe {
+        let dir = std::env::temp_dir().join(format!("ws-ffi-last-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = std::ffi::CString::new(dir.join("root.wssave").to_str().unwrap()).unwrap();
+        let h = ws_slice_create(&config());
+        let resident = (*h).world.population().residents().ids()[0];
+        assert_eq!(
+            ws_slice_apply(h, &slice_op(6, [resident.raw(), 0, 0, 0, 0, 0])),
+            OK
+        );
+        assert_eq!(ws_slice_apply(h, &op(1, 3)), OK);
+        let mut root = 0;
+        assert_eq!(ws_slice_last_root(h, &mut root), OK);
+        assert_ne!(root, 0);
+        assert_eq!(ws_slice_save(h, path.as_ptr()), OK);
+        let loaded = ws_slice_load(path.as_ptr());
+        assert!(!loaded.is_null());
+        let mut after = 0;
+        assert_eq!(ws_slice_last_root(loaded, &mut after), OK);
+        assert_eq!(after, root);
+        ws_slice_destroy(h);
+        ws_slice_destroy(loaded);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

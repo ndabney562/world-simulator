@@ -153,6 +153,8 @@ int main(void) {
     unsigned state_at=96;for(unsigned i=0;i<4;i++) state_at+=(unsigned)inspection[64+i]<<(8*i);
     assert(inspection[state_at+56]==55&&inspection[state_at+60]==0&&inspection[state_at+84]==1);
     uint64_t root=0;for(unsigned i=0;i<8;i++) root|=(uint64_t)inspection[state_at+96+i]<<(8*i);
+    uint64_t last=1;assert(ws_slice_last_root(slice,&last)==OK&&last==root);
+    assert(ws_slice_last_root(slice,NULL)==INVALID_ARGUMENT&&ws_slice_last_root(NULL,&last)==INVALID_ARGUMENT);
     uint8_t consequences[8192];assert(ws_slice_consequences(slice,root,consequences,sizeof consequences,&written)==OK);
     assert(consequences[0]==9&&consequences[4]==96&&consequences[64]==128&&consequences[96+32]==13&&consequences[96+128+32]==5);
     input.tag=1;for(unsigned i=0;i<6;i++) input.words[i]=0;input.words[0]=2;
@@ -180,9 +182,8 @@ int main(void) {
     assert(ws_slice_apply(slice,&input)==STEP_FAILED); /* Busy: a storm is active. */
     /* Root-only consequences: the storm root has no subject, so header word48 is 0. */
     uint64_t storm=0;
-    for(uint64_t id=root+1;id<root+4096&&!storm;id++)
-        if(ws_slice_consequences(slice,id,consequences,sizeof consequences,&written)==OK&&consequences[96+32]==16) storm=id;
-    assert(storm!=0);
+    assert(ws_slice_last_root(slice,&storm)==OK&&storm>root); /* Busy rejection left it unchanged. */
+    assert(ws_slice_consequences(slice,storm,consequences,sizeof consequences,&written)==OK&&consequences[96+32]==16);
     for(unsigned i=0;i<8;i++) assert(consequences[48+i]==0);
     for(unsigned i=0;i<4;i++) assert(consequences[76+i]==0);
     input.tag=1;for(unsigned i=0;i<6;i++) input.words[i]=0;input.words[0]=100;

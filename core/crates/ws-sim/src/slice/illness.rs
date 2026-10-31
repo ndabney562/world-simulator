@@ -577,6 +577,12 @@ impl SliceSimulation {
         }
         Ok((g, events))
     }
+    /// Root of the most recently accepted slice intervention (the newest group,
+    /// since groups are in ascending root order), None before any. O(1); the
+    /// index is rebuilt from history on load, so the answer survives save/load.
+    pub fn last_root(&self) -> Option<EventId> {
+        self.illness.groups.last().map(|g| g.root)
+    }
     /// Allocated derived-index bytes; grows with retained intervention history.
     pub fn consequence_index_capacity_bytes(&self) -> usize {
         self.illness.groups.capacity() * core::mem::size_of::<Group>()
