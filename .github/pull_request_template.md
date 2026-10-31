@@ -6,7 +6,7 @@ Closes #<!-- issue number -->
 <!-- What this PR does, in plain language: Before / After. -->
 
 ## Architecture impact
-<!-- Which guardrails, ADRs, and architecture docs this touches. "None beyond the issue's scope" is a valid answer; an architecture change needs an accepted ADR first. -->
+<!-- Which guardrails, ADRs, and architecture docs this touches. "None beyond the issue's scope" is a valid answer; an architecture change needs an ADR in this PR. -->
 - Determinism tier(s) of new code:
 - Crate dependency changes:
 - FFI / save-format / event-schema changes:

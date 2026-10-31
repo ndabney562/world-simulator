@@ -26,7 +26,8 @@ Details: [roles-and-responsibilities](docs/process/roles-and-responsibilities.md
 5. Update relevant documentation.
 6. Run every available check locally (see [ci.md](docs/process/ci.md)).
 7. Open a PR referencing the issue, using the [PR template](.github/pull_request_template.md).
-8. Get the review required by the [standing delegation](docs/process/human-approval-gates.md#standing-delegation-2026-10-29), then merge after latest-head green CI and continue; stop only at a gate it keeps for Noah. Read [current-workstream](docs/process/current-workstream.md) and [human-approval-gates](docs/process/human-approval-gates.md) before asking again. Delegation never waives review, latest-head green CI or its excluded gates.
+8. One PR per feature: an ADR goes in the same PR as its code. Review the logic-heavy core task and the whole branch; small mechanical tasks skip their own review ([ai-development-workflow](docs/process/ai-development-workflow.md#6-review)). There is no architecture changelog.
+9. Get the review required by the [standing delegation](docs/process/human-approval-gates.md#standing-delegation-2026-10-29), then merge after latest-head green CI and continue; stop only at a gate it keeps for Noah. Read [current-workstream](docs/process/current-workstream.md) and [human-approval-gates](docs/process/human-approval-gates.md) before asking again. Delegation never waives review, latest-head green CI or its excluded gates.
 
 The full loop is in [ai-development-workflow](docs/process/ai-development-workflow.md); completion criteria are in [definition-of-done](docs/process/definition-of-done.md); review severities are in [code-review](docs/process/code-review.md).
 

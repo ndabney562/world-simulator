@@ -10,7 +10,7 @@ world-simulator/
 ├── CLAUDE.md / AGENTS.md         Conventions for AI collaborators (Technical Prototype)
 ├── docs/
 │   ├── vision/                   Project instructions / vision (source of truth for intent)
-│   ├── architecture/             This proposal, kept current; CHANGELOG.md per revision
+│   ├── architecture/             This proposal, kept current
 │   ├── adr/                      Architecture Decision Records: NNNN-title.md
 │   ├── design/                   Gameplay and content design notes
 │   ├── data/                     Data-source register: licences, attribution, versions
@@ -86,5 +86,5 @@ world-simulator/
 
 - `main` is always green. It was created at the Architecture V1 freeze (PR #1); the full workflow is in [docs/process/](../process/README.md).
 - Work happens on short-lived branches with pull requests; each references the ADR or roadmap item it implements.
-- Architecture changes need an ADR PR first. ADRs and PRs that touch `ws-math`, `ws-events`, `ws-sim`, `ws-lod`, `ws-persist`, or `ws-ffi` get independent review by the other AI collaborator (Claude and ChatGPT), with Noah as final approver.
+- Architecture changes need an ADR, in the same PR as the code (or alone for a spike). ADRs and PRs that touch `ws-math`, `ws-events`, `ws-sim`, `ws-lod`, `ws-persist`, or `ws-ffi` get independent review by the other AI collaborator (Claude and ChatGPT), with Noah as final approver.
 - Reviews of proposals go in `docs/reviews/`.

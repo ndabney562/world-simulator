@@ -1,7 +1,7 @@
 # World Simulator: Technical Architecture Proposal
 
 Status: **Accepted direction, under review** (no implementation yet)
-Current revision: **4** (2026-10-14), after ChatGPT's independent review. See [CHANGELOG.md](CHANGELOG.md).
+Current revision: **4** (2026-10-14), after ChatGPT's independent review.
 Authors: Claude (Anthropic) for Noah; reviewed by ChatGPT.
 
 This directory is the architecture and technical plan for World Simulator: a continuous-scale simulation of **real Earth**, from a single Bay Ridge street to the solar system, on **iPhone**. It contains no implementation code. Its job is to make the hard decisions explicit, define a foundation that can realistically grow from a one-block prototype to solar-system scale, and be honest about what must be approximated.

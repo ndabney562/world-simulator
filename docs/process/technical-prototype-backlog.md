@@ -44,7 +44,7 @@ TP-012 blocks nothing (ADR 0013): the core Rust → FFI → Unity → iPhone pat
 
 ## Decisions locked in along the way
 
-Several issues start with a short docs-only ADR PR that must be accepted before the implementation PR merges ([architecture-change-process.md](architecture-change-process.md)):
+Several issues started with a short docs-only ADR PR accepted before the implementation PR (since #144 the ADR and code share one PR) ([architecture-change-process.md](architecture-change-process.md)):
 
 | Issue | ADR topic (from [21-decisions-now-vs-later.md](../architecture/21-decisions-now-vs-later.md)) |
 |---|---|

@@ -5,7 +5,7 @@ title: "adr: <decision in a few words>"
 labels: ["type: architecture"]
 ---
 
-<!-- Process: docs/process/architecture-change-process.md. The ADR PR changes docs only; implementation follows in separate issues. -->
+<!-- Process: docs/process/architecture-change-process.md. The ADR and its implementation go in one PR. -->
 
 ## Problem
 <!-- What forces a decision, and why now. -->
@@ -27,5 +27,5 @@ labels: ["type: architecture"]
 
 ## Approval
 - [ ] ADR drafted as `docs/adr/NNNN-<title>.md` (status Proposed) with affected docs updated
-- [ ] Reviewed by ChatGPT on the PR diff
-- [ ] Accepted by the Product Owner (merge of the ADR PR)
+- [ ] Reviewed on the PR diff by a different assistant or a fresh-context review agent
+- [ ] Accepted on merge of the PR (Noah can reverse any ADR)
