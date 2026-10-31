@@ -44,8 +44,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Check links and ADR index
+      - name: Check links, ADR index and version claims
         run: python3 scripts/check_docs.py
+      - name: Docs check tests
+        working-directory: scripts
+        run: python3 -m unittest -v test_check_docs
       - name: Vertical Slice block extract regenerates from its raw snapshot
         run: python3 scripts/vs_block_extract.py check
       - name: Vertical Slice block extract tests
