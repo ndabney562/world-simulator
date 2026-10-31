@@ -1,8 +1,8 @@
 # ADR 0039: Resident faith and daily goals (GP-004)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-31
-- Decided by: Claude under the standing delegation (#122); design approved by Noah in chat on 2026-10-31; Noah can reverse
+- Decided by: Noah, who approved the design and accepted this ADR in chat on 2026-10-31; proposed by Claude for issue #127
 - Issue: #127 (GP-004). A feature issue, as with ADR 0038 (#125)
 - Supersedes: none; extends ADR 0038's powers and ADR 0036's slice persistence
 
