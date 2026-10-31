@@ -184,6 +184,7 @@ namespace WorldSim.Rendering
             return rootTag==13?host.Illness(subject,root).Consequences:host.Consequences(root);
         }
         /// <summary>One cast each; returns the root, throws on rejection like the illness action.</summary>
+        public SliceGod God() {if(host==null) throw new InvalidOperationException("No slice.");return host.God();}
         public ulong Bless(ulong resident) {if(host==null) throw new InvalidOperationException("No slice.");return host.Bless(resident);}
         public ulong Storm(ulong durationUs) {if(host==null) throw new InvalidOperationException("No slice.");return host.Storm(durationUs);}
         public ulong Gather(ulong building,ulong durationUs) {if(host==null) throw new InvalidOperationException("No slice.");return host.Gather(building,durationUs);}

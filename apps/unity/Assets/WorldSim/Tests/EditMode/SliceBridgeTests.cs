@@ -22,7 +22,7 @@ namespace WorldSim.Tests.EditMode
         static void U64(byte[] bytes,int at,ulong value) {Array.Copy(BitConverter.GetBytes(value),0,bytes,at,8);}
         static SliceGeometry Geometry()
         {
-            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v9"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
+            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v10"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
         }
         [Test]
         public void SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients()
@@ -45,7 +45,7 @@ namespace WorldSim.Tests.EditMode
         public void SharedRealSliceFixturesMatchNativeGeometryIdentitiesPositionsCountsAndSky()
         {
             var expectedGeometry=Geometry();var expected=new SliceFrame();
-            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v9"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
+            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v10"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
             Assert.That(expectedGeometry.Buildings.Length,Is.EqualTo(58));Assert.That(expectedGeometry.FeaturedIds.Length,Is.EqualTo(4));
             Assert.That(expectedGeometry.Vertices.Length,Is.EqualTo(2245));Assert.That(expectedGeometry.Indices.Length,Is.EqualTo(3693));
             Assert.That(expected.Population,Is.EqualTo(30));Assert.That(expected.Tick,Is.EqualTo(20));Assert.That(expected.StateHash,Is.Zero);
@@ -67,7 +67,7 @@ namespace WorldSim.Tests.EditMode
                     Assert.That(frame.Residents[i].Location,Is.EqualTo(expected.Residents[i].Location));Assert.That(Vector3.Distance(frame.Residents[i].Foot,expected.Residents[i].Foot),Is.LessThan(0.0002f));
                 }
                 Assert.That(frame.RenderedResidents,Is.GreaterThan(0));Assert.That(frame.StateHash,Is.EqualTo(frame.Sky.StateHash));Assert.That(frame.Tick,Is.EqualTo(frame.Sky.Tick));
-                byte[] skyBytes=Fixture("slice-sky-v9");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
+                byte[] skyBytes=Fixture("slice-sky-v10");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
                 try
                 {
                     var sky=Marshal.PtrToStructure<CalendarSky>(pinned.AddrOfPinnedObject());sky.Validate();Assert.That(sky.StateHash,Is.Zero);
@@ -79,7 +79,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidGeometryIsRejectedBeforeAnyPartialCacheIsPublished()
         {
-            byte[] original=Fixture("slice-geometry-v9");
+            byte[] original=Fixture("slice-geometry-v10");
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
                 b=>U32(b,0,4),b=>U32(b,20,uint.MaxValue),b=>U32(b,24,uint.MaxValue),b=>U32(b,36,25),b=>U32(b,44,1),
                 b=>U64(b,96+48,BitConverter.ToUInt64(b,96)),b=>U32(b,96+36,2),b=>U32(b,96+16,1),
@@ -93,7 +93,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidDynamicRowsLeaveTheCompletePreviousFrameUntouched()
         {
-            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v9");var frame=new SliceFrame();
+            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v10");var frame=new SliceFrame();
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) SliceDecoder.DecodeSnapshot(bytes,bytes.Length,geometry,frame);
             ulong tick=frame.Tick,first=frame.Residents[0].Id;Matrix4x4 matrix=frame.ResidentMatrices[0];
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
@@ -296,11 +296,73 @@ namespace WorldSim.Tests.EditMode
         }
         static uint[] Tags(SliceConsequences c) {var tags=new uint[c.Events.Length];for(int i=0;i<tags.Length;i++) tags[i]=c.Events[i].Tag;return tags;}
         static int Count(SliceConsequences c,uint tag) {int n=0;foreach(var e in c.Events) if(e.Tag==tag) n++;return n;}
+        // ADR0039 §5: crafted 560-byte WsSliceGod with two goals and three residents (mean 0).
+        static byte[] GodBytes()
+        {
+            var b=new byte[560];U32(b,0,560);U64(b,8,5);U32(b,16,0);U32(b,20,2);
+            U32(b,24,1);U32(b,28,2);U32(b,32,1);U32(b,36,0);      // bless 2 different, 1/2
+            U32(b,40,3);U32(b,44,1);U32(b,48,4);U32(b,52,1);      // done goal
+            U32(b,72,3);
+            U64(b,80,10);U32(b,88,10);U64(b,96,20);U32(b,104,20);U64(b,112,30);U32(b,120,unchecked((uint)-30));
+            return b;
+        }
+        static SliceGod DecodeGod(byte[] raw) {using(var n=new NativeArray<byte>(raw,Allocator.Temp)) return SliceGodDecoder.Decode(n);}
+        [Test]
+        public void GodValidatorRejectsCorruptRows()
+        {
+            var ok=DecodeGod(GodBytes());
+            Assert.That(ok.Day,Is.EqualTo(5));Assert.That(ok.BlockFaith,Is.Zero);Assert.That(ok.Goals.Length,Is.EqualTo(2));
+            Assert.That(ok.Goals[1].Done,Is.True);Assert.That(ok.Goals[1].Progress,Is.EqualTo(4u),"A done goal may exceed its target.");
+            Assert.That(ok.FaithOf(30),Is.EqualTo(-30));Assert.That(ok.FaithOf(99),Is.Zero);
+            void Rejects(string why,Action<byte[]> corrupt)
+            {
+                var b=GodBytes();corrupt(b);Assert.Throws<InvalidOperationException>(()=>DecodeGod(b),why);
+            }
+            Rejects("size",b=>U32(b,0,559));
+            Rejects("reserved",b=>U32(b,4,1));
+            Rejects("goal_count",b=>U32(b,20,4));
+            Rejects("kind 0",b=>U32(b,24,0));
+            Rejects("kind 5",b=>U32(b,24,5));
+            Rejects("progress over target",b=>U32(b,32,3));
+            Rejects("done flag",b=>U32(b,36,2));
+            Rejects("unused goal row",b=>U32(b,56,1));
+            Rejects("resident_count",b=>U32(b,72,31));
+            Rejects("reserved2",b=>U32(b,76,1));
+            Rejects("unsorted ids",b=>{U64(b,96,5);});
+            Rejects("duplicate ids",b=>{U64(b,96,10);});
+            Rejects("faith 101",b=>U32(b,88,101));
+            Rejects("faith -101",b=>U32(b,120,unchecked((uint)-101)));
+            Rejects("wrong mean",b=>U32(b,16,1));
+            Rejects("row reserved",b=>U32(b,92,1));
+            Rejects("unused resident row",b=>U32(b,128,1));
+            // Truncation toward zero: (-1 + 0 + 0) / 3 is 0, not -1.
+            var t=GodBytes();U32(t,88,unchecked((uint)-1));U32(t,104,0);U32(t,120,0);Assert.That(DecodeGod(t).BlockFaith,Is.Zero);
+        }
+        [Test]
+        public void GodReadsGoalsAndFaithAfterBless()
+        {
+            using(var world=new NativeSlice(71449,Start))
+            {
+                var frame=new SliceFrame();world.Fill(frame,out _);
+                var fresh=world.God();Assert.That(fresh.BlockFaith,Is.Zero);Assert.That(fresh.Goals.Length,Is.InRange(1,3));
+                Assert.That(fresh.Faith.Length,Is.EqualTo(frame.Population));
+                ulong a=frame.Residents[0].Id,b=frame.Residents[1].Id;
+                world.Bless(a);world.Bless(b);
+                var god=world.God();
+                // ADR0039 §1: bless is +15; each goal completed meanwhile is +10 for every resident
+                // (seed 71449 opens with "bless 2 different people", so the second bless completes it).
+                int done=0;foreach(var g in god.Goals) if(g.Done) done++;
+                Assert.That(god.FaithOf(a),Is.EqualTo(15+10*done));Assert.That(god.FaithOf(b),Is.EqualTo(15+10*done));
+                Assert.That(god.BlockFaith,Is.EqualTo(1+10*done),"30 faith over 30 residents truncates to 1, plus 10 per completed goal.");
+                Assert.That(god.FaithOf(0xDEADBEEFUL),Is.Zero);
+                for(int i=1;i<god.Faith.Length;i++) Assert.That(god.Faith[i].Id,Is.GreaterThan(god.Faith[i-1].Id));
+            }
+        }
         [Test]
         public void BlessThenConsequencesDecode()
         {
             // ADR0038 §2: native bytes for a bless curing the shared sample illness.
-            var fixture=DecodeFixture("consequences-bless-v9",Geometry());
+            var fixture=DecodeFixture("consequences-bless-v10",Geometry());
             Assert.That(fixture.RootTag,Is.EqualTo(14));Assert.That(Tags(fixture),Is.EqualTo(new uint[]{14,12}));
             Assert.That(fixture.Severity,Is.Zero);Assert.That(fixture.End,Is.EqualTo(fixture.Applied));
             Assert.That(fixture.Causes[1].Length,Is.EqualTo(2));Assert.That(fixture.Causes[1][0].Parent,Is.EqualTo(fixture.Root));
@@ -329,7 +391,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void StormRootOnlyConsequencesHaveZeroSubject()
         {
-            var fixture=DecodeFixture("consequences-storm-v9",Geometry());
+            var fixture=DecodeFixture("consequences-storm-v10",Geometry());
             Assert.That(fixture.RootTag,Is.EqualTo(16));Assert.That(fixture.Subject,Is.Zero);Assert.That(Tags(fixture),Is.EqualTo(new uint[]{16,18,19}));
             Assert.That(fixture.End-fixture.Applied,Is.EqualTo(60000000));
             using(var world=new NativeSlice(71449,Start))
@@ -350,7 +412,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void GatheringConsequencesAllowRepeats()
         {
-            var fixture=DecodeFixture("consequences-gathering-v9",Geometry());
+            var fixture=DecodeFixture("consequences-gathering-v10",Geometry());
             Assert.That(fixture.RootTag,Is.EqualTo(20));Assert.That(Tags(fixture),Is.EqualTo(new uint[]{20}));
             Assert.That(fixture.Subject,Is.EqualTo(fixture.Events[0].A));Assert.That(fixture.End-fixture.Applied,Is.EqualTo(600000000));
             // Monday 21:00 in New York, when most residents are home; a 1 km camera keeps everyone at L1.
