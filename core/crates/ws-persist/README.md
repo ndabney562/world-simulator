@@ -4,6 +4,8 @@
 
 Saves a `ws-sim` `World` to a versioned SQLite file and loads it back ([ADR 0020](../../../docs/adr/0020-save-format-and-versioning.md), [ADR 0025](../../../docs/adr/0025-baseline-plus-deltas-saves.md), TP-009, #53). Workspace layer 4: it builds and reads a `World`, so it sits above `ws-sim`; `ws-ffi` does not depend on it, and save/load over the FFI is out of scope. It is the only core crate that touches the file system besides the `ws-cli` host.
 
+Current save format: **5** (`FORMAT_VERSION` in `src/header.rs`). Every writer writes it; formats 1 to 4 still load.
+
 ## Owned state
 
 None. It reads `World::to_parts()` and rebuilds with `World::from_parts()`; the save file is the only thing it writes. The one-row `header` records everything D-14 requires from the first save: format version, build, world seed, dataset version, generator version, rules version, simulation time and tick, the simulation-affecting settings (walk speed, wait steps, population range), and three digests (state, journal, events).
@@ -12,11 +14,11 @@ None. It reads `World::to_parts()` and rebuilds with `World::from_parts()`; the 
 
 None.
 
-## File layout (format 3; formats 1 and 2 still load)
+## Toy-world file layout (introduced in format 3; formats 1 and 2 still load)
 
-Format 3 (#53, [ADR 0025](../../../docs/adr/0025-baseline-plus-deltas-saves.md)) replaces the raw `buildings` and `residents` structural baseline tables with a version-pinned `baseline` table plus canonical structural delta tables (`structural_overrides`, `tombstones`, `notables`, `spawned`) and a separate `node_lod` table for building simulation levels, while extending `clock` to schema 2 (`next_spawned_id` and `next_event_id`). Format-1 (`tests/saves/toy-v1.wssave`) and format-2 (`tests/saves/toy-v2.wssave`) files still load directly through the legacy reader, and `migrate_to_v3` / `migrate_to_v3_with_registry` converts a format-1/2/3 file atomically to a new format-3 file without modifying the source file. Migration resolves filesystem aliases, writes in a freshly reserved sibling directory, validates the complete candidate before atomically replacing the destination, and cleans only its owned temporary files. Source paths matching the former destination `.saving` filename remain untouched. Writers always write format 3.
+Format 3 (#53, [ADR 0025](../../../docs/adr/0025-baseline-plus-deltas-saves.md)) replaces the raw `buildings` and `residents` structural baseline tables with a version-pinned `baseline` table plus canonical structural delta tables (`structural_overrides`, `tombstones`, `notables`, `spawned`) and a separate `node_lod` table for building simulation levels, while extending `clock` to schema 2 (`next_spawned_id` and `next_event_id`). Format-1 (`tests/saves/toy-v1.wssave`) and format-2 (`tests/saves/toy-v2.wssave`) files still load directly through the legacy reader, and `migrate_to_v3` / `migrate_to_v3_with_registry` converts a format-1/2/3 file atomically to a new format-3 file without modifying the source file. Migration resolves filesystem aliases, writes in a freshly reserved sibling directory, validates the complete candidate before atomically replacing the destination, and cleans only its owned temporary files. Source paths matching the former destination `.saving` filename remain untouched. Writers write the current format (see the top of this file).
 
-`PRAGMA application_id` is ASCII `WSAV` (`0x5753_4156`) and `PRAGMA user_version` is the format version (`3`), so a file can be recognised and refused before any table is read. One SQLite file per save slot. Every record is one row holding a `schema` version and a `data` blob written by the hand-written codec in `src/codec.rs` (little-endian, fixed width, floats as raw bits, one-byte enum tags the decoder checks).
+`PRAGMA application_id` is ASCII `WSAV` (`0x5753_4156`) and `PRAGMA user_version` is the format version (`FORMAT_VERSION`), so a file can be recognised and refused before any table is read. One SQLite file per save slot. Every record is one row holding a `schema` version and a `data` blob written by the hand-written codec in `src/codec.rs` (little-endian, fixed width, floats as raw bits, one-byte enum tags the decoder checks).
 
 | Table | Key | Content |
 |---|---|---|

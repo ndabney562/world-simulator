@@ -1,6 +1,6 @@
 # ws-ffi
 
-The only Rust library Unity links. Implements ABI8 under accepted ADR0034, extending ADR0018/0019/0022/0030/0031. Owns opaque world handles and bounded diagnostics; the toy world's size is set by `residents_per_building` (1 to 2,000, five buildings). Owns no independent history: typed commands enter ws-sim, which publishes journal outcomes/events at flush boundaries.
+The only Rust library Unity links. Current ABI: **9** (`ABI_VERSION` in `src/lib.rs`), under accepted ADR0038, extending ADR0018/0019/0022/0030/0031/0034. Owns opaque world handles and bounded diagnostics; the toy world's size is set by `residents_per_building` (1 to 2,000, five buildings). Owns no independent history: typed commands enter ws-sim, which publishes journal outcomes/events at flush boundaries.
 
 ## Contract
 
@@ -44,7 +44,7 @@ Desktop benchmark and Editor verification results are recorded on the implementa
 The generated header is checked with cbindgen0.29.2. Current `abi-v7-smoke.c` preserves the prior C consumer properties and adds UTC/sky/version/error coverage; v1/2/3/4/5 fixtures and v3/v4/v5 consumer sources remain compatibility references. Version-only success expectations/CI entrypoint advance under ADR0031’s explicit migration acceptance; command envelope2, record shapes, old behavioral checks and core goldens stay unchanged.
 
 
-## Real-slice transport (VS-008, current ABI7)
+## Real-slice transport (VS-008, introduced in ABI7)
 
 [ADR0031](../../../docs/adr/0031-real-slice-render-transport-and-camera.md) adds a separate `WsSliceHandle`; it is never interchangeable with `WsHandle`. `ws_slice_create` takes the32-byte seed/start config and stores the existing calendar-aligned schedule epoch. The cohort remains the existing10–30 synthetic residents. `ws_slice_apply` validates a64-byte coarse operation before applying typed Steps(≤100), scale, HostElapsed or normalized camera interest. The integer operation/outcome log and committed-prefix stops remain authoritative; no second host step accumulator, toy command reinterpretation or new save format is introduced.
 

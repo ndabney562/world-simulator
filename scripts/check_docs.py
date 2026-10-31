@@ -5,6 +5,9 @@
 2. The ADR index (docs/adr/README.md) lists every ADR file exactly once,
    lists no missing file, and its status column matches each ADR's
    "Status:" line.
+3. "Current ABI" and "current save format" claims in Markdown under core/
+   and apps/ match ABI_VERSION and FORMAT_VERSION in the code, and the
+   ws-ffi, ws-persist and Unity READMEs each state the current value.
 
 Uses only the Python standard library. Exits non-zero on any failure.
 """
@@ -78,10 +81,50 @@ def check_adr_index(errors):
         errors.append(f"docs/adr/README.md: {name} is not listed in the index")
 
 
+ABI_CONST = ("core/crates/ws-ffi/src/lib.rs", r"pub const ABI_VERSION: u32 = (\d+);")
+FORMAT_CONST = ("core/crates/ws-persist/src/header.rs", r"pub const FORMAT_VERSION: u32 = (\d+);")
+CLAIMS = [
+    ("ABI", re.compile(r"current ABI:?\s*\**\s*(\d+)", re.I)),
+    ("format", re.compile(r"current save format:?\s*\**\s*(\d+)", re.I)),
+    ("format", re.compile(r"writers (?:always )?write format (\d+)", re.I)),
+]
+REQUIRED = [
+    ("core/crates/ws-ffi/README.md", "ABI", "Current ABI: **{}**"),
+    ("apps/unity/README.md", "ABI", "Current ABI: **{}**"),
+    ("core/crates/ws-persist/README.md", "format", "Current save format: **{}**"),
+]
+
+
+def constant(root, rel, pattern):
+    m = re.search(pattern, (root / rel).read_text(encoding="utf-8"))
+    if not m:
+        raise SystemExit(f"error: {rel}: constant not found ({pattern})")
+    return int(m.group(1))
+
+
+def check_versions(errors, root=ROOT):
+    current = {"ABI": constant(root, *ABI_CONST), "format": constant(root, *FORMAT_CONST)}
+    for top in ("core", "apps"):
+        for path in sorted((root / top).rglob("*.md")):
+            rel = path.relative_to(root)
+            if SKIP_DIRS.intersection(rel.parts):
+                continue
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for kind, pattern in CLAIMS:
+                    for found in pattern.findall(line):
+                        if int(found) != current[kind]:
+                            errors.append(f"{rel}:{lineno}: says {kind} {found}, code has {current[kind]}")
+    for rel, kind, marker in REQUIRED:
+        path = root / rel
+        if path.exists() and marker.format(current[kind]) not in path.read_text(encoding="utf-8"):
+            errors.append(f"{rel}: missing '{marker.format(current[kind])}'")
+
+
 def main():
     errors = []
     check_links(errors)
     check_adr_index(errors)
+    check_versions(errors)
     for e in errors:
         print(f"error: {e}")
     if errors:
