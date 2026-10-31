@@ -58,6 +58,8 @@ The post-pass first checks the day: when the tick's time is in a new day it repl
 - **Bless goal without a cast (R2).** "Bless N different people" is skipped, like an unreachable gathering, when no resident is living, so no goal can complete in a world with no cast.
 - **Event sequence.** `GoalCompleted`'s event sequence is its position among the batch's completions, not its slot; the slot is in the payload.
 - **Old formats.** Formats 4 and 5 load with faith 0 and freshly generated goals. Old-format test writers use a hidden `state_hash_without_god()` for their header.
+- **Goal reward order.** The `GoalCompleted` +10 rule applies immediately after its triggering candidate, before the rest of that batch, so with clamping the result can differ from a strict ascending-event-ID pass.
+- **Replaying a loaded journal.** After loading a format-4 or 5 save the loaded world holds faith 0 and fresh goals (§4), so replaying that save's operation journal from creation would rebuild a different god. No production path replays a loaded journal.
 
 **5. FFI.** One read-only export:
 

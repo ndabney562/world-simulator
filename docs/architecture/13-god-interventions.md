@@ -136,4 +136,5 @@ Faith and goals are implemented end to end: event payload 23 `GoalCompleted`, `w
 - **R1, gathering progress.** Progress is the largest count of `JoinedGathering` rows sharing one building recorded today; the core keeps the current gathering's (building, joined) and saves it.
 - **R2, bless goal.** "Bless N different people" is skipped, like an unreachable gathering, when no resident is living, so no goal completes without a cast.
 - **Event sequence.** `GoalCompleted`'s sequence is its position among the batch's completions; the slot is in the payload. It is linked `ContributedTo/Direct` the triggering candidate and never indexed in consequences.
+- **Goal reward order.** The `GoalCompleted` +10 applies immediately after its triggering candidate, before the rest of the batch (ADR 0039 amendment).
 - **Old saves.** Formats 4 and 5 load with faith 0 and freshly generated goals for the restored day. The state hash mixes the god block only once any faith is nonzero or any goal has progress, so worlds that use no power keep their goldens.
