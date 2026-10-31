@@ -14,7 +14,6 @@ namespace WorldSim.UI
     public sealed class GameHud : MonoBehaviour
     {
         enum Power {None,Curse,Bless,Gather}
-        sealed class Watch {public ulong Subject,Root;public ushort RootTag;public bool Done;}
         const ulong StormUs=3600000000,GatherUs=1800000000;
         const int FeedLines=8;
         const double PollSeconds=1;
@@ -27,7 +26,7 @@ namespace WorldSim.UI
         Label calendar,notice,stats,cardTitle,cardBody,feedEmpty,hint;
         Button curse,bless,storm,gather,closeCard;
         readonly Dictionary<uint,Button> speeds=new Dictionary<uint,Button>();
-        readonly List<Watch> watches=new List<Watch>();
+        readonly List<HudWatch> watches=new List<HudWatch>();
         readonly HashSet<ulong> seen=new HashSet<ulong>();
         readonly Dictionary<ulong,string> names=new Dictionary<ulong,string>();
         readonly List<string> feed=new List<string>();
@@ -48,9 +47,18 @@ namespace WorldSim.UI
         /// <summary>Storm needs no target: it casts at once for one hour.</summary>
         public void CastStorm()
         {
-            armed=Power.None;
-            try {Watching(0,demo.Storm(StormUs),16);}
-            catch(System.Exception error) {Warn("The storm failed: "+error.Message);}
+            // A failed cast leaves any armed power armed.
+            if(Cast(HudCasts.StormTag,0,()=>demo.Storm(StormUs))) armed=Power.None;
+        }
+        /// <summary>Watches the HUD is polling, for tests.</summary>
+        public IReadOnlyList<HudWatch> Watches=>watches;
+        /// <summary>The warning line currently shown, or empty, for tests.</summary>
+        public string Warning=>Time.realtimeSinceStartupAsDouble<warningUntil?warning:"";
+        bool Cast(ushort tag,ulong subject,System.Func<ulong> cast)
+        {
+            string refused=HudCasts.Try(watches,tag,subject,cast);
+            if(refused!=null) {Warn(refused);return false;}
+            nextPoll=0;return true;
         }
 
         void OnEnable()
@@ -135,7 +143,6 @@ namespace WorldSim.UI
             built=true;
         }
         void Warn(string text) {warning=text;warningUntil=Time.realtimeSinceStartupAsDouble+3;}
-        void Watching(ulong subject,ulong root,ushort tag) {watches.Add(new Watch {Subject=subject,Root=root,RootTag=tag});nextPoll=0;}
         void OnInspected(SliceInspection r)
         {
             if(armed==Power.None) return;
@@ -143,21 +150,19 @@ namespace WorldSim.UI
             {
                 var geometry=demo.Geometry;
                 if(r.Kind!=2||geometry==null||!geometry.IsFeatured(r.Id)) {Warn("Gatherings need a home: tap a building.");return;}
-                try {Watching(r.Id,demo.Gather(r.Id,GatherUs),20);armed=Power.None;}
-                catch(System.Exception error) {Warn("The gathering failed: "+error.Message);}
+                if(Cast(HudCasts.GatherTag,r.Id,()=>demo.Gather(r.Id,GatherUs))) armed=Power.None;
                 return;
             }
             if(r.Kind!=1) {Warn(armed==Power.Bless?"Bless needs a person: tap a resident.":"Curses need a person: tap a resident.");return;}
             if(armed==Power.Bless)
             {
-                try {Watching(r.Id,demo.Bless(r.Id),14);armed=Power.None;}
-                catch(System.Exception error) {Warn("The blessing failed: "+error.Message);}
+                if(Cast(HudCasts.BlessTag,r.Id,()=>demo.Bless(r.Id))) armed=Power.None;
                 return;
             }
             // Fresh tap sample has no root, so this applies the curse exactly once.
-            if(demo.InspectIllness()) armed=Power.None;
+            if(demo.InspectIllness()) armed=Power.None;else Warn(HudCasts.Rejected);
         }
-        void OnCast(ulong subject,ulong root) {Watching(subject,root,13);}
+        void OnCast(ulong subject,ulong root) {HudCasts.Watch(watches,HudCasts.CurseTag,subject,root);nextPoll=0;}
         void OnWorldReplaced()
         {
             watches.Clear();seen.Clear();names.Clear();Add("Loaded a saved world.");
@@ -181,7 +186,7 @@ namespace WorldSim.UI
                 foreach(var e in c.Events)
                 {
                     if(!seen.Add(e.Id)) continue;
-                    string line=HudText.Feed(e,NameOf);if(line!=null) Add(line);
+                    string line=HudText.Feed(e,NameOf,c.RootTag);if(line!=null) Add(line);
                 }
                 w.Done=HudText.Finished(c);
             }

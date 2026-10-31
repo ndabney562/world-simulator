@@ -147,8 +147,8 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InspectionAcceptsKindThreeAwayFromHomeOnly()
         {
-            // Schema3 (ADR0038 §4): kind3 is the only override allowed away from home,
-            // and there only with the Home activity and Socialize at a featured building.
+            // Schema3 (ADR0038 §4): kind3 may stand away from home only with the Home activity and
+            // Socialize at a featured building; kind4 has its own storm-hold rule.
             var geometry=Geometry();byte[] raw=Fixture("inspect-resident-v9");ulong id=Id(raw);int state=96+(int)BitConverter.ToUInt32(raw,64);
             ulong home=BitConverter.ToUInt64(raw,104),elsewhere=0;foreach(ulong f in geometry.FeaturedIds) if(f!=home) {elsewhere=f;break;}
             byte[] Variant(uint kind,uint action,ulong at)
@@ -158,8 +158,12 @@ namespace WorldSim.Tests.EditMode
             SliceInspection Decode(byte[] bytes) {using(var b=new NativeArray<byte>(bytes,Allocator.Temp)) return InspectionDecoder.Decode(b,b.Length,geometry,id);}
             var gathered=Decode(Variant(3,3,elsewhere));Assert.That(gathered.OverrideKind,Is.EqualTo(3));Assert.That(gathered.From,Is.EqualTo(elsewhere));
             Assert.That(Decode(Variant(3,3,home)).OverrideKind,Is.EqualTo(3));Assert.That(Decode(Variant(3,1,home)).OverrideKind,Is.EqualTo(3));
-            foreach(var bytes in new[]{Variant(1,1,elsewhere),Variant(2,3,elsewhere),Variant(3,1,elsewhere),Variant(3,4,home),Variant(4,3,home)})
+            foreach(var bytes in new[]{Variant(1,1,elsewhere),Variant(2,3,elsewhere),Variant(3,1,elsewhere),Variant(3,4,home),Variant(5,3,home)})
                 Assert.Throws<ArgumentException>(()=>Decode(bytes));
+            // Kind4 (storm hold, D1 as amended) stands at a timetable place with the action ws-life
+            // chooses for the kept activity (Home here); Travel or Sleep at home is incoherent.
+            Assert.That(Decode(Variant(4,3,home)).OverrideKind,Is.EqualTo(4));
+            foreach(var bytes in new[]{Variant(4,5,home),Variant(4,6,home)}) Assert.Throws<ArgumentException>(()=>Decode(bytes));
         }
         [Test]
         public void NativeInspectionMatchesSharedCoreFixturesAndEveryRenderedIdentityWithoutMutation()

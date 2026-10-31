@@ -6,6 +6,7 @@ using Unity.Collections;
 using UnityEngine;
 using WorldSim.Bridge;
 using WorldSim.Rendering;
+using WorldSim.UI;
 
 namespace WorldSim.Tests.EditMode
 {
@@ -420,6 +421,67 @@ namespace WorldSim.Tests.EditMode
                 Assert.That(walkerHome&&guestHome,Is.True,"Both illness groups must record ReturnedHome.");
                 // The gathering group lacks both interrupted attendees' ReturnedHome rows.
                 foreach(var e in world.Consequences(gathering).Events) if(e.Tag==6) {Assert.That(e.A,Is.Not.EqualTo(walker));Assert.That(e.A,Is.Not.EqualTo(guest));}
+            }
+        }
+        [Test]
+        public void StormHeldResidentsInspectThroughStormAndResumeWithCurseAndCure()
+        {
+            // ADR0038 D1 as amended: a storm hold is published as override kind4 with the storm root,
+            // and every resident decodes on every step through the storm and its whole resume. A held
+            // resident is cursed (illness until recovery) and another is cursed then blessed (a cure
+            // under the storm); both groups decode on every step until they resolve.
+            using(var world=new NativeSlice(71449,NativeWorld.UtcToSim(2026,6,22,11,30,0)))
+            {
+                var frame=new SliceFrame();world.SetCamera(Vector3.zero,1000);
+                for(int i=0;i<100;i++) {world.Fill(frame,out _);if(frame.L1==(uint)frame.Population) break;world.Steps(1);}
+                ulong storm=world.Storm(3600000000);
+                ulong cursed=0,curseRoot=0,cured=0,cureIllness=0,cure=0;bool held=false,walking=false,cursedRecovered=false,cureFinished=false;
+                SliceConsequences stormGroup=world.Consequences(storm);
+                for(int step=0;step<6000;step++)
+                {
+                    world.Steps(20);world.Fill(frame,out _);bool anyHold=false;
+                    for(int i=0;i<frame.Population;i++)
+                    {
+                        ulong id=frame.Residents[i].Id;var r=world.Inspect(id);
+                        if(r.OverrideKind!=4) continue;
+                        anyHold=true;Assert.That(r.OverrideRoot,Is.EqualTo(storm));Assert.That(r.IllnessActive,Is.False);
+                        if(r.Location==2) {walking=true;Assert.That(r.Activity,Is.EqualTo(1));Assert.That(r.Action,Is.EqualTo(5));}
+                        else
+                        {
+                            held=true;
+                            if(cursed==0) {cursed=id;curseRoot=world.Illness(id,0,5,600000000).Consequences.Root;}
+                            else if(cured==0&&id!=cursed)
+                            {
+                                cured=id;cureIllness=world.Illness(id,0,5,3600000000).Consequences.Root;cure=world.Bless(id);
+                                var blessed=world.Consequences(cure);
+                                Assert.That(Tags(blessed),Is.EqualTo(new uint[]{14,12}),"A cure under the storm; StayedInside is never indexed here.");
+                                var after=world.Inspect(id);Assert.That(after.IllnessActive,Is.False);Assert.That(after.Health,Is.EqualTo(100));
+                                Assert.That(after.OverrideKind==0||after.OverrideKind==1||after.OverrideKind==4&&after.OverrideRoot==storm,Is.True);
+                            }
+                        }
+                    }
+                    stormGroup=world.Consequences(storm);
+                    if(cursed!=0)
+                    {
+                        var sample=world.Illness(cursed,curseRoot);
+                        cursedRecovered|=Count(sample.Consequences,12)==1;
+                    }
+                    if(cured!=0)
+                    {
+                        var sample=world.Illness(cured,cureIllness);
+                        Assert.That(Count(sample.Consequences,12),Is.Zero,"The cure's Recovered indexes under the bless only.");
+                        cureFinished|=HudText.Finished(sample.Consequences);
+                        Assert.That(Tags(world.Consequences(cure)),Is.EqualTo(new uint[]{14,12}));
+                    }
+                    if(!anyHold&&Count(stormGroup,19)==1&&cursedRecovered&&cureFinished) break;
+                }
+                Assert.That(held,Is.True,"A held resident must be inspected at the building it stayed in.");
+                Assert.That(walking,Is.True,"A resuming resident must be inspected on its walk.");
+                Assert.That(cursed,Is.Not.Zero);Assert.That(cured,Is.Not.Zero);
+                Assert.That(cursedRecovered,Is.True,"The held resident's illness recovers and decodes.");
+                Assert.That(cureFinished,Is.True,"A cure-ended illness watch finishes at its scheduled end.");
+                Assert.That(Tags(stormGroup),Is.EqualTo(new uint[]{16,18,19}));Assert.That(HudText.Finished(stormGroup),Is.True);
+                Assert.That(stormGroup.Events[1].A,Is.GreaterThan(0UL));
             }
         }
         [Test]

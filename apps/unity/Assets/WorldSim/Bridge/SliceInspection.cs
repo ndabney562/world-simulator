@@ -65,6 +65,26 @@ namespace WorldSim.Bridge
             else if(e.Tag==22) Require(kind==2&&e.A==id&&e.B<=7&&e.C==0&&e.D==0&&e.E==0);
             else throw new ArgumentException("Unsupported inspection event vocabulary.");
         }
+        static bool Known(SliceInspection r,ulong id,uint exit)
+        {
+            foreach(var row in r.Schedule)
+                if(row.Destination==id&&row.DestinationExit==exit||row.OriginKind!=0&&row.Origin==id&&row.OriginExit==exit) return true;
+            return false;
+        }
+        /// <summary>ADR0038 D1 as amended, kind4. A hold keeps a resident at the featured building a
+        /// baseline departure would have left, with the kept activity; after the storm it walks out of
+        /// that building (Commute, Travel) to a schedule place and keeps the activity there until it
+        /// rejoins. The action is the one ws-life chooses for the activity.</summary>
+        static void StormHold(SliceInspection r)
+        {
+            if(r.Location==2)
+            {
+                bool heldAt=false;
+                foreach(var row in r.Schedule) if(row.OriginKind==1&&row.Origin==r.From) heldAt=true;
+                Require(r.Action==5&&r.FromExit==uint.MaxValue&&heldAt&&Known(r,r.To,r.ToExit)&&(r.From!=r.To||r.FromExit!=r.ToExit));
+            }
+            else Require(Known(r,r.To,r.ToExit)&&(r.Activity==0?r.Action==6:r.Activity==5?r.Action<=4:r.Action==4));
+        }
         /// <summary>Validate a whole bounded record before returning a new published value.</summary>
         public static SliceInspection Decode(NativeArray<byte> b,int length,SliceGeometry geometry,ulong expectedId)
         {
@@ -101,11 +121,12 @@ namespace WorldSim.Bridge
                 r.From=U64(b,stateAt+32);r.To=U64(b,stateAt+40);r.FromExit=U32(b,stateAt+48);r.ToExit=U32(b,stateAt+52);
                 r.Health=U32(b,stateAt+56);r.Life=U32(b,stateAt+60);
                 r.OverrideKind=U32(b,stateAt+80);r.IllnessActive=U32(b,stateAt+84)==1;r.OverrideRoot=U64(b,stateAt+88);r.OwnRoot=U64(b,stateAt+96);r.IllnessEnd=unchecked((long)U64(b,stateAt+104));
-                // Kinds: 0 none, 1 illness hold, 2 visit, 3 gathering. Only kind3 may stand away from
-                // home, with the Home activity and Socialize at a featured building (ADR0038 §4).
-                Require(r.OverrideKind<=3&&U32(b,stateAt+84)<=1&&(r.OverrideKind==0)==(r.OverrideRoot==0)&&
+                // Kinds: 0 none, 1 illness hold, 2 visit, 3 gathering, 4 storm hold. Only kinds 3 and 4
+                // may stand away from home: kind3 with the Home activity and Socialize at a featured
+                // building (ADR0038 §4), kind4 where its hold keeps it (checked with the schedule below).
+                Require(r.OverrideKind<=4&&U32(b,stateAt+84)<=1&&(r.OverrideKind==0)==(r.OverrideRoot==0)&&
                     (r.IllnessActive?r.Life==0&&r.Health>=1&&r.Health<100&&r.OwnRoot!=0&&r.IllnessEnd>r.Time&&r.OverrideKind==1&&r.OverrideRoot==r.OwnRoot:r.IllnessEnd==0)&&
-                    (r.OverrideKind==0||r.Activity==1||r.Activity==5&&r.Location==0&&(r.From==r.Home||r.OverrideKind==3&&r.Action==3))&&
+                    (r.OverrideKind==0||r.OverrideKind==4||r.Activity==1||r.Activity==5&&r.Location==0&&(r.From==r.Home||r.OverrideKind==3&&r.Action==3))&&
                     (r.OverrideKind!=1||r.Activity==1&&r.Action==5||r.Activity==5&&r.Action==1)&&
                     (r.OverrideKind!=2||r.Activity==5&&r.Action==3&&r.Health==100&&r.Life==0)&&
                     (r.OverrideKind!=3||r.Activity==1&&r.Action==5||r.Activity==5&&(r.Action==3||r.Action==1)));
@@ -158,7 +179,8 @@ namespace WorldSim.Bridge
                 Require(r.Activity==current.Activity);
                 if(current.OriginKind==0) Require(r.Location==(current.DestinationKind==0?0u:1u)&&r.To==current.Destination&&r.ToExit==current.DestinationExit);
                 else Require(r.Location==2&&r.From==current.Origin&&r.FromExit==current.OriginExit&&r.To==current.Destination&&r.ToExit==current.DestinationExit);
-                } else if(r.Location==2) {
+                } else if(r.OverrideKind==4) StormHold(r);
+                else if(r.Location==2) {
                     bool baselineLeg=false,knownFrom=false;
                     foreach(var row in r.Schedule) {
                         if(row.Destination==r.From&&row.DestinationExit==r.FromExit||row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit) knownFrom=true;

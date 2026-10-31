@@ -13,8 +13,10 @@ namespace WorldSim.UI
         public static string Activity(uint activity)=>activity<Activities.Length?Activities[activity]:"Unknown";
         public static string Job(uint role)=>role<Jobs.Length?Jobs[role]:"Unknown";
         public static string Name(SliceInspection r)=>r.GivenName+" "+r.FamilyName;
-        /// <summary>One feed line for an illness-consequence event (tags 5, 6, 10-22); null for any other tag.</summary>
-        public static string Feed(InspectionEvent e,Func<ulong,string> name)
+        /// <summary>One feed line for a consequence event (tags 5, 6, 10-22); null for any other tag.
+        /// <paramref name="rootTag"/> is the group's root tag: a ReturnedHome (6) in a gathering group (20)
+        /// reads as heading home, not as going home to rest.</summary>
+        public static string Feed(InspectionEvent e,Func<ulong,string> name,ushort rootTag=13)
         {
             switch(e.Tag)
             {
@@ -22,13 +24,13 @@ namespace WorldSim.UI
                 case 5:return name(e.A)+" fell sick.";
                 case 10:return name(e.A)+" is sick and missed "+(e.C==2?"work.":"school.");
                 case 11:return name(e.A)+" checked on their neighbour "+name(e.B)+".";
-                case 6:return name(e.A)+" went home to rest.";
+                case 6:return rootTag==20?name(e.A)+" headed home":name(e.A)+" went home to rest.";
                 case 12:return name(e.A)+" recovered.";
                 case 14:return name(e.A)+" was blessed";
                 case 15:return name(e.A)+" feels refreshed";
                 case 16:return "A storm rolls in";
                 case 17:return name(e.A)+" stayed inside";
-                case 18:return "The storm kept "+e.A.ToString(CultureInfo.InvariantCulture)+" people inside";
+                case 18:return e.A==1?"The storm kept 1 person inside":"The storm kept "+e.A.ToString(CultureInfo.InvariantCulture)+" people inside";
                 case 19:return "The storm has passed";
                 case 20:return "A gathering was called";
                 case 21:return name(e.A)+" joined the gathering";
@@ -36,18 +38,26 @@ namespace WorldSim.UI
                 default:return null;
             }
         }
-        /// <summary>True once a consequence chain can produce no further events.</summary>
+        /// <summary>Gathering watches stop at the latest 30 minutes after the gathering's end, so an
+        /// attendee whose ReturnedHome went to another root (an illness interruption) cannot hold it open.</summary>
+        public const long GatheringGraceUs=1800000000;
+        /// <summary>True once a consequence chain can produce no further events. <c>c.Time</c> is the
+        /// sim time of the read, paired with the sky by the bridge.</summary>
         public static bool Finished(SliceConsequences c)
         {
-            // Bless (14) commits whole; a storm is done at 19; a gathering once 22 is seen and every
-            // joined attendee has gone home (6 rows). Illness keeps its recovery / no-effect rule.
-            ulong attendees=0;int returned=0;bool ended=false;
+            // Bless (14) commits whole; a storm is done at 19. Illness ends at its recovery (12), a
+            // no-effect curse, or its scheduled end: a bless cure keeps that end and never adds a 12
+            // here, and nothing in the group can follow it. A gathering is done once 22 is seen and
+            // either every joiner (21) has its own ReturnedHome (6) in the group, or the grace cap has
+            // passed. Non-joiners' 6 rows never count, so a late walker cannot finish it early.
+            var joined=new HashSet<ulong>();var home=new HashSet<ulong>();bool ended=false;
             foreach(var e in c.Events)
             {
                 if(e.Tag==12||e.Tag==14||e.Tag==19||(e.Tag==13&&e.E==0)) return true;
-                if(e.Tag==22) {ended=true;attendees=e.B;} else if(e.Tag==6) returned++;
+                if(e.Tag==22) ended=true;else if(e.Tag==21) joined.Add(e.A);else if(e.Tag==6) home.Add(e.A);
             }
-            return ended&&(ulong)returned>=attendees;
+            if(c.RootTag==20) return ended&&(home.IsSupersetOf(joined)||(decimal)c.Time>=(decimal)c.End+GatheringGraceUs);
+            return (c.RootTag==13||c.RootTag==0)&&c.End!=0&&c.Time>=c.End;
         }
         public static string Resident(SliceInspection r)
         {

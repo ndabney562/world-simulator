@@ -35,34 +35,67 @@ namespace WorldSim.Tests.EditMode
             Assert.That(Feed(16),Is.EqualTo("A storm rolls in"));
             Assert.That(Feed(17,b:3),Is.EqualTo("Maria Lopez stayed inside"));
             Assert.That(Feed(18,a:4),Is.EqualTo("The storm kept 4 people inside"));
+            Assert.That(Feed(18,a:1),Is.EqualTo("The storm kept 1 person inside"));
+            Assert.That(Feed(18,a:0),Is.EqualTo("The storm kept 0 people inside"));
             Assert.That(Feed(19),Is.EqualTo("The storm has passed"));
             Assert.That(Feed(20,a:3),Is.EqualTo("A gathering was called"));
             Assert.That(Feed(21,b:3),Is.EqualTo("Maria Lopez joined the gathering"));
             Assert.That(Feed(22,a:3,b:5),Is.EqualTo("The gathering ended (5 came)"));
+            // A ReturnedHome in a gathering group is a walk home, not going home to rest.
+            var home=new InspectionEvent {Tag=6,A=1,B=9};
+            Assert.That(HudText.Feed(home,Name,20),Is.EqualTo("Maria Lopez headed home"));
+            Assert.That(HudText.Feed(home,Name,13),Is.EqualTo("Maria Lopez went home to rest."));
+        }
+        static SliceConsequences Group(ushort root,params (uint tag,ulong a)[] rows)
+        {
+            var ev=new InspectionEvent[rows.Length];
+            for(int i=0;i<rows.Length;i++) ev[i]=new InspectionEvent {Tag=rows[i].tag,A=rows[i].a};
+            return new SliceConsequences {RootTag=root,Events=ev};
         }
         [Test]
         public void FinishedPerRootTag()
         {
-            SliceConsequences Group(ushort root,params uint[] tags)
-            {
-                var ev=new InspectionEvent[tags.Length];
-                for(int i=0;i<tags.Length;i++) ev[i]=new InspectionEvent {Tag=tags[i]};
-                return new SliceConsequences {RootTag=root,Events=ev};
-            }
-            Assert.That(HudText.Finished(Group(14,14)),Is.True,"A bless group is complete when committed.");
-            Assert.That(HudText.Finished(Group(14,14,15)),Is.True);
-            Assert.That(HudText.Finished(Group(16,16)),Is.False);
-            Assert.That(HudText.Finished(Group(16,16,18)),Is.False);
-            Assert.That(HudText.Finished(Group(16,16,18,19)),Is.True);
-            Assert.That(HudText.Finished(Group(20,20,21,21)),Is.False);
-            var ended=Group(20,20,21,21,22);ended.Events[3].B=2;
+            Assert.That(HudText.Finished(Group(14,(14,1))),Is.True,"A bless group is complete when committed.");
+            Assert.That(HudText.Finished(Group(14,(14,1),(15,1))),Is.True);
+            Assert.That(HudText.Finished(Group(16,(16,0))),Is.False);
+            Assert.That(HudText.Finished(Group(16,(16,0),(18,3))),Is.False);
+            Assert.That(HudText.Finished(Group(16,(16,0),(18,3),(19,0))),Is.True);
+            Assert.That(HudText.Finished(Group(20,(20,9),(21,1),(21,2))),Is.False);
+            var ended=Group(20,(20,9),(21,1),(21,2),(22,9));ended.Events[3].B=2;
             Assert.That(HudText.Finished(ended),Is.False,"Attendees are still on their way home.");
-            var home=Group(20,20,21,21,22,6);home.Events[3].B=2;
-            Assert.That(HudText.Finished(home),Is.False);
-            var all=Group(20,20,21,21,6,6,22);all.Events[5].B=2;
-            Assert.That(HudText.Finished(all),Is.True);
-            var none=Group(20,20,22);
-            Assert.That(HudText.Finished(none),Is.True,"Nobody came, nobody to wait for.");
+            Assert.That(HudText.Finished(Group(20,(20,9),(21,1),(21,2),(22,9),(6,1))),Is.False);
+            Assert.That(HudText.Finished(Group(20,(20,9),(21,1),(21,2),(6,1),(6,2),(22,9))),Is.True);
+            Assert.That(HudText.Finished(Group(20,(20,9),(22,9))),Is.True,"Nobody came, nobody to wait for.");
+        }
+        [Test]
+        public void GatheringFinishesPerJoinerOrAtTheGraceCap()
+        {
+            const long end=1000000000;
+            // A cursed joiner's ReturnedHome belongs to the illness root, so this group never gets it:
+            // the watch finishes at the 30-minute cap after the end, not before.
+            var interrupted=Group(20,(20,9),(21,1),(21,2),(22,9),(6,1));interrupted.End=end;
+            interrupted.Time=end+HudText.GatheringGraceUs-100000;
+            Assert.That(HudText.Finished(interrupted),Is.False,"Joiner 2 may still be walking home.");
+            interrupted.Time=end+HudText.GatheringGraceUs;
+            Assert.That(HudText.Finished(interrupted),Is.True,"The cap covers an interrupted joiner.");
+            // A late non-joiner (never arrived before the end) also records ReturnedHome; its row
+            // must not stand in for a joiner who is still on the way.
+            var late=Group(20,(20,9),(21,1),(21,2),(22,9),(6,1),(6,3));late.End=end;late.Time=end;
+            Assert.That(HudText.Finished(late),Is.False,"Two returns, but joiner 2 is not home.");
+            var done=Group(20,(20,9),(21,1),(21,2),(22,9),(6,3),(6,1),(6,2));done.End=end;done.Time=end;
+            Assert.That(HudText.Finished(done),Is.True);
+            // Before the end nothing finishes, even past the joins.
+            var early=Group(20,(20,9),(21,1),(6,1));early.End=end;early.Time=end+HudText.GatheringGraceUs;
+            Assert.That(HudText.Finished(early),Is.False,"No GatheringEnded yet.");
+        }
+        [Test]
+        public void CureEndedIllnessFinishesAtItsScheduledEnd()
+        {
+            // A bless cure keeps the illness group's scheduled end and adds no 12 to it.
+            var ill=Group(13,(13,1),(5,1),(6,1));ill.Events[0].E=1;ill.End=7200000000;ill.Time=7200000000-100000;
+            Assert.That(HudText.Finished(ill),Is.False);
+            ill.Time=7200000000;
+            Assert.That(HudText.Finished(ill),Is.True,"No row can follow the scheduled end.");
         }
         [Test]
         public void FeedIgnoresEventsOutsideTheConsequenceVocabulary()
@@ -89,6 +122,53 @@ namespace WorldSim.Tests.EditMode
             r.Time=2*day+1;Assert.That(HudText.TodaySchedule(r),Is.EqualTo(new[]{"00:00 Sleeping","07:30 Commuting"}));
             r.Time=5*day;Assert.That(HudText.TodaySchedule(r),Is.EqualTo(new[]{"00:00 Sleeping","10:00 Running errands"}));
             r.Time=-1;Assert.That(HudText.TodaySchedule(r),Is.EqualTo(new[]{"00:00 Sleeping","10:00 Running errands"}),"Day -1 is model Sunday.");
+        }
+        [Test]
+        public void EachCastWatchCarriesItsRootTag()
+        {
+            var watches=new System.Collections.Generic.List<HudWatch>();
+            Assert.That(HudCasts.Try(watches,HudCasts.BlessTag,5,()=>101),Is.Null);
+            Assert.That(HudCasts.Try(watches,HudCasts.StormTag,5,()=>102),Is.Null);
+            HudCasts.Watch(watches,HudCasts.CurseTag,6,103);
+            Assert.That(watches.Count,Is.EqualTo(3));
+            Assert.That((watches[0].RootTag,watches[0].Root,watches[0].Subject),Is.EqualTo(((ushort)14,101UL,5UL)));
+            Assert.That((watches[1].RootTag,watches[1].Root,watches[1].Subject),Is.EqualTo(((ushort)16,102UL,0UL)),"A storm has no subject.");
+            Assert.That((watches[2].RootTag,watches[2].Root,watches[2].Subject),Is.EqualTo(((ushort)13,103UL,6UL)));
+            watches[1].Done=true;
+            Assert.That(HudCasts.Try(watches,HudCasts.GatherTag,7,()=>104),Is.Null);
+            Assert.That((watches[3].RootTag,watches[3].Root,watches[3].Subject),Is.EqualTo(((ushort)20,104UL,7UL)));
+        }
+        [Test]
+        public void RejectedCastAddsNoWatchAndNeverShowsBridgeText()
+        {
+            var watches=new System.Collections.Generic.List<HudWatch>();
+            string warning=HudCasts.Try(watches,HudCasts.BlessTag,5,()=>throw new System.InvalidOperationException("Native slice status 7: slice operation stopped after committed prefix"));
+            Assert.That(warning,Is.EqualTo("That didn't work. Try another target."));
+            Assert.That(watches,Is.Empty);
+            // An unfinished storm or gathering refuses both block powers before the bridge is called.
+            HudCasts.Watch(watches,HudCasts.GatherTag,9,50);bool called=false;
+            Assert.That(HudCasts.Try(watches,HudCasts.StormTag,0,()=>{called=true;return 51;}),Is.EqualTo("A storm or gathering is already under way."));
+            Assert.That(HudCasts.Try(watches,HudCasts.GatherTag,9,()=>{called=true;return 52;}),Is.EqualTo(HudCasts.Busy));
+            Assert.That(called,Is.False);Assert.That(watches.Count,Is.EqualTo(1));
+            // Resident powers are not blocked by a block power.
+            Assert.That(HudCasts.Try(watches,HudCasts.BlessTag,5,()=>53),Is.Null);Assert.That(watches.Count,Is.EqualTo(2));
+        }
+        [UnityTest]
+        public IEnumerator SecondStormIsRefusedAndKeepsThePowerArmed()
+        {
+            yield return new EnterPlayMode();
+            var loading=EditorSceneManager.LoadSceneAsyncInPlayMode("Assets/WorldSim/Scenes/RealBlock.unity",new LoadSceneParameters(LoadSceneMode.Single));
+            while(!loading.isDone) yield return null;
+            var hud=Object.FindFirstObjectByType<GameHud>();Assert.That(hud,Is.Not.Null);
+            for(int i=0;i<3;i++) yield return null;
+            hud.CastStorm();
+            Assert.That(hud.Watches.Count,Is.EqualTo(1));Assert.That(hud.Watches[0].RootTag,Is.EqualTo(16));Assert.That(hud.Warning,Is.Empty);
+            hud.ToggleBless();Assert.That(hud.PowerArmed,Is.True);
+            hud.CastStorm();
+            Assert.That(hud.Watches.Count,Is.EqualTo(1),"A refused cast creates no watch.");
+            Assert.That(hud.Warning,Is.EqualTo("A storm or gathering is already under way."));
+            Assert.That(hud.PowerArmed,Is.True,"A failed cast keeps the armed power.");
+            yield return new ExitPlayMode();
         }
         [UnityTest]
         public IEnumerator SelectedPowerCastsOnTappedResidentAndFeedReportsIt()
