@@ -382,6 +382,47 @@ namespace WorldSim.Tests.EditMode
             }
         }
         [Test]
+        public void AttendeesAfflictedMidGatheringInspectUntilHomeAndDecodeTheirIllness()
+        {
+            // ADR0038 §4 / Review Focus2: an illness cast on an attendee keeps the home→target
+            // leg (walking out) or walks target→home (at the target); both are kind1 legs the
+            // core publishes, and the illness group owns the ReturnedHome row.
+            using(var world=new NativeSlice(71449,NativeWorld.UtcToSim(2026,6,23,1,0,0)))
+            {
+                var frame=new SliceFrame();world.SetCamera(Vector3.zero,1000);
+                for(int i=0;i<100;i++) {world.Fill(frame,out _);if(frame.L1==(uint)frame.Population) break;world.Steps(1);}
+                ulong target=frame.Buildings[0].Id;ulong gathering=world.Gather(target,1800000000);
+                ulong walker=0,guest=0,walkerRoot=0,guestRoot=0;bool walkerHome=false,guestHome=false,walkerLeg=false,guestLeg=false;
+                for(int step=0;step<4000&&!(walkerHome&&guestHome);step++)
+                {
+                    world.Steps(10);world.Fill(frame,out _);
+                    for(int i=0;i<frame.Population;i++)
+                    {
+                        ulong id=frame.Residents[i].Id;if(id==walker||id==guest) continue;
+                        var r=world.Inspect(id);if(r.OverrideKind!=3||r.Home==target) continue;
+                        if(walker==0&&r.Location==2&&r.From==r.Home&&r.To==target) {walker=id;walkerRoot=world.Illness(id,0,5,3600000000).Consequences.Root;}
+                        else if(guest==0&&r.Location==0&&r.From==target&&r.Action==3) {guest=id;guestRoot=world.Illness(id,0,5,3600000000).Consequences.Root;}
+                    }
+                    foreach(var (id,root) in new[]{(walker,walkerRoot),(guest,guestRoot)})
+                    {
+                        if(id==0) continue;
+                        // Illness() inspects the resident and decodes its illness group on every step.
+                        var sample=world.Illness(id,root);var r=sample.Inspection;
+                        Assert.That(r.OverrideKind,Is.EqualTo(1));Assert.That(r.OverrideRoot,Is.EqualTo(root));
+                        bool leg=r.Location==2&&r.FromExit==uint.MaxValue&&r.ToExit==uint.MaxValue;
+                        bool home=r.Location==0&&r.From==r.Home;
+                        bool returned=false;foreach(var e in sample.Consequences.Events) if(e.Tag==6) {returned=true;Assert.That(e.A,Is.EqualTo(id));}
+                        if(id==walker) {walkerLeg|=leg;walkerHome|=home&&returned;} else {guestLeg|=leg;guestHome|=home&&returned;}
+                    }
+                }
+                Assert.That(walker,Is.Not.Zero,"An attendee must be afflicted while walking out.");Assert.That(guest,Is.Not.Zero,"An attendee must be afflicted at the gathering.");
+                Assert.That(walkerLeg&&guestLeg,Is.True,"Both must be inspected on a kind1 leg between featured buildings.");
+                Assert.That(walkerHome&&guestHome,Is.True,"Both illness groups must record ReturnedHome.");
+                // The gathering group lacks both interrupted attendees' ReturnedHome rows.
+                foreach(var e in world.Consequences(gathering).Events) if(e.Tag==6) {Assert.That(e.A,Is.Not.EqualTo(walker));Assert.That(e.A,Is.Not.EqualTo(guest));}
+            }
+        }
+        [Test]
         public void SliceHostSaveAndLoadIntegration()
         {
             string path=Path.Combine(Path.GetTempPath(),"unity_host_rt_"+Guid.NewGuid().ToString("N")+".wssave");

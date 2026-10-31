@@ -164,9 +164,12 @@ namespace WorldSim.Bridge
                         if(row.Destination==r.From&&row.DestinationExit==r.FromExit||row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit) knownFrom=true;
                         if(row.OriginKind!=0&&row.Origin==r.From&&row.OriginExit==r.FromExit&&row.Destination==r.To&&row.DestinationExit==r.ToExit) baselineLeg=true;
                     }
-                    // Kind3 legs run home to the featured target and back on the navigation graph.
-                    Require(r.Action==5&&(r.OverrideKind==1&&(r.To==r.Home&&r.ToExit==uint.MaxValue&&knownFrom||baselineLeg)||
-                        r.OverrideKind==3&&r.FromExit==uint.MaxValue&&r.ToExit==uint.MaxValue&&(r.From==r.Home||r.To==r.Home)));
+                    // Kind3 legs run home to the featured target and back on the navigation graph. An
+                    // illness cast on an attendee keeps that home-to-target leg, or walks target to home
+                    // (ws-life RoutineOverride::illness), so kind1 accepts the same featured legs too.
+                    bool homeLeg=r.FromExit==uint.MaxValue&&r.ToExit==uint.MaxValue&&(r.From==r.Home||r.To==r.Home);
+                    Require(r.Action==5&&(r.OverrideKind==1&&(r.To==r.Home&&r.ToExit==uint.MaxValue&&knownFrom||baselineLeg||homeLeg)||
+                        r.OverrideKind==3&&homeLeg));
                 }
             }
             r.Events=new InspectionEvent[(int)events];
