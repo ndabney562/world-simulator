@@ -125,7 +125,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                 u32_from(&geometry, 4),
                 u64_from(&geometry, 8)
             ),
-            (9, 96, ws_sim::SITE_DATASET_VERSION)
+            (10, 96, ws_sim::SITE_DATASET_VERSION)
         );
         assert_eq!(
             (
@@ -158,7 +158,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                     u32_from(&bytes, 52),
                     u32_from(&bytes, 56)
                 ),
-                (9, 128, 30, 30, 4)
+                (10, 128, 30, 30, 4)
             );
             assert_eq!(&bytes[92..128], &[0; 36]);
             let mut sky = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
@@ -354,9 +354,9 @@ fn close_f32(a: &[u8], b: &[u8], at: usize, tolerance: f32) {
 }
 #[test]
 fn shared_real_slice_samples_pin_integers_and_respect_coordinate_determinism_tiers() {
-    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v9.hex"));
-    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v9.hex"));
-    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v9.hex"));
+    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v10.hex"));
+    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v10.hex"));
+    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v10.hex"));
     // SAFETY: live exclusive native handle and initialized disjoint output storage.
     unsafe {
         let h = ws_slice_create(&config());
@@ -665,7 +665,7 @@ fn illness_wire_semantics_health_and_bounded_explicit_consequences_are_coherent(
             ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
             OK
         );
-        assert_eq!(u32_from(&out, 0), 9);
+        assert_eq!(u32_from(&out, 0), 10);
         assert_eq!(u32_from(&out, 4), 96);
         assert_eq!(u64_from(&out, 24), checkpoint.state);
         assert_eq!(u64_from(&out, 40), root);
@@ -932,10 +932,10 @@ unsafe fn gather_handle() -> *mut WsSliceHandle {
 
 #[test]
 fn abi8_config_is_refused() {
-    assert_eq!(ABI_VERSION, 9);
+    assert_eq!(ABI_VERSION, 10);
     // SAFETY: valid stack configs and inputs; a successful handle is destroyed once.
     unsafe {
-        assert_eq!(ws_abi_version(), 9);
+        assert_eq!(ws_abi_version(), 10);
         assert!(
             ws_slice_create(&WsSliceConfig {
                 abi_version: 8,
@@ -964,6 +964,178 @@ fn abi8_config_is_refused() {
         let mut sky = WsCalendarSky::from_view((*h).world.calendar_sky());
         sky.abi_version = 8;
         assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), VERSION_MISMATCH);
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn abi9_config_is_refused() {
+    assert_eq!(ABI_VERSION, 10);
+    // SAFETY: valid stack configs and inputs; a successful handle is destroyed once.
+    unsafe {
+        assert_eq!(ws_abi_version(), 10);
+        assert!(
+            ws_slice_create(&WsSliceConfig {
+                abi_version: 9,
+                ..config()
+            })
+            .is_null()
+        );
+        assert!(
+            ws_create(&WsConfig {
+                abi_version: 9,
+                struct_size: 32,
+                seed: 7,
+                start_us: 0,
+                residents_per_building: 1,
+                reserved: 0,
+            })
+            .is_null()
+        );
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        let journal = (*h).world.operations().len();
+        let mut old = op(1, 1);
+        old.abi_version = 9;
+        assert_eq!(ws_slice_apply(h, &old), VERSION_MISMATCH);
+        assert_eq!((*h).world.operations().len(), journal);
+        let mut sky = WsCalendarSky::from_view((*h).world.calendar_sky());
+        sky.abi_version = 9;
+        assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), VERSION_MISMATCH);
+        ws_slice_destroy(h);
+    }
+}
+
+fn god_of(h: *mut WsSliceHandle) -> WsSliceGod {
+    // SAFETY: all-zero is a valid WsSliceGod; struct_size is set before the call.
+    unsafe {
+        let mut out: WsSliceGod = std::mem::zeroed();
+        out.struct_size = 560;
+        assert_eq!(ws_slice_god(h, &mut out), OK);
+        out
+    }
+}
+
+#[test]
+fn god_struct_reports_goals_faith_and_zeroes_unused() {
+    assert_eq!(
+        (size_of::<WsSliceGod>(), align_of::<WsSliceGod>()),
+        (560, 8)
+    );
+    assert_eq!(
+        (
+            std::mem::offset_of!(WsSliceGod, struct_size),
+            std::mem::offset_of!(WsSliceGod, reserved),
+            std::mem::offset_of!(WsSliceGod, day),
+            std::mem::offset_of!(WsSliceGod, block_faith),
+            std::mem::offset_of!(WsSliceGod, goal_count),
+            std::mem::offset_of!(WsSliceGod, goals),
+            std::mem::offset_of!(WsSliceGod, resident_count),
+            std::mem::offset_of!(WsSliceGod, reserved2),
+            std::mem::offset_of!(WsSliceGod, residents)
+        ),
+        (0, 4, 8, 16, 20, 24, 72, 76, 80)
+    );
+    assert_eq!(
+        (size_of::<WsSliceGoal>(), size_of::<WsSliceFaith>()),
+        (16, 16)
+    );
+    // SAFETY: live exclusive handle and initialized outputs; destroyed once.
+    unsafe {
+        let h = ws_slice_create(&config());
+        let ids = (*h).world.population().residents().ids().to_vec();
+        let fresh = god_of(h);
+        assert_eq!(fresh.block_faith, 0);
+        assert_eq!(fresh.resident_count as usize, ids.len());
+        for tag_resident in [ids[0], ids[1]] {
+            assert_eq!(
+                ws_slice_apply(h, &slice_op(6, [tag_resident.raw(), 0, 0, 0, 0, 0])),
+                OK
+            );
+        }
+        let out = god_of(h);
+        let god = (*h).world.god();
+        assert_eq!((out.struct_size, out.reserved, out.reserved2), (560, 0, 0));
+        assert_eq!(out.day, god.goals().day);
+        assert_eq!(out.block_faith, god.block_faith());
+        assert_ne!(out.block_faith, 0, "two blessings move block faith");
+        let goals = god.goals().goals();
+        assert_eq!(out.goal_count as usize, goals.len());
+        for (i, g) in goals.iter().enumerate() {
+            let row = out.goals[i];
+            assert_eq!(
+                (row.kind, row.target, row.progress, row.done),
+                (
+                    u32::from(g.kind as u8),
+                    u32::from(g.target),
+                    u32::from(g.progress),
+                    u32::from(g.done)
+                )
+            );
+        }
+        for row in &out.goals[goals.len()..] {
+            assert_eq!((row.kind, row.target, row.progress, row.done), (0, 0, 0, 0));
+        }
+        assert_eq!(out.resident_count as usize, god.faith().len());
+        for (i, (id, faith)) in god.faith().iter().enumerate() {
+            assert_eq!(
+                (
+                    out.residents[i].id,
+                    out.residents[i].faith,
+                    out.residents[i].reserved
+                ),
+                (id.raw(), i32::from(*faith), 0)
+            );
+        }
+        let blessed = god
+            .faith()
+            .iter()
+            .filter(|(id, _)| *id == ids[0] || *id == ids[1])
+            .all(|(_, f)| *f > 0);
+        assert!(blessed, "both blessed residents gained faith");
+        for row in &out.residents[god.faith().len()..] {
+            assert_eq!((row.id, row.faith, row.reserved), (0, 0, 0));
+        }
+        // Dirty output is fully overwritten, including unused rows.
+        let mut dirty: WsSliceGod = std::mem::zeroed();
+        std::ptr::write_bytes((&mut dirty as *mut WsSliceGod).cast::<u8>(), 0xAB, 560);
+        dirty.struct_size = 560;
+        assert_eq!(ws_slice_god(h, &mut dirty), OK);
+        assert_eq!(
+            std::slice::from_raw_parts((&dirty as *const WsSliceGod).cast::<u8>(), 560),
+            std::slice::from_raw_parts((&out as *const WsSliceGod).cast::<u8>(), 560)
+        );
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn god_rejects_wrong_size_and_null() {
+    // SAFETY: live exclusive handle and stack outputs; destroyed once.
+    unsafe {
+        let h = ws_slice_create(&config());
+        let mut out: WsSliceGod = std::mem::zeroed();
+        assert_eq!(ws_slice_god(null_mut(), &mut out), INVALID_ARGUMENT);
+        assert_eq!(ws_slice_god(h, null_mut()), INVALID_ARGUMENT);
+        let mut control = [0u64; 70];
+        control[0] = 560;
+        let bad = control
+            .as_mut_ptr()
+            .cast::<u8>()
+            .add(1)
+            .cast::<WsSliceGod>();
+        assert_eq!(ws_slice_god(h, bad), INVALID_ARGUMENT);
+        for size in [0, 559, 561, 16] {
+            let mut sized: WsSliceGod = std::mem::zeroed();
+            sized.struct_size = size;
+            sized.day = 77;
+            assert_eq!(ws_slice_god(h, &mut sized), VERSION_MISMATCH);
+            assert_eq!((sized.day, sized.struct_size), (77, size));
+        }
+        out.struct_size = 560;
+        assert_eq!(operate_slice(h, |_| panic!("god poison test")), PANIC);
+        assert_eq!(ws_slice_god(h, &mut out), POISONED);
+        assert_eq!(out.day, 0);
         ws_slice_destroy(h);
     }
 }
