@@ -94,7 +94,7 @@ On an Apple M1 Pro (arm64), Rust 1.97.0 release `world_step/5000` improved from 
 
 See [ws-world's implementation notes](../ws-world/README.md#movement-frame-reuse-31-2026-10-16) and the [verification report](../../../docs/verification/issue-31/README.md) for the cache's exactness, historical measurements and replay evidence. Older numbers above describe their original machines/revisions.
 
-The merged TP-003 bridge now follows ADR 0019 §8 as ABI v2: commands submitted through `ws_submit` use this same queue/journal, zero-step advance flushes, and a 16-byte committed-control-state read supplies host pacing. The native and C# adapters do not expose a direct mutation escape or multiply scale twice. See the [bridge contract](../ws-ffi/README.md).
+The TP-003 toy bridge (`ws_submit`, `ws_advance` and the control-state read over this queue/journal) was deleted at ABI 11 by [ADR 0040](../../../docs/adr/0040-delete-toy-world-and-old-formats.md); Unity drives the slice through `ws_slice_*`. See the [bridge contract](../ws-ffi/README.md).
 
 ### Inside-cell fast path (#48, 2026-10-17)
 

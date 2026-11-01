@@ -976,6 +976,32 @@ fn shared_utc_and_sky_layout_fixtures_match_native_structs() {
 }
 
 #[test]
+fn unsupported_sky_keeps_exact_utc_and_zeroes_local_and_sun_fields() {
+    // SAFETY: one live exclusive handle, destroyed once; the record is plain repr(C) data.
+    unsafe {
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        let mut view = (*h).world.calendar_sky();
+        assert!(view.environment.supported.is_some());
+        view.environment.supported = None;
+        let sky = WsCalendarSky::from_view(view);
+        let bytes = std::slice::from_raw_parts((&sky as *const WsCalendarSky).cast::<u8>(), 160);
+        assert_eq!(sky.flags, 0);
+        assert_eq!(&bytes[60..92], &[0; 32]);
+        assert_eq!(&bytes[120..160], &[0; 40]);
+        assert_eq!(
+            (sky.utc_year, sky.utc_month, sky.utc_day, sky.utc_hour),
+            (2026, 6, 22, 11)
+        );
+        assert_eq!(
+            (sky.tick, sky.scale_tag, sky.site_dataset_version),
+            (0, 1, ws_sim::SITE_DATASET_VERSION)
+        );
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
 fn older_abi_word_is_refused() {
     assert_eq!(ABI_VERSION, 11);
     // SAFETY: valid stack configs and inputs; a successful handle is destroyed once.

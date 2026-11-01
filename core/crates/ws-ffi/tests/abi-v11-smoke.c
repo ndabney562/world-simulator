@@ -65,6 +65,7 @@ int main(void) {
     assert(ws_slice_get_calendar_sky(slice, &rejected) == VERSION_MISMATCH && rejected.tick == 999);
     assert(ws_slice_get_calendar_sky(slice, &slice_sky) == OK);
     assert(slice_sky.tick == 0 && slice_sky.sim_time_us == time && slice_sky.scale_tag == 0);
+    assert(slice_sky.flags == 1 && slice_sky.site_dataset_version != 0);
     before_hash = slice_sky.state_hash;
     assert(ws_slice_get_calendar_sky(slice, &slice_sky) == OK && slice_sky.state_hash == before_hash);
     uint64_t resident_id = 0, building_id = 0;

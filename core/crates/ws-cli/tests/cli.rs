@@ -102,11 +102,28 @@ fn slice_save_then_load_in_separate_processes_agree_and_never_overwrite() {
 }
 
 #[test]
+fn toy_saves_are_refused() {
+    let toy = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/saves/toy-v3.wssave"
+    );
+    assert!(std::path::Path::new(toy).exists());
+    let out = cli(&["load", "--file", toy]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("only Vertical Slice saves load"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn removed_toy_modes_and_options_are_refused() {
     for args in [
         &["replay", "--journal", "x.wsjr"][..],
         &["run", "--seed", "1", "--ticks", "1", "--journal", "x.wsjr"],
         &["run", "--slice", "--seed", "1", "--ticks", "1"],
+        &["frob"],
     ] {
         let out = cli(args);
         assert!(!out.status.success(), "{args:?}");

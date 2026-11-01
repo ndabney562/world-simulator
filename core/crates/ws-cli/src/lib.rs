@@ -16,6 +16,10 @@ pub fn main_entry(args: Vec<String>) -> Result<()> {
         return Ok(());
     }
     let mode = &args[0];
+    require(
+        ["run", "save", "load"].contains(&mode.as_str()),
+        "unknown mode",
+    )?;
     let mut opts = std::collections::BTreeMap::new();
     let mut i = 1;
     while i < args.len() {
