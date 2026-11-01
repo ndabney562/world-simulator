@@ -359,11 +359,8 @@ impl SliceSimulation {
             &[state, self.god.hash()],
         )
     }
-    /// [`Self::state_hash`] without the ADR 0039 god block: the hash a
-    /// format-4 or format-5 save of this world reloads to, since those
-    /// formats restore faith 0 and freshly generated goals.
-    #[doc(hidden)]
-    pub fn state_hash_without_god(&self) -> u64 {
+    /// [`Self::state_hash`] without the ADR 0039 god block.
+    fn state_hash_without_god(&self) -> u64 {
         let vitals = ws_rng::hash(
             0,
             Purpose::new("ws-sim/slice-state/v2").value(),

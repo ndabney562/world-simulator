@@ -1,5 +1,5 @@
 //! Coherent immutable committed-boundary calendar/sky query (ADR0030).
-use crate::{SimTime, World};
+use crate::SimTime;
 
 /// One world boundary, with all environmental values derived from its instant.
 /// Callers pair `tick` with the render snapshot under serialized ownership.
@@ -16,53 +16,12 @@ pub struct CalendarSky {
     /// Exact UTC and optional local/sun output in this world's render basis.
     pub environment: ws_world::environment::CalendarSky,
 }
-impl World {
-    /// Pure coarse projection: no ticks, command flush, random draw, event,
-    /// mutation or retained derived state. UTC remains exact at extreme times;
-    /// unavailable local/solar output is explicit.
-    #[must_use]
-    pub fn calendar_sky(&self) -> CalendarSky {
-        CalendarSky {
-            tick: self.tick(),
-            time: self.now(),
-            state_hash: self.state_hash(),
-            scale_tag: self.clock().scale().multiplier(),
-            environment: ws_world::environment::calendar_sky(self.now(), self.toy().render_basis()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        TimeScale, UtcDateTime, WorldConfig,
-        commands::{Action, Command, IssuedBy},
-    };
+    use crate::{TimeScale, UtcDateTime};
     fn time(y: i32, m: u8, d: u8, h: u8, mi: u8, s: u8) -> SimTime {
         SimTime::from_utc(UtcDateTime::new(y, m, d, h, mi, s, 0).unwrap()).unwrap()
-    }
-    #[test]
-    fn sky_query_does_not_publish_pending_scale_or_mutate_world() {
-        let mut w = World::new(WorldConfig::new(7, time(2026, 6, 21, 17, 0, 0))).unwrap();
-        w.submit(vec![Command::new(
-            IssuedBy::Test,
-            Action::SetTimeScale(TimeScale::X100),
-        )])
-        .unwrap();
-        let original = w.clone();
-        for _ in 0..10 {
-            let sky = w.calendar_sky();
-            assert_eq!(
-                (sky.tick, sky.time, sky.state_hash, sky.scale_tag),
-                (w.tick(), w.now(), w.state_hash(), 1)
-            );
-            assert!(sky.environment.supported.unwrap().elevation_deg > 72.0);
-        }
-        assert_eq!(w, original);
-        w.flush_commands().unwrap();
-        assert_eq!(w.calendar_sky().scale_tag, 100);
-        assert_eq!(w.tick(), 0);
     }
     #[test]
     fn civil_slice_configuration_aligns_once_and_preserves_elapsed_epoch() {

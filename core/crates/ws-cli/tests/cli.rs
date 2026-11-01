@@ -102,16 +102,16 @@ fn slice_save_then_load_in_separate_processes_agree_and_never_overwrite() {
 }
 
 #[test]
-fn toy_saves_are_refused() {
-    let toy = concat!(
+fn older_save_formats_are_refused() {
+    let old = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../tests/saves/toy-v3.wssave"
+        "/../../../tests/saves/slice-v4.wssave"
     );
-    assert!(std::path::Path::new(toy).exists());
-    let out = cli(&["load", "--file", toy]);
+    assert!(std::path::Path::new(old).exists());
+    let out = cli(&["load", "--file", old]);
     assert!(!out.status.success());
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("only Vertical Slice saves load"),
+        String::from_utf8_lossy(&out.stderr).contains("save format version 4 is not supported"),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );

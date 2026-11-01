@@ -2,15 +2,12 @@
 
 use core::fmt;
 
-use ws_sim::{RestoreError, SliceRestoreError, WorldError};
+use ws_sim::SliceRestoreError;
 
-/// Why a world could not be saved. Nothing is left at the target path.
+/// Why a simulation could not be saved. Nothing is left at the target path.
 #[derive(Debug)]
 pub enum SaveError {
-    /// Commands are queued but not flushed. Saves are taken at a boundary
-    /// after a flush, so no queued input is lost.
-    PendingCommands,
-    /// The world holds a record the format cannot represent.
+    /// The simulation holds a record the format cannot represent.
     Unsaveable(&'static str),
     /// The file system refused.
     Io(std::io::Error),
@@ -21,7 +18,6 @@ pub enum SaveError {
 impl fmt::Display for SaveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PendingCommands => f.write_str("commands are queued; flush them before saving"),
             Self::Unsaveable(why) => write!(f, "cannot save: {why}"),
             Self::Io(e) => write!(f, "save failed: {e}"),
             Self::Sqlite(e) => write!(f, "save failed: {e}"),
@@ -52,32 +48,13 @@ pub enum LoadError {
     Sqlite(rusqlite::Error),
     /// The file is not a World Simulator save.
     NotASave,
-    /// The save was written by a format this build does not know, usually a
-    /// newer one. Nothing in the file is read.
+    /// The save was written in a format this build does not read: an older
+    /// one (ADR 0040) or a newer one. Nothing else in the file is read.
     UnsupportedVersion {
         /// The version the file declares.
         found: u32,
-        /// The newest version this build reads.
+        /// The only version this build reads.
         supported: u32,
-    },
-    /// The save's pinned baseline dataset or content digest is not available
-    /// in the local baseline registry (ADR 0025 §3).
-    MissingBaseline {
-        /// Dataset identifier recorded in the save.
-        dataset_id: u32,
-        /// Dataset version recorded in the save.
-        dataset_version: u64,
-        /// Expected 32-byte content SHA-256 recorded in the save.
-        sha256: [u8; 32],
-    },
-    /// The save's baseline declares a generator, rules, or identity-policy
-    /// version (or collision overrides) that this build does not support
-    /// (ADR 0025 §1, §3).
-    UnsupportedBaseline {
-        /// Which baseline field is unsupported.
-        field: &'static str,
-        /// The version or count recorded in the save.
-        version: u64,
     },
     /// A table or the header is missing, or a record does not decode.
     Corrupt {
@@ -86,20 +63,15 @@ pub enum LoadError {
         /// What is wrong.
         reason: &'static str,
     },
-    /// The toy-world rows do not fit together (a repeated ID or a missing
-    /// home building).
-    Toy(WorldError),
-    /// The records decode but do not form a valid world.
-    Invalid(RestoreError),
     /// The records decode but do not form a valid slice simulation.
     Slice(SliceRestoreError),
-    /// The restored world does not hash to a value recorded in the header.
+    /// The restored simulation does not hash to a value recorded in the header.
     HashMismatch {
         /// Which digest: `"state"`, `"journal"` or `"events"`.
         what: &'static str,
         /// The digest recorded at save time.
         stored: u64,
-        /// The digest of the restored world.
+        /// The digest of the restored simulation.
         computed: u64,
     },
 }
@@ -112,28 +84,9 @@ impl fmt::Display for LoadError {
             Self::NotASave => f.write_str("the file is not a World Simulator save"),
             Self::UnsupportedVersion { found, supported } => write!(
                 f,
-                "save format version {found} is not supported (this build reads up to {supported})"
+                "save format version {found} is not supported (this build reads only version {supported})"
             ),
-            Self::MissingBaseline {
-                dataset_id,
-                dataset_version,
-                sha256,
-            } => {
-                write!(
-                    f,
-                    "missing baseline dataset {dataset_id} version {dataset_version} (sha256 "
-                )?;
-                for b in sha256 {
-                    write!(f, "{b:02x}")?;
-                }
-                f.write_str(")")
-            }
-            Self::UnsupportedBaseline { field, version } => {
-                write!(f, "unsupported baseline {field} version {version}")
-            }
             Self::Corrupt { table, reason } => write!(f, "corrupt save ({table}): {reason}"),
-            Self::Toy(e) => write!(f, "the save's entities do not fit together: {e}"),
-            Self::Invalid(e) => write!(f, "the save is not a valid world: {e}"),
             Self::Slice(e) => write!(f, "the save is not a valid slice simulation: {e}"),
             Self::HashMismatch {
                 what,
@@ -141,7 +94,7 @@ impl fmt::Display for LoadError {
                 computed,
             } => write!(
                 f,
-                "{what} digest mismatch: the header says {stored:#018x}, the loaded world is {computed:#018x}"
+                "{what} digest mismatch: the header says {stored:#018x}, the loaded simulation is {computed:#018x}"
             ),
         }
     }

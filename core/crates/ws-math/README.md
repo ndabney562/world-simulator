@@ -12,7 +12,7 @@ The coordinate and reference-frame foundation ([07-coordinates-and-time.md](../.
 | `cell` | `CellId(u64)`: S2-compatible cube-sphere cells, Hilbert-ordered; from geodetic or ECEF, level, parent, children, containment, edge neighbours, centre, cell ENU frame |
 | `surface` | `SurfacePos { cell, offset: [f32; 3] }` in a sector cell's ENU frame (`SECTOR_LEVEL` = 13); to and from ECEF; `CellFrame` for allocation-free bulk conversion; deterministic re-expression into the containing cell |
 | `solar` | ADR0030 NOAA/Meeus geometric solar rule1 from integer civil day/label components; libm unit direction, azimuth and elevation, with no refraction |
-| `reference` | `BAY_RIDGE`, the reference point for tests and the toy world |
+| `reference` | `BAY_RIDGE`, the reference point for tests |
 | `error` | `CoordError`, returned for every invalid input |
 
 Conventions: SI units (metres, radians), right-handed frames, ENU local frames (x east, y north, z up), ellipsoidal heights. Cell IDs have the same `u64` value as Google S2 cell IDs for the same direction.

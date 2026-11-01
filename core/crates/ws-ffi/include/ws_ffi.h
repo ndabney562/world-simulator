@@ -446,14 +446,14 @@ WsStatus ws_slice_fill_snapshot(WsSliceHandle *handle,
 WsStatus ws_slice_get_calendar_sky(WsSliceHandle *handle, WsCalendarSky *output);
 
 /**
- * Saves the real slice synchronously to a format-5 save file.
+ * Saves the real slice synchronously to a format-6 save file.
  * # Safety
  * Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
  */
 WsStatus ws_slice_save(WsSliceHandle *handle, const char *path_utf8);
 
 /**
- * Spawns a background thread saving the real slice to a format-5 save file.
+ * Spawns a background thread saving the real slice to a format-6 save file.
  * # Safety
  * Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
  */
@@ -469,7 +469,8 @@ WsStatus ws_slice_save_background(WsSliceHandle *handle, const char *path_utf8);
 WsStatus ws_slice_save_status(WsSliceHandle *handle);
 
 /**
- * Loads a real slice from a format-4 or format-5 save file. Returns null on failure.
+ * Loads a real slice from a format-6 save file; older formats are refused
+ * (ADR 0040). Returns null on failure.
  * # Safety
  * Non-null path is null-terminated UTF-8.
  */

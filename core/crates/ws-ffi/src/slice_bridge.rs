@@ -536,7 +536,7 @@ pub unsafe extern "C" fn ws_slice_get_calendar_sky(
         })
     }
 }
-/// Saves the real slice synchronously to a format-5 save file.
+/// Saves the real slice synchronously to a format-6 save file.
 /// # Safety
 /// Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
 #[unsafe(no_mangle)]
@@ -570,7 +570,7 @@ pub unsafe extern "C" fn ws_slice_save(
         })
     }
 }
-/// Spawns a background thread saving the real slice to a format-5 save file.
+/// Spawns a background thread saving the real slice to a format-6 save file.
 /// # Safety
 /// Non-null handle is live/exclusive. Non-null path is null-terminated UTF-8.
 #[unsafe(no_mangle)]
@@ -662,7 +662,8 @@ pub unsafe extern "C" fn ws_slice_save_status(handle: *mut WsSliceHandle) -> WsS
     }
     h.save_status
 }
-/// Loads a real slice from a format-4 or format-5 save file. Returns null on failure.
+/// Loads a real slice from a format-6 save file; older formats are refused
+/// (ADR 0040). Returns null on failure.
 /// # Safety
 /// Non-null path is null-terminated UTF-8.
 #[unsafe(no_mangle)]

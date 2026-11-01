@@ -1,14 +1,15 @@
-//! Integration tests for slice persistence: format 4 (ADR 0036, Issue #75) and
-//! format 5 with storm and gathering episodes (ADR 0038 §6, Issue #125), and
-//! format 6 with faith and daily goals (ADR 0039 §4, Issue #127).
+//! Integration tests for slice persistence (ADR 0036, Issue #75): format 6,
+//! with storm and gathering episodes (ADR 0038 §6, Issue #125) and faith and
+//! daily goals (ADR 0039 §4, Issue #127). Older formats are refused
+//! (ADR 0040).
 
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use ws_life::lod::CameraInterest;
 use ws_persist::{
-    FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, MODEL_KIND_TOY, SaveError, load, load_slice,
-    read_header, save_slice, save_slice_background, save_slice_with_version,
+    FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, SaveError, load_slice, read_header, save_slice,
+    save_slice_background, save_slice_parts,
 };
 use ws_sim::slice::{GoalKind, Operation, SliceConfig, SliceSimulation, generate_goals};
 use ws_sim::ws_events::EventId;
@@ -61,8 +62,6 @@ fn fresh_slice_at_tick_zero_round_trips() {
     assert_eq!(h.format_version, FORMAT_VERSION);
     assert_eq!(FORMAT_VERSION, 6);
     assert_eq!(h.model_kind, MODEL_KIND_SLICE);
-    assert!(h.is_slice());
-    assert!(!h.is_toy());
     assert_eq!(h.tick, 0);
     assert_eq!(h.state_hash, sim.state_hash());
 
@@ -238,62 +237,149 @@ fn corrupt_or_tampered_slice_saves_are_rejected() {
         })
     ));
 
-    // 5. Calling toy `load` on slice file fails with typed error
+    // 5. A format-6 header naming another model kind (1 was the toy world)
     save_slice(&sim, &path).unwrap();
-    match load(&path) {
-        Err(LoadError::Corrupt { table, reason }) => {
-            assert_eq!(table, "header");
-            assert!(reason.contains("save file is a slice simulation"));
-        }
-        other => panic!("expected Corrupt header for slice file in toy loader, got {other:?}"),
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute("UPDATE header SET model_kind = 1", [])
+            .unwrap();
     }
-
-    // 6. Calling `load_slice` on a toy save file fails
-    let toy_path = fixture("toy-v3.wssave");
-    match load_slice(&toy_path) {
-        Err(LoadError::Corrupt { table, reason }) => {
-            assert_eq!(table, "header");
-            assert!(reason.contains("save file is not a slice simulation"));
-        }
-        other => panic!("expected Corrupt header for toy file in slice loader, got {other:?}"),
-    }
+    assert!(matches!(
+        load_slice(&path),
+        Err(LoadError::Corrupt {
+            table: "header",
+            reason: "save file is not a slice simulation"
+        })
+    ));
 }
 
+/// One fixture per refusal (ADR 0040): a save in an older format number is
+/// refused cleanly, before any record is read.
 #[test]
-fn the_slice_v4_golden_fixture_loads() {
+fn older_save_formats_are_refused() {
     let path = fixture("slice-v4.wssave");
-    assert!(path.is_file(), "missing golden fixture slice-v4.wssave");
-
-    let h = read_header(&path).unwrap();
-    assert_eq!(h.format_version, 4);
-    assert_eq!(h.model_kind, MODEL_KIND_SLICE);
-    assert_eq!(h.tick, 100);
-    assert_eq!(h.seed, 2026);
-    assert_eq!(h.state_hash, 0xc2aec0c3bd1ccfda);
-
-    let mut loaded = load_slice(&path).unwrap();
-    assert_eq!(loaded.state_hash(), 0xc2aec0c3bd1ccfda);
-    assert_eq!(loaded.clock().steps(), 100);
-
-    // Step 20 more ticks
-    for _ in 0..20 {
-        loaded.step().unwrap();
+    assert!(path.is_file(), "missing fixture slice-v4.wssave");
+    for result in [
+        read_header(&path).map(|_| ()),
+        load_slice(&path).map(|_| ()),
+    ] {
+        match result {
+            Err(
+                e @ LoadError::UnsupportedVersion {
+                    found: 4,
+                    supported,
+                },
+            ) => {
+                assert_eq!(supported, FORMAT_VERSION);
+                assert_eq!(
+                    e.to_string(),
+                    "save format version 4 is not supported (this build reads only version 6)"
+                );
+            }
+            other => panic!("expected UnsupportedVersion for a format-4 save, got {other:?}"),
+        }
     }
-    assert_eq!(loaded.clock().steps(), 120);
+}
+
+/// A newer or unknown format number is refused like an older one.
+#[test]
+fn newer_or_unknown_save_formats_are_refused() {
+    let dir = Scratch::new("version");
+    let path = dir.path("v.wssave");
+    save_slice(&sample_slice(10), &path).unwrap();
+    for found in [FORMAT_VERSION + 1, 99, 0] {
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "user_version", found).unwrap();
+        drop(conn);
+        for result in [
+            read_header(&path).map(|_| ()),
+            load_slice(&path).map(|_| ()),
+        ] {
+            match result {
+                Err(LoadError::UnsupportedVersion {
+                    found: f,
+                    supported,
+                }) => assert_eq!((f, supported), (found, FORMAT_VERSION)),
+                other => panic!("expected UnsupportedVersion for {found}, got {other:?}"),
+            }
+        }
+    }
 }
 
 #[test]
-fn older_fixtures_load_unchanged() {
-    for name in ["toy-v1.wssave", "toy-v2.wssave", "toy-v3.wssave"] {
-        let path = fixture(name);
-        assert!(path.is_file(), "missing fixture {name}");
-        let h = read_header(&path).unwrap();
-        assert_eq!(h.model_kind, MODEL_KIND_TOY);
-        assert!(!h.is_slice());
-        assert!(h.is_toy());
-        let w = load(&path).unwrap();
-        assert_eq!(w.state_hash(), h.state_hash);
+fn files_that_are_not_saves_are_rejected() {
+    let dir = Scratch::new("notsave");
+    let text = dir.path("text");
+    std::fs::write(&text, b"this is not a database at all, just some text").unwrap();
+    assert!(matches!(load_slice(&text), Err(LoadError::NotASave)));
+    assert!(matches!(read_header(&text), Err(LoadError::NotASave)));
+
+    let other = dir.path("other.db");
+    let conn = Connection::open(&other).unwrap();
+    conn.execute_batch("CREATE TABLE t (x); INSERT INTO t VALUES (1);")
+        .unwrap();
+    drop(conn);
+    assert!(matches!(load_slice(&other), Err(LoadError::NotASave)));
+    assert!(matches!(read_header(&other), Err(LoadError::NotASave)));
+
+    let missing = dir.path("missing.wssave");
+    assert!(matches!(load_slice(&missing), Err(LoadError::Io(_))));
+    assert!(matches!(read_header(&missing), Err(LoadError::Io(_))));
+}
+
+#[test]
+fn a_missing_or_inconsistent_header_is_corrupt() {
+    let dir = Scratch::new("header");
+    let path = dir.path("h.wssave");
+    let sim = sample_slice(11);
+    // (SQL, expected reason)
+    for (sql, reason) in [
+        ("DELETE FROM header", "no header row"),
+        (
+            "UPDATE header SET format_version = 5 WHERE id = 1",
+            "header and file format versions differ",
+        ),
+    ] {
+        save_slice(&sim, &path).unwrap();
+        Connection::open(&path).unwrap().execute(sql, []).unwrap();
+        for result in [
+            read_header(&path).map(|_| ()),
+            load_slice(&path).map(|_| ()),
+        ] {
+            match result {
+                Err(LoadError::Corrupt {
+                    table: "header",
+                    reason: r,
+                }) => assert_eq!(r, reason, "{sql}"),
+                other => panic!("{sql}: expected a corrupt header, got {other:?}"),
+            }
+        }
     }
+}
+
+/// A refused save changes neither the destination nor a staging file there.
+#[test]
+fn an_unsaveable_slice_leaves_the_destination_and_staging_file_alone() {
+    let dir = Scratch::new("unsaveable");
+    let dest = dir.path("keep.wssave");
+    let staged = dir.path("keep.wssave.saving");
+    std::fs::write(&dest, b"destination sentinel").unwrap();
+    std::fs::write(&staged, b"staging sentinel").unwrap();
+    let sim = sample_slice(42);
+    let mut parts = sim.to_parts();
+    parts.god = None;
+    assert!(matches!(
+        save_slice_parts(
+            parts,
+            sim.state_hash(),
+            sim.operation_digest(),
+            sim.events().digest(),
+            &dest,
+        ),
+        Err(SaveError::Unsaveable(_))
+    ));
+    assert_eq!(std::fs::read(&dest).unwrap(), b"destination sentinel");
+    assert_eq!(std::fs::read(&staged).unwrap(), b"staging sentinel");
 }
 
 #[test]
@@ -496,7 +582,7 @@ fn save_load_and_step(sim: &mut SliceSimulation, name: &str) {
 }
 
 #[test]
-fn format5_round_trips_active_storm_and_gathering() {
+fn active_storm_and_gathering_round_trip() {
     // Mid-storm: departures deferred, holds deferring.
     let mut storm = storm_world();
     ok(
@@ -554,90 +640,6 @@ fn format5_round_trips_active_storm_and_gathering() {
     save_load_and_step(&mut gather, "f5-gather");
 }
 
-#[test]
-fn format4_save_loads_without_episodes() {
-    let dir = Scratch::new("f4-fixture");
-    let path = dir.path("v4.wssave");
-    let mut sim = sample_slice(101);
-    sim.apply(Operation::Steps(30)).unwrap();
-    let resident = sim.population().residents().ids()[0];
-    sim.apply(Operation::Afflict {
-        resident,
-        severity: 5,
-        duration_us: 15_000_000,
-    })
-    .unwrap();
-    sim.apply(Operation::Steps(40)).unwrap();
-    save_slice_with_version(&sim, &path, 4).unwrap();
-
-    let h = read_header(&path).unwrap();
-    assert_eq!(h.format_version, 4);
-    {
-        let conn = Connection::open(&path).unwrap();
-        for table in ["slice_storm", "slice_gathering"] {
-            let present: bool = conn
-                .query_row(
-                    "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = ?)",
-                    [table],
-                    |r| r.get(0),
-                )
-                .unwrap();
-            assert!(!present, "format 4 has no {table} table");
-        }
-    }
-    let mut loaded = load_slice(&path).unwrap();
-    // Format 4 holds no faith (ADR 0039 §4): the curse's -20 is not restored,
-    // so the reload equals the live world apart from the god block.
-    assert_eq!(loaded.state_hash(), sim.state_hash_without_god());
-    assert!(!loaded.god().touched());
-    assert_eq!(loaded.storm(), None);
-    assert_eq!(loaded.gathering(), None);
-    assert_eq!(holds(&loaded), 0);
-    assert_eq!(index(&loaded), index(&sim));
-    for _ in 0..50 {
-        sim.step().unwrap();
-        loaded.step().unwrap();
-        assert_eq!(loaded.state_hash(), sim.state_hash_without_god());
-    }
-
-    // The golden format-4 fixture loads with no episodes either.
-    let golden = load_slice(&fixture("slice-v4.wssave")).unwrap();
-    assert_eq!((golden.storm(), golden.gathering()), (None, None));
-    assert_eq!(holds(&golden), 0);
-
-    // A format-4 file cannot hold an active storm or gathering.
-    let mut storm = storm_world();
-    ok(
-        &mut storm,
-        Operation::Storm {
-            duration_us: HOUR_US,
-        },
-    );
-    assert!(matches!(
-        save_slice_with_version(&storm, &dir.path("storm-v4.wssave"), 4),
-        Err(SaveError::Unsaveable(_))
-    ));
-    let mut gather = gather_world();
-    let target = rowhouse(&gather);
-    ok(
-        &mut gather,
-        Operation::Gather {
-            building: target,
-            duration_us: 30 * 60_000_000,
-        },
-    );
-    assert!(matches!(
-        save_slice_with_version(&gather, &dir.path("gather-v4.wssave"), 4),
-        Err(SaveError::Unsaveable(_))
-    ));
-    assert!(matches!(
-        save_slice_with_version(&sim, &dir.path("v3.wssave"), 3),
-        Err(SaveError::Unsaveable(_))
-    ));
-}
-
-/// ADR 0038 §6: one case per power, saved after the episode completes; the
-/// index rebuilt on load equals the live one.
 #[test]
 fn each_power_saved_after_completion_rebuilds_equal() {
     let check = |sim: &mut SliceSimulation, name: &str| {
@@ -859,38 +861,6 @@ fn format6_round_trips_partial_goal_and_faith() {
             .any(|e| e.record.payload.tag() == 23)
     );
     assert_eq!(again.checkpoint(), sim.checkpoint());
-}
-
-#[test]
-fn format5_save_loads_with_fresh_goals() {
-    let dir = Scratch::new("f5-fresh-goals");
-    let (mut sim, slot, _) = goal_world(GoalKind::BlessDistinct, 0, 1, 12);
-    let caps = sim.caps();
-    let ids = sim.population().residents().ids().to_vec();
-    ok(&mut sim, Operation::Bless { resident: ids[0] });
-    assert_eq!(sim.god().goals().goals()[slot].progress, 1);
-    let path = dir.path("f5.wssave");
-    save_slice_with_version(&sim, &path, 5).unwrap();
-    let h = read_header(&path).unwrap();
-    assert_eq!(h.format_version, 5);
-    assert_eq!(h.state_hash, sim.state_hash_without_god());
-    let present: bool = Connection::open(&path)
-        .unwrap()
-        .query_row(
-            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'slice_faith')",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert!(!present, "format 5 has no faith table");
-
-    let loaded = load_slice(&path).unwrap();
-    let day = sim.god().goals().day;
-    assert_eq!(loaded.god().goals(), &generate_goals(42, day, caps));
-    assert!(loaded.god().faith().iter().all(|(_, f)| *f == 0));
-    assert!(!loaded.god().touched());
-    assert_eq!(loaded.state_hash(), h.state_hash);
-    assert_eq!(loaded.events().digest(), sim.events().digest());
 }
 
 #[test]

@@ -1,7 +1,7 @@
 [package]
 name = "ws-sim"
 version = "0.1.0"
-description = "World Simulator simulation core: the world, its clock, and its tick loop."
+description = "World Simulator simulation core: the Vertical Slice simulation, its clock, and its tick loop."
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
@@ -20,20 +20,8 @@ ws-world = { path = "../ws-world" }
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 
-[[bench]]
-name = "step"
-harness = false
-
-[[bench]]
-name = "lod"
-harness = false
-
 [lints]
 workspace = true
-
-[[bench]]
-name = "history"
-harness = false
 
 [[bench]]
 name = "slice"

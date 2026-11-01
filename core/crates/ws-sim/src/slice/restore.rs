@@ -46,15 +46,15 @@ pub struct SliceParts {
     pub events: Vec<Event>,
     /// Session operation records.
     pub operations: Vec<OperationRecord>,
-    /// Active storm episode (ADR 0038 §3); always None in format 4.
+    /// Active storm episode (ADR 0038 §3).
     pub storm: Option<Storm>,
     /// `ws-life` storm window, retained after the episode until every hold
-    /// has rejoined; always None in format 4.
+    /// has rejoined.
     pub storm_window: Option<StormWindow>,
-    /// Active gathering episode (ADR 0038 §4); always None in format 4.
+    /// Active gathering episode (ADR 0038 §4).
     pub gathering: Option<Gathering>,
-    /// Resident faith and the day's goals (ADR 0039 §4). None in formats 4
-    /// and 5, which restore faith 0 and the restored day's generated goals.
+    /// Resident faith and the day's goals (ADR 0039 §4). None restores
+    /// faith 0 and the restored day's generated goals; every save holds it.
     pub god: Option<God>,
 }
 

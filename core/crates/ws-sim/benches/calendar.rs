@@ -3,23 +3,11 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use ws_life::{lod::CameraInterest, navigation::Point};
 use ws_sim::{
-    Population, SimTime, TimeScale, UtcDateTime, World, WorldConfig,
+    SimTime, TimeScale, UtcDateTime,
     slice::{Operation, SliceConfig, SliceSimulation},
 };
 fn bench(c: &mut Criterion) {
     let start = SimTime::from_utc(UtcDateTime::new(2026, 6, 21, 17, 0, 0, 0).unwrap()).unwrap();
-    let world = World::new(WorldConfig {
-        seed: 7,
-        start,
-        population: Population {
-            min_per_building: 6,
-            max_per_building: 6,
-        },
-    })
-    .unwrap();
-    c.bench_function("calendar/toy30_committed_query_with_hash", |b| {
-        b.iter(|| black_box(world.calendar_sky()))
-    });
     let mut slice =
         SliceSimulation::new(SliceConfig::calendar_aligned_v1(71449, start).unwrap()).unwrap();
     assert_eq!(slice.population().residents().len(), 30);

@@ -382,7 +382,7 @@ impl SliceSimulation {
 }
 
 impl SliceSimulation {
-    /// The active storm, if any; persisted by `ws-persist` format 5.
+    /// The active storm, if any; persisted by `ws-persist`.
     pub fn storm(&self) -> Option<&Storm> {
         self.powers.storm.as_ref()
     }
@@ -482,7 +482,7 @@ impl SliceSimulation {
 }
 
 impl SliceSimulation {
-    /// The active gathering, if any; persisted by `ws-persist` format 5.
+    /// The active gathering, if any; persisted by `ws-persist`.
     pub fn gathering(&self) -> Option<&Gathering> {
         self.powers.gathering.as_ref()
     }

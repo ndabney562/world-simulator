@@ -1,0 +1,6 @@
+# ADR0030 rule1 exact f64 bit goldens of the sun direction in the site frame
+# (the slice's render basis): year month day hour(UTC) x y z.
+# Replaces solar_frame_v1.txt, whose basis was the deleted toy world (ADR 0040).
+2026 3 20 12 3fef08c90d929894 bfc4644ce2ac4415 3fc79fd8e85b9a9a
+2026 6 21 17 bf807a46e34650c0 bfd2e83de28a9c28 3fee9214968d3dc8
+2026 12 21 2 bfe435a041919149 3fc0d361ee2d889a bfe8739f1b7890ba

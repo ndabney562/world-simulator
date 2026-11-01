@@ -1,8 +1,8 @@
 //! Desktop-only slice step/planning measurements; timing never enters simulation.
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
+use ws_sim::SimTime;
 use ws_sim::slice::{SliceConfig, SliceSimulation};
-use ws_sim::{Population, SimTime, World, WorldConfig};
 fn slice(seed: u64, start: SimTime) -> SliceSimulation {
     SliceSimulation::new(SliceConfig {
         seed,
@@ -135,26 +135,6 @@ fn benches(c: &mut Criterion) {
                     .unwrap(),
             )
         })
-    });
-    let mut toy = World::new(WorldConfig {
-        population: Population::exactly(1000),
-        ..WorldConfig::new(42, SimTime::EPOCH)
-    })
-    .unwrap();
-    for _ in 0..600 {
-        toy.step().unwrap();
-    }
-    c.bench_function("slice_reference_toy_5000_100_steps", |b| {
-        b.iter_batched(
-            || toy.clone(),
-            |mut w| {
-                for _ in 0..100 {
-                    w.step().unwrap();
-                }
-                black_box(w)
-            },
-            BatchSize::SmallInput,
-        )
     });
 }
 criterion_group!(measurements, benches);
