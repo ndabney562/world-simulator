@@ -127,23 +127,22 @@ jobs:
         shell: bash
         run: |
           cc -std=c11 -Wall -Wextra -Werror -Icrates/ws-ffi/include \
-            crates/ws-ffi/tests/abi-v10-smoke.c -Ltarget/debug -lws_ffi \
+            crates/ws-ffi/tests/abi-v11-smoke.c -Ltarget/debug -lws_ffi \
             -Wl,-rpath,"$PWD/target/debug" -o "$RUNNER_TEMP/worldsim-abi-smoke"
           "$RUNNER_TEMP/worldsim-abi-smoke"
       - name: CLI Tier 2 replay
         shell: bash
         run: |
-          journal="$RUNNER_TEMP/world-simulator-${{ matrix.os }}.wsjr"
-          cargo run --locked -p ws-cli -- run --seed 42 --ticks 10000 --journal "$journal" --hash-every 1000 --script crates/ws-cli/tests/fixtures/ci-commands.txt
-          cargo run --locked -p ws-cli -- replay --journal "$journal"
+          for run in first second; do
+            cargo run --locked -p ws-cli -- run --seed 42 --ticks 2000 --hash-every 200 --script crates/ws-cli/tests/fixtures/ci-slice.txt > "$RUNNER_TEMP/slice-$run.txt"
+          done
+          diff "$RUNNER_TEMP/slice-first.txt" "$RUNNER_TEMP/slice-second.txt"
+          cat "$RUNNER_TEMP/slice-first.txt"
       - name: CLI save and load
         shell: bash
         run: |
-          save="$RUNNER_TEMP/world-simulator-${{ matrix.os }}.wssave"
-          cargo run --locked -p ws-cli -- save --seed 42 --ticks 2000 --hash-every 1000 --script crates/ws-cli/tests/fixtures/ci-commands.txt --out "$save"
-          cargo run --locked -p ws-cli -- load --file "$save" --ticks 500 --hash-every 250
           slice_save="$RUNNER_TEMP/slice-${{ matrix.os }}.wssave"
-          cargo run --locked -p ws-cli -- save --slice --seed 42 --ticks 200 --hash-every 100 --out "$slice_save"
+          cargo run --locked -p ws-cli -- save --seed 42 --ticks 200 --hash-every 100 --script crates/ws-cli/tests/fixtures/ci-slice.txt --out "$slice_save"
           cargo run --locked -p ws-cli -- load --file "$slice_save" --ticks 50 --hash-every 25
       - name: Dependency direction
         run: python3 ../scripts/check_core_deps.py

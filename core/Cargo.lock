@@ -736,8 +736,6 @@ dependencies = [
 name = "ws-cli"
 version = "0.1.0"
 dependencies = [
- "ws-ecs",
- "ws-events",
  "ws-persist",
  "ws-sim",
 ]
@@ -764,7 +762,6 @@ dependencies = [
 name = "ws-ffi"
 version = "0.1.0"
 dependencies = [
- "criterion",
  "ws-persist",
  "ws-sim",
 ]

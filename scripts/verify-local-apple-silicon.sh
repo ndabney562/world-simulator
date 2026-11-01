@@ -28,14 +28,14 @@ cargo +"$channel" clippy --target "$native_target" --workspace --all-targets --l
 cargo +"$channel" build --target "$native_target" --workspace --all-targets --locked
 cargo +"$channel" test --target "$native_target" --workspace --locked
 cc -arch arm64 -std=c11 -Wall -Wextra -Werror -Icrates/ws-ffi/include \
-  crates/ws-ffi/tests/abi-v10-smoke.c -L"target/$native_target/debug" -lws_ffi \
+  crates/ws-ffi/tests/abi-v11-smoke.c -L"target/$native_target/debug" -lws_ffi \
   -Wl,-rpath,"$PWD/target/$native_target/debug" -o "$evidence_tmp/abi-smoke"
 "$evidence_tmp/abi-smoke"
-cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- run --seed 42 --ticks 10000 --journal "$evidence_tmp/replay.wsjr" --hash-every 1000 --script crates/ws-cli/tests/fixtures/ci-commands.txt
-cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- replay --journal "$evidence_tmp/replay.wsjr"
-cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- save --seed 42 --ticks 2000 --hash-every 1000 --script crates/ws-cli/tests/fixtures/ci-commands.txt --out "$evidence_tmp/world.wssave"
-cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- load --file "$evidence_tmp/world.wssave" --ticks 500 --hash-every 250
-cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- save --slice --seed 42 --ticks 200 --hash-every 100 --out "$evidence_tmp/slice.wssave"
+for run in first second; do
+  cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- run --seed 42 --ticks 2000 --hash-every 200 --script crates/ws-cli/tests/fixtures/ci-slice.txt > "$evidence_tmp/slice-$run.txt"
+done
+diff "$evidence_tmp/slice-first.txt" "$evidence_tmp/slice-second.txt"
+cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- save --seed 42 --ticks 200 --hash-every 100 --script crates/ws-cli/tests/fixtures/ci-slice.txt --out "$evidence_tmp/slice.wssave"
 cargo +"$channel" run --target "$native_target" --locked -p ws-cli -- load --file "$evidence_tmp/slice.wssave" --ticks 50 --hash-every 25
 python3 ../scripts/check_core_deps.py
 cd ..

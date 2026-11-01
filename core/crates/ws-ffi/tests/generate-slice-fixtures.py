@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicitly generate new ABI10 slice transport samples from a built native library.
+"""Explicitly generate the ABI11 transport samples from a built native library.
 
 Not run by CI. The shared samples pin transport interpretation, with Tier3
 coordinate tolerances and a zero hash sentinel, not cross-platform world hashes.
@@ -9,7 +9,7 @@ from pathlib import Path
 import struct
 import sys
 
-ABI = 10
+ABI = 11
 SUFFIX = "-v%d" % ABI
 
 
@@ -50,8 +50,32 @@ def main():
     lib.ws_slice_last_root.argtypes = [c.c_void_p, c.POINTER(c.c_uint64)]
     lib.ws_slice_get_calendar_sky.argtypes = [c.c_void_p, c.POINTER(Sky)]
     assert (c.sizeof(Utc), c.sizeof(Config), c.sizeof(Operation), c.sizeof(Sky), c.alignment(Sky)) == (40, 32, 64, 160, 8)
-    utc = Utc(ABI, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
+    fixture_dir = Path(__file__).parent / "fixtures"
+
+    def write_lines(name, data, width=32):
+        text = "\n".join(data[i:i+width].hex() for i in range(0, len(data), width)) + "\n"
+        (fixture_dir / (name + SUFFIX + ".hex")).write_text(text)
+        print(name, len(data), "bytes")
+
+    # Calendar samples: the UTC label 2026-06-21T17:00Z and the sky of a seed-7
+    # slice created there, at tick 0, with the hash sentinel zeroed.
+    label = Utc(ABI, 40, 2026, 6, 21, 17, 0, 0, 0, 0)
     start = c.c_int64()
+    assert lib.ws_utc_to_sim(c.byref(label), c.byref(start)) == 0
+    write_lines("utc-label", c.string_at(c.byref(label), 40), 40)
+    handle = lib.ws_slice_create(c.byref(Config(ABI, 32, 7, start.value, 0)))
+    assert handle
+    try:
+        sky = Sky()
+        struct.pack_into("<II", sky, 0, ABI, 160)
+        assert lib.ws_slice_get_calendar_sky(handle, c.byref(sky)) == 0
+        calendar = bytearray(c.string_at(c.byref(sky), 160))
+        calendar[24:32] = bytes(8)  # Explicit Tier2 hash sentinel.
+        write_lines("calendar-sky", calendar, 160)
+    finally:
+        lib.ws_slice_destroy(handle)
+
+    utc = Utc(ABI, 40, 2026, 6, 22, 11, 22, 30, 0, 0)
     assert lib.ws_utc_to_sim(c.byref(utc), c.byref(start)) == 0
     handle = lib.ws_slice_create(c.byref(Config(ABI, 32, 71449, start.value, 0)))
     assert handle
@@ -75,7 +99,6 @@ def main():
         calendar = bytearray(c.string_at(c.byref(sky), 160))
         assert snapshot[8:32] == calendar[8:32]
         snapshot[24:32] = calendar[24:32] = bytes(8)  # Explicit Tier2 hash sentinel.
-        fixture_dir = Path(__file__).parent / "fixtures"
         for label, offset in (("resident", 128), ("building", 128 + 30 * 48)):
             entity = struct.unpack_from("<Q", snapshot, offset)[0]
             out = c.create_string_buffer(8192)
@@ -84,10 +107,8 @@ def main():
             data = bytearray(out.raw[:size.value]); data[24:32] = bytes(8)
             (fixture_dir / ("inspect-" + label + SUFFIX + ".hex")).write_text(data.hex() + "\n")
             print("inspect-" + label, len(data), "bytes")
-        for name, data in (("slice-geometry" + SUFFIX, geometry), ("slice-snapshot" + SUFFIX, snapshot), ("slice-sky" + SUFFIX, calendar)):
-            text = "\n".join(data[i:i+32].hex() for i in range(0, len(data), 32)) + "\n"
-            (fixture_dir / (name + ".hex")).write_text(text)
-            print(name, len(data), "bytes")
+        for name, data in (("slice-geometry", geometry), ("slice-snapshot", snapshot), ("slice-sky", calendar)):
+            write_lines(name, data)
         entity = struct.unpack_from("<Q", snapshot, 128)[0]
         assert lib.ws_slice_apply(handle, c.byref(Operation(ABI, 64, 5, 0, (c.c_uint64 * 6)(entity, 5, 200000, 0, 0, 0)))) == 0
         out = c.create_string_buffer(8192); size = c.c_size_t()

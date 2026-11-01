@@ -63,7 +63,7 @@ fn slice_config_operation_layout_and_old_library_creation_refusal_are_exact() {
     // SAFETY: only valid stack configs/null pointers; successful ownership destroyed once.
     unsafe {
         assert!(ws_slice_create(null()).is_null());
-        for version in 1..=8 {
+        for version in 1..ABI_VERSION {
             assert!(
                 ws_slice_create(&WsSliceConfig {
                     abi_version: version,
@@ -125,7 +125,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                 u32_from(&geometry, 4),
                 u64_from(&geometry, 8)
             ),
-            (10, 96, ws_sim::SITE_DATASET_VERSION)
+            (ABI_VERSION, 96, ws_sim::SITE_DATASET_VERSION)
         );
         assert_eq!(
             (
@@ -158,7 +158,7 @@ fn static_dynamic_and_header_only_sky_share_a_pure_committed_boundary() {
                     u32_from(&bytes, 52),
                     u32_from(&bytes, 56)
                 ),
-                (10, 128, 30, 30, 4)
+                (ABI_VERSION, 128, 30, 30, 4)
             );
             assert_eq!(&bytes[92..128], &[0; 36]);
             let mut sky = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
@@ -354,9 +354,9 @@ fn close_f32(a: &[u8], b: &[u8], at: usize, tolerance: f32) {
 }
 #[test]
 fn shared_real_slice_samples_pin_integers_and_respect_coordinate_determinism_tiers() {
-    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v10.hex"));
-    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v10.hex"));
-    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v10.hex"));
+    let expected_geometry = fixture(include_str!("../../tests/fixtures/slice-geometry-v11.hex"));
+    let expected_snapshot = fixture(include_str!("../../tests/fixtures/slice-snapshot-v11.hex"));
+    let expected_sky = fixture(include_str!("../../tests/fixtures/slice-sky-v11.hex"));
     // SAFETY: live exclusive native handle and initialized disjoint output storage.
     unsafe {
         let h = ws_slice_create(&config());
@@ -665,7 +665,7 @@ fn illness_wire_semantics_health_and_bounded_explicit_consequences_are_coherent(
             ws_slice_consequences(h, root, out.as_mut_ptr(), 8192, &mut written),
             OK
         );
-        assert_eq!(u32_from(&out, 0), 10);
+        assert_eq!(u32_from(&out, 0), ABI_VERSION);
         assert_eq!(u32_from(&out, 4), 96);
         assert_eq!(u64_from(&out, 24), checkpoint.state);
         assert_eq!(u64_from(&out, 40), root);
@@ -931,64 +931,86 @@ unsafe fn gather_handle() -> *mut WsSliceHandle {
 }
 
 #[test]
-fn abi8_config_is_refused() {
-    assert_eq!(ABI_VERSION, 10);
-    // SAFETY: valid stack configs and inputs; a successful handle is destroyed once.
+fn shared_utc_and_sky_layout_fixtures_match_native_structs() {
+    // SAFETY: live owned handle, disjoint stack storage. The two repr(C)
+    // structs have every byte initialized and no padding (see the calendar
+    // layout test). Supported targets are little endian.
     unsafe {
-        assert_eq!(ws_abi_version(), 10);
-        assert!(
-            ws_slice_create(&WsSliceConfig {
-                abi_version: 8,
-                ..config()
-            })
-            .is_null()
+        let utc = WsUtcLabel {
+            abi_version: ABI_VERSION,
+            struct_size: 40,
+            year: 2026,
+            month: 6,
+            day: 21,
+            hour: 17,
+            minute: 0,
+            second: 0,
+            microsecond: 0,
+            reserved: 0,
+        };
+        let mut start = 0;
+        assert_eq!(ws_utc_to_sim(&utc, &mut start), OK);
+        assert_eq!(
+            std::slice::from_raw_parts((&utc as *const WsUtcLabel).cast::<u8>(), 40),
+            fixture(include_str!("../../tests/fixtures/utc-label-v11.hex"))
         );
-        assert!(
-            ws_create(&WsConfig {
-                abi_version: 8,
-                struct_size: 32,
-                seed: 7,
-                start_us: 0,
-                residents_per_building: 1,
-                reserved: 0,
-            })
-            .is_null()
-        );
-        let h = ws_slice_create(&config());
+        let h = ws_slice_create(&WsSliceConfig {
+            seed: 7,
+            start_us: start,
+            ..config()
+        });
         assert!(!h.is_null());
-        let journal = (*h).world.operations().len();
-        let mut old = op(1, 1);
-        old.abi_version = 8;
-        assert_eq!(ws_slice_apply(h, &old), VERSION_MISMATCH);
-        assert_eq!((*h).world.operations().len(), journal);
         let mut sky = WsCalendarSky::from_view((*h).world.calendar_sky());
-        sky.abi_version = 8;
-        assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), VERSION_MISMATCH);
+        sky.state_hash = 1;
+        assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), OK);
+        assert_eq!(sky.state_hash, (*h).world.state_hash());
+        // Transport-only fixture: hash is a deliberate zero sentinel,
+        // not a cross-platform Tier2 canonical-world golden.
+        sky.state_hash = 0;
+        assert_eq!(
+            std::slice::from_raw_parts((&sky as *const WsCalendarSky).cast::<u8>(), 160),
+            fixture(include_str!("../../tests/fixtures/calendar-sky-v11.hex"))
+        );
         ws_slice_destroy(h);
     }
 }
 
 #[test]
-fn abi9_config_is_refused() {
-    assert_eq!(ABI_VERSION, 10);
+fn unsupported_sky_keeps_exact_utc_and_zeroes_local_and_sun_fields() {
+    // SAFETY: one live exclusive handle, destroyed once; the record is plain repr(C) data.
+    unsafe {
+        let h = ws_slice_create(&config());
+        assert!(!h.is_null());
+        let mut view = (*h).world.calendar_sky();
+        assert!(view.environment.supported.is_some());
+        view.environment.supported = None;
+        let sky = WsCalendarSky::from_view(view);
+        let bytes = std::slice::from_raw_parts((&sky as *const WsCalendarSky).cast::<u8>(), 160);
+        assert_eq!(sky.flags, 0);
+        assert_eq!(&bytes[60..92], &[0; 32]);
+        assert_eq!(&bytes[120..160], &[0; 40]);
+        assert_eq!(
+            (sky.utc_year, sky.utc_month, sky.utc_day, sky.utc_hour),
+            (2026, 6, 22, 11)
+        );
+        assert_eq!(
+            (sky.tick, sky.scale_tag, sky.site_dataset_version),
+            (0, 1, ws_sim::SITE_DATASET_VERSION)
+        );
+        ws_slice_destroy(h);
+    }
+}
+
+#[test]
+fn older_abi_word_is_refused() {
+    assert_eq!(ABI_VERSION, 11);
     // SAFETY: valid stack configs and inputs; a successful handle is destroyed once.
     unsafe {
-        assert_eq!(ws_abi_version(), 10);
+        assert_eq!(ws_abi_version(), 11);
         assert!(
             ws_slice_create(&WsSliceConfig {
-                abi_version: 9,
+                abi_version: 10,
                 ..config()
-            })
-            .is_null()
-        );
-        assert!(
-            ws_create(&WsConfig {
-                abi_version: 9,
-                struct_size: 32,
-                seed: 7,
-                start_us: 0,
-                residents_per_building: 1,
-                reserved: 0,
             })
             .is_null()
         );
@@ -996,11 +1018,11 @@ fn abi9_config_is_refused() {
         assert!(!h.is_null());
         let journal = (*h).world.operations().len();
         let mut old = op(1, 1);
-        old.abi_version = 9;
+        old.abi_version = 10;
         assert_eq!(ws_slice_apply(h, &old), VERSION_MISMATCH);
         assert_eq!((*h).world.operations().len(), journal);
         let mut sky = WsCalendarSky::from_view((*h).world.calendar_sky());
-        sky.abi_version = 9;
+        sky.abi_version = 10;
         assert_eq!(ws_slice_get_calendar_sky(h, &mut sky), VERSION_MISMATCH);
         ws_slice_destroy(h);
     }

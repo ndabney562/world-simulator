@@ -1,5 +1,7 @@
 # TP-008 debug tape codec (WSJR version 1)
 
+> **Deleted.** The WSJR tape, its recorder and `ws-cli replay` were removed with the toy world by [ADR 0040](../adr/0040-delete-toy-world-and-old-formats.md) (#139). This page records the historical format only.
+
 Implements [ADR 0019](../adr/0019-command-journal-and-world-events.md); not persistence or a save compatibility promise. All integers are little endian, fixed-width and unpadded. Negative simulation microseconds use the i64 two's-complement bits in u64 slots. Every parser rejects unknown versions/tags/reserved values, truncation and trailing data. Same-build/platform only; no authentication guarantee.
 
 ## Header

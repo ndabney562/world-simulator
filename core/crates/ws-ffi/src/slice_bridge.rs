@@ -1,8 +1,11 @@
-//! ADR0031 separate real-slice ownership and bounded coarse ABI10 transport.
+//! ADR0031 separate real-slice ownership and bounded coarse ABI11 transport.
 use super::*;
 mod inspection;
 pub use inspection::{ws_slice_consequences, ws_slice_inspect};
-use ws_sim::slice::{Operation, SliceConfig, SliceSimulation, render};
+use ws_sim::{
+    SimTime,
+    slice::{Operation, SliceConfig, SliceSimulation, render},
+};
 
 const GEOMETRY_HEADER: usize = 96;
 const SNAPSHOT_HEADER: usize = 128;
@@ -15,7 +18,7 @@ const MAX_DYNAMIC: usize = SNAPSHOT_HEADER + (MAX_POPULATION + SUMMARY_COUNT) * 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceConfig {
-    /// Exact current native ABI10.
+    /// Exact current native ABI11.
     pub abi_version: u32,
     /// Exactly32.
     pub struct_size: u32,
@@ -30,7 +33,7 @@ pub struct WsSliceConfig {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WsSliceOperation {
-    /// Exact current ABI10.
+    /// Exact current ABI11.
     pub abi_version: u32,
     /// Exactly64.
     pub struct_size: u32,
@@ -45,7 +48,7 @@ pub struct WsSliceOperation {
     /// duration_us. Tag8: building,duration_us. Every unused word is zero.
     pub words: [u64; 6],
 }
-/// Opaque serialized real-slice owner. Never cast to/from the toy WsHandle.
+/// Opaque serialized real-slice owner.
 pub struct WsSliceHandle {
     world: SliceSimulation,
     geometry: render::Geometry,

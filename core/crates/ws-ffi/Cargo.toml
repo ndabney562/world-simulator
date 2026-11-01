@@ -13,12 +13,5 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 ws-sim = { path = "../ws-sim" }
 ws-persist = { path = "../ws-persist" }
 
-[dev-dependencies]
-criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
-
-[[bench]]
-name = "snapshot"
-harness = false
-
 [lints]
 workspace = true
