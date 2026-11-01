@@ -2,7 +2,7 @@
 
 The Unity 6 / URP application shell. Unity owns rendering, presentation, input, and platform integration; it never owns simulation state, which stays in the Rust core (`core/`). See [03-rendering-architecture.md](../../docs/architecture/03-rendering-architecture.md) §4.1.
 
-The RealBlock scene is the game: the real block and its residents drawn from the Rust core, tap inspection, save/load and the god-powers HUD (sections below). Current ABI: **10**. Build it for iPhone with **WorldSim → Build iOS real block** (below); device results are in [the Vertical Slice exit report](../../docs/spikes/vertical-slice-exit.md). Visual providers are not implemented.
+The RealBlock scene is the game: the real block and its residents drawn from the Rust core, tap inspection, save/load and the god-powers HUD (sections below). Current ABI: **11**. Build it for iPhone with **WorldSim → Build iOS real block** (below); device results are in [the Vertical Slice exit report](../../docs/spikes/vertical-slice-exit.md). Visual providers are not implemented.
 
 ## Editor version
 
@@ -104,7 +104,7 @@ The toy world and its Bootstrap scene were removed in #139; the slice is the onl
 One serialized slice fill plus calendar query publishes a matching tick, with caller-owned buffers and value structs. `CalendarPresentation` caches labels by core UTC second/committed scale and directs the existing directional light opposite the core toward-sun vector (ENU→Unity axes only). Lit materials respond to it; at night/unavailable dates direct sunlight is off, with fixed ambient presentation illumination. No renderer solar model or second clock exists. `CalendarTests` cover layout, leap conversion, pairing, HUD/light, pause and allocation. [Verification and device limitations](../../docs/verification/issue-71/README.md).
 
 
-## Real block (VS-008 / current ABI10)
+## Real block (VS-008)
 
 Open `Assets/WorldSim/Scenes/RealBlock.unity` and press Play after rebuilding/restarting the native plugin. This scene uses the separate `NativeSlice`/`SliceHost` path:58 exact source footprint extrusions, four featured simulation identities and the seed-generated10–30 residents. Default seed71449 has30people and starts at explicit UTC2026-06-22T11:22:30Z (Monday07:22:30 New York), never from a renderer clock. The complete context stays source-only massing. Coloured footprints identify the four featured buildings; orange capsules are actual local fine residents. Blue bars show actual current occupants only for coarse buildings.
 
@@ -116,11 +116,11 @@ CSV files `vs008-real-<seed>-<capture-time>.csv` in the app documents folder inc
 
 **WorldSim → Build iOS real block** explicitly builds this scene to `Builds/iOS-RealBlock`, includes URP Lit/Unlit and instancing variants, and retains the committed minimum iOS version. It is the only build scene. The new scene's Editor tests use Unity's asset-path play-mode loader. Install the pinned Editor's iOS Build Support, run `scripts/build-native-ios.sh`, then use the menu to export an unsigned Xcode project. Signing, installation and actual iPhone screenshots/CSV remain the separately authorized device handoff. The current local Editor has only Mac Standalone Support, so no Unity iOS export/device result is claimed.
 
-## Tap inspection (VS-009 / ABI10)
+## Tap inspection (VS-009)
 
-In RealBlock, tap a visible resident or featured building to open a read-only timestamped inspector. Re-tap to refresh; Close inspection dismisses it. Drag/two-finger/pinch camera controls remain. A gesture that ever moves more than8logical points, lasts over0.35seconds, enters the HUD or gains another finger cannot become a tap. Context footprints occlude picking but never acquire simulated identities/population. The panel is a sample; no inspection query or text formatting runs each frame. Core ownership, shared handle gate and sky coherence remain. Paired sky supplies the sample’s civil timestamp without reconstructing it in presentation. Current native preflight requires ABI10; restart Editor after rebuilding. Actual iPhone screenshot/core-dump acceptance remains required.
+In RealBlock, tap a visible resident or featured building to open a read-only timestamped inspector. Re-tap to refresh; Close inspection dismisses it. Drag/two-finger/pinch camera controls remain. A gesture that ever moves more than8logical points, lasts over0.35seconds, enters the HUD or gains another finger cannot become a tap. Context footprints occlude picking but never acquire simulated identities/population. The panel is a sample; no inspection query or text formatting runs each frame. Core ownership, shared handle gate and sky coherence remain. Paired sky supplies the sample’s civil timestamp without reconstructing it in presentation. Native preflight requires the current ABI; restart the Editor after rebuilding. Actual iPhone screenshot/core-dump acceptance remains required.
 
-Resident inspection follows the Product Owner’s five-field preference: age, sex, employment, health and alive/dead. ABI10 (inspection schema 3) supplies all values from core identity and the retained vitals column. Sex is generated independently of names. Initial residents have health100/100 and Alive status; disease/death dynamics are separate work. Strict decoding rejects invalid sex/range/life tags or contradictory health/life pairs before replacing the panel. Re-tap refreshes the held sample; building inspection is unchanged.
+Resident inspection follows the Product Owner’s five-field preference: age, sex, employment, health and alive/dead. Inspection schema 3 supplies all values from core identity and the retained vitals column. Sex is generated independently of names. Initial residents have health100/100 and Alive status; disease/death dynamics are separate work. Strict decoding rejects invalid sex/range/life tags or contradictory health/life pairs before replacing the panel. Re-tap refreshes the held sample; building inspection is unchanged.
 
 ## VS-010 illness action
 

@@ -27,7 +27,7 @@ Emits `sim.world_created`, one `sim.command_applied` for every Applied outcome i
 - Simulation hash includes scale, seed, tick, time and canonical toy state; excludes history, indices, host pacing and pending inputs. Queue/journal/event digests are compared separately at every replay operation. Event IDs/ordering are Tier 1 for the same candidate stream; evolving trajectories/history are Tier 2 within one build/platform.
 - All actors resolve to stable toy identities. History is append-only for the session; no retention or pruning here. Saving and loading live in [ws-persist](../ws-persist/README.md): `World::to_parts` / `World::from_parts` expose the canonical state and rebuild a world from it, refusing parts that break an invariant (`tests/restore.rs`). No unsafe code, runtime external dependencies, filesystem/environment or wall-clock reads.
 
-Run `cargo test -p ws-sim` for ingress/FIFO/completeness, pause, no-op/rejections, actual LOD causes and arrivals, rollback/fault injection, non-feedback, and existing clock/replay properties. [ws-cli](../ws-cli/README.md) verifies full journal/events/checkpoints in another process. [Codec](../../../docs/technical-prototype/command-event-tape.md) documents the bounded diagnostic artifact.
+Run `cargo test -p ws-sim` for ingress/FIFO/completeness, pause, no-op/rejections, actual LOD causes and arrivals, rollback/fault injection, non-feedback, and existing clock/replay properties. The toy command tape and its `ws-cli` replay were deleted by [ADR 0040](../../../docs/adr/0040-delete-toy-world-and-old-formats.md).
 
 ## Performance
 

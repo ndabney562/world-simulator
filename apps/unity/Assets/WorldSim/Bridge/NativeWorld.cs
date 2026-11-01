@@ -16,14 +16,14 @@ namespace WorldSim.Bridge
         internal static extern uint Version();
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_utc_to_sim")]
         internal static extern uint UtcToSim(in NativeUtcLabel label, out long time);
-        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_last_error")]
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ws_slice_last_error")]
         internal static extern UIntPtr Error(IntPtr handle, byte[] buffer, UIntPtr capacity);
     }
 
     /// <summary>ABI version check and pure UTC conversion shared by every native caller.</summary>
     public static class NativeWorld
     {
-        public const uint AbiVersion = 10;
+        public const uint AbiVersion = 11;
 
         internal static void RequireVersion(uint actual)
         {

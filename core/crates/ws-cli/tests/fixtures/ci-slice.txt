@@ -1,0 +1,5 @@
+# Visible CI run of the Vertical Slice: steps, a camera move and an illness.
+step 10
+camera 20000 30000 50000
+afflict first 5 20000000
+step 40

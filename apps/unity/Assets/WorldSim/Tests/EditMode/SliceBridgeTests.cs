@@ -22,7 +22,7 @@ namespace WorldSim.Tests.EditMode
         static void U64(byte[] bytes,int at,ulong value) {Array.Copy(BitConverter.GetBytes(value),0,bytes,at,8);}
         static SliceGeometry Geometry()
         {
-            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v10"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
+            using(var bytes=new NativeArray<byte>(Fixture("slice-geometry-v11"),Allocator.Temp)) return SliceDecoder.DecodeGeometry(bytes,bytes.Length);
         }
         [Test]
         public void SliceConfigAndOperationMatchEveryNativeOffsetAndRefuseOldClients()
@@ -45,7 +45,7 @@ namespace WorldSim.Tests.EditMode
         public void SharedRealSliceFixturesMatchNativeGeometryIdentitiesPositionsCountsAndSky()
         {
             var expectedGeometry=Geometry();var expected=new SliceFrame();
-            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v10"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
+            using(var fixture=new NativeArray<byte>(Fixture("slice-snapshot-v11"),Allocator.Temp)) SliceDecoder.DecodeSnapshot(fixture,fixture.Length,expectedGeometry,expected);
             Assert.That(expectedGeometry.Buildings.Length,Is.EqualTo(58));Assert.That(expectedGeometry.FeaturedIds.Length,Is.EqualTo(4));
             Assert.That(expectedGeometry.Vertices.Length,Is.EqualTo(2245));Assert.That(expectedGeometry.Indices.Length,Is.EqualTo(3693));
             Assert.That(expected.Population,Is.EqualTo(30));Assert.That(expected.Tick,Is.EqualTo(20));Assert.That(expected.StateHash,Is.Zero);
@@ -67,7 +67,7 @@ namespace WorldSim.Tests.EditMode
                     Assert.That(frame.Residents[i].Location,Is.EqualTo(expected.Residents[i].Location));Assert.That(Vector3.Distance(frame.Residents[i].Foot,expected.Residents[i].Foot),Is.LessThan(0.0002f));
                 }
                 Assert.That(frame.RenderedResidents,Is.GreaterThan(0));Assert.That(frame.StateHash,Is.EqualTo(frame.Sky.StateHash));Assert.That(frame.Tick,Is.EqualTo(frame.Sky.Tick));
-                byte[] skyBytes=Fixture("slice-sky-v10");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
+                byte[] skyBytes=Fixture("slice-sky-v11");var pinned=GCHandle.Alloc(skyBytes,GCHandleType.Pinned);
                 try
                 {
                     var sky=Marshal.PtrToStructure<CalendarSky>(pinned.AddrOfPinnedObject());sky.Validate();Assert.That(sky.StateHash,Is.Zero);
@@ -79,7 +79,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidGeometryIsRejectedBeforeAnyPartialCacheIsPublished()
         {
-            byte[] original=Fixture("slice-geometry-v10");
+            byte[] original=Fixture("slice-geometry-v11");
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
                 b=>U32(b,0,4),b=>U32(b,20,uint.MaxValue),b=>U32(b,24,uint.MaxValue),b=>U32(b,36,25),b=>U32(b,44,1),
                 b=>U64(b,96+48,BitConverter.ToUInt64(b,96)),b=>U32(b,96+36,2),b=>U32(b,96+16,1),
@@ -93,7 +93,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void InvalidDynamicRowsLeaveTheCompletePreviousFrameUntouched()
         {
-            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v10");var frame=new SliceFrame();
+            var geometry=Geometry();byte[] original=Fixture("slice-snapshot-v11");var frame=new SliceFrame();
             using(var bytes=new NativeArray<byte>(original,Allocator.Temp)) SliceDecoder.DecodeSnapshot(bytes,bytes.Length,geometry,frame);
             ulong tick=frame.Tick,first=frame.Residents[0].Id;Matrix4x4 matrix=frame.ResidentMatrices[0];
             foreach(Action<byte[]> damage in new Action<byte[]>[] {
@@ -364,7 +364,7 @@ namespace WorldSim.Tests.EditMode
         public void BlessThenConsequencesDecode()
         {
             // ADR0038 §2: native bytes for a bless curing the shared sample illness.
-            var fixture=DecodeFixture("consequences-bless-v10",Geometry());
+            var fixture=DecodeFixture("consequences-bless-v11",Geometry());
             Assert.That(fixture.RootTag,Is.EqualTo(14));Assert.That(Tags(fixture),Is.EqualTo(new uint[]{14,12}));
             Assert.That(fixture.Severity,Is.Zero);Assert.That(fixture.End,Is.EqualTo(fixture.Applied));
             Assert.That(fixture.Causes[1].Length,Is.EqualTo(2));Assert.That(fixture.Causes[1][0].Parent,Is.EqualTo(fixture.Root));
@@ -393,7 +393,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void StormRootOnlyConsequencesHaveZeroSubject()
         {
-            var fixture=DecodeFixture("consequences-storm-v10",Geometry());
+            var fixture=DecodeFixture("consequences-storm-v11",Geometry());
             Assert.That(fixture.RootTag,Is.EqualTo(16));Assert.That(fixture.Subject,Is.Zero);Assert.That(Tags(fixture),Is.EqualTo(new uint[]{16,18,19}));
             Assert.That(fixture.End-fixture.Applied,Is.EqualTo(60000000));
             using(var world=new NativeSlice(71449,Start))
@@ -414,7 +414,7 @@ namespace WorldSim.Tests.EditMode
         [Test]
         public void GatheringConsequencesAllowRepeats()
         {
-            var fixture=DecodeFixture("consequences-gathering-v10",Geometry());
+            var fixture=DecodeFixture("consequences-gathering-v11",Geometry());
             Assert.That(fixture.RootTag,Is.EqualTo(20));Assert.That(Tags(fixture),Is.EqualTo(new uint[]{20}));
             Assert.That(fixture.Subject,Is.EqualTo(fixture.Events[0].A));Assert.That(fixture.End-fixture.Applied,Is.EqualTo(600000000));
             // Monday 21:00 in New York, when most residents are home; a 1 km camera keeps everyone at L1.

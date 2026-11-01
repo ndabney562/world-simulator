@@ -4,5 +4,4 @@ autogen_warning = "/* Generated with cbindgen 0.29.2; do not edit by hand. */"
 usize_is_size_t = true
 style = "type"
 [export]
-include = ["WsSnapshotHeader", "WsInstance", "WsControlState", "WsUtcLabel", "WsCalendarSky", "WsSliceConfig", "WsSliceOperation"]
-exclude = ["HEADER_SIZE", "RECORD_SIZE"]
+include = ["WsUtcLabel", "WsCalendarSky", "WsSliceConfig", "WsSliceOperation"]

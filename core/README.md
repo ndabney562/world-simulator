@@ -16,7 +16,7 @@ The headless simulation core of the World Simulator: a Cargo workspace that owns
 | `crates/ws-time/` | Simulation time, durations, UTC calendar, system steps ([README](crates/ws-time/README.md)) |
 | `crates/ws-life/` | Real-slice schedules, needs/utility, proxy paths, camera policy and exact building counts ([README](crates/ws-life/README.md)) |
 | `crates/ws-events/` | Typed factual history, causal references and read-only indexed queries ([README](crates/ws-events/README.md)) |
-| `crates/ws-cli/` | Headless command/event recorder and independent debug-tape replay ([README](crates/ws-cli/README.md)) |
+| `crates/ws-cli/` | Headless Vertical Slice runner with save and load ([README](crates/ws-cli/README.md)) |
 | `crates/ws-sim/` | The world, its clock, command queue, journal and tick loop ([README](crates/ws-sim/README.md)) |
 | `crates/ws-world/` | The toy world: buildings, walking residents, procedural identity, state hash ([README](crates/ws-world/README.md)) |
 

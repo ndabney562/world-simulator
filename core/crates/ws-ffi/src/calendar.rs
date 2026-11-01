@@ -1,11 +1,11 @@
-//! Coarse pure UTC configuration and committed calendar/sky ABI6 (ADR0030).
+//! Coarse pure UTC configuration and the committed calendar/sky record (ADR0030).
 use super::*;
 
 /// Validated UTC input label, exactly40 bytes aligned to4.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WsUtcLabel {
-    /// ABI6.
+    /// Current ABI (11).
     pub abi_version: u32,
     /// Exactly40.
     pub struct_size: u32,
@@ -32,7 +32,7 @@ pub struct WsUtcLabel {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WsCalendarSky {
-    /// ABI6.
+    /// Current ABI (11).
     pub abi_version: u32,
     /// Exactly160.
     pub struct_size: u32,
@@ -213,43 +213,14 @@ pub unsafe extern "C" fn ws_utc_to_sim(input: *const WsUtcLabel, out_time: *mut 
     }
 }
 
-/// Pure committed-boundary calendar/sky query. Does not flush pending commands.
-/// Invalid input/version/size, poison and caught panic leave output untouched.
-/// # Safety
-/// Handle must be live/exclusive; non-null output is aligned writable160-byte
-/// storage disjoint from the handle, with only its first two u32 fields required
-/// initialized. Raw callers serialize this query with render fill and mutation.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ws_get_calendar_sky(
-    handle: *mut WsHandle,
-    out_sky: *mut WsCalendarSky,
-) -> WsStatus {
-    // SAFETY: caller guarantees handle/storage ownership; validate request before any output write.
-    unsafe {
-        operate(handle, |h| {
-            if out_sky.is_null() || !out_sky.is_aligned() {
-                return Err((INVALID_ARGUMENT, "calendar/sky output is null or unaligned"));
-            }
-            if std::ptr::addr_of!((*out_sky).abi_version).read() != ABI_VERSION {
-                return Err((VERSION_MISMATCH, "calendar/sky ABI version mismatch"));
-            }
-            if std::ptr::addr_of!((*out_sky).struct_size).read() != 160 {
-                return Err((INVALID_ARGUMENT, "calendar/sky size must be160"));
-            }
-            let value = WsCalendarSky::from_view(h.world.calendar_sky());
-            out_sky.write(value);
-            Ok(())
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{WsSliceConfig, ws_slice_create, ws_slice_last_error};
     use std::ptr::{null, null_mut};
     fn label() -> WsUtcLabel {
         WsUtcLabel {
-            abi_version: 10,
+            abi_version: ABI_VERSION,
             struct_size: 40,
             year: 2026,
             month: 6,
@@ -261,27 +232,13 @@ mod tests {
             reserved: 0,
         }
     }
-    fn config(start: i64) -> WsConfig {
-        WsConfig {
-            abi_version: 10,
+    fn config(start: i64) -> WsSliceConfig {
+        WsSliceConfig {
+            abi_version: ABI_VERSION,
             struct_size: 32,
             seed: 7,
             start_us: start,
-            residents_per_building: 6,
             reserved: 0,
-        }
-    }
-    #[repr(C, align(8))]
-    struct SkyBytes([u8; 160]);
-    impl SkyBytes {
-        fn request(version: u32, size: u32) -> Self {
-            let mut s = Self([0x5a; 160]);
-            s.0[0..4].copy_from_slice(&version.to_ne_bytes());
-            s.0[4..8].copy_from_slice(&size.to_ne_bytes());
-            s
-        }
-        fn ptr(&mut self) -> *mut WsCalendarSky {
-            self.0.as_mut_ptr().cast()
         }
     }
     #[test]
@@ -298,43 +255,6 @@ mod tests {
     }
 
     #[test]
-    fn shared_utc_and_sky_layout_fixtures_match_native_structs() {
-        fn fixture(hex: &str) -> Vec<u8> {
-            let hex = hex.trim();
-            (0..hex.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-                .collect()
-        }
-        // SAFETY: live owned handle, disjoint stack storage. The two repr(C)
-        // structs have every byte initialized and no padding, as all offsets
-        // and exact sizes above demonstrate. Supported targets are little endian.
-        unsafe {
-            let utc = label();
-            let mut start = 0;
-            assert_eq!(ws_utc_to_sim(&utc, &mut start), OK);
-            assert_eq!(
-                std::slice::from_raw_parts((&utc as *const WsUtcLabel).cast::<u8>(), 40),
-                fixture(include_str!("../tests/fixtures/utc-label-v10.hex"))
-            );
-            let h = ws_create(&config(start));
-            assert!(!h.is_null());
-            let mut out = SkyBytes::request(10, 160);
-            assert_eq!(ws_get_calendar_sky(h, out.ptr()), OK);
-            let mut sky = out.ptr().read();
-            assert_eq!(sky.state_hash, (*h).world.state_hash());
-            // Transport-only fixture: hash is a deliberate zero sentinel,
-            // not a cross-platform Tier2 canonical-world golden. Its real
-            // semantics are asserted above and by the query/replay tests.
-            sky.state_hash = 0;
-            assert_eq!(
-                std::slice::from_raw_parts((&sky as *const WsCalendarSky).cast::<u8>(), 160),
-                fixture(include_str!("../tests/fixtures/calendar-sky-v10.hex"))
-            );
-            ws_destroy(h);
-        }
-    }
-    #[test]
     fn utc_conversion_is_exact_unrounded_and_errors_never_write() {
         // SAFETY: initialized disjoint stack inputs/outputs and documented null/misaligned paths.
         unsafe {
@@ -346,7 +266,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(out, expected.as_micros_since_epoch());
-            for t in [SimTime::MIN, SimTime::MAX] {
+            for t in [ws_sim::SimTime::MIN, ws_sim::SimTime::MAX] {
                 let u = t.to_utc();
                 let input = WsUtcLabel {
                     year: u.year(),
@@ -372,11 +292,8 @@ mod tests {
                 ..label()
             };
             assert_eq!(ws_utc_to_sim(&input, &mut out), OK);
-            assert_eq!(SimTime::from_micros_since_epoch(out).to_utc().second(), 60);
-            assert_eq!(
-                SimTime::from_micros_since_epoch(out).to_utc().microsecond(),
-                123456
-            );
+            let leap = ws_sim::SimTime::from_micros_since_epoch(out).to_utc();
+            assert_eq!((leap.second(), leap.microsecond()), (60, 123456));
             input = WsUtcLabel {
                 microsecond: 1,
                 ..label()
@@ -384,7 +301,7 @@ mod tests {
             assert_eq!(ws_utc_to_sim(&input, &mut out), OK);
             assert_eq!(out.rem_euclid(100000), 1);
             assert!(
-                ws_create(&config(out)).is_null(),
+                ws_slice_create(&config(out)).is_null(),
                 "conversion does not silently snap creation grid"
             );
             for bad in [
@@ -432,21 +349,18 @@ mod tests {
                 assert_eq!(ws_utc_to_sim(&bad, &mut out), INVALID_ARGUMENT);
                 assert_eq!(out, 999);
             }
-            for v in [1, 2, 3, 4, 5, 6, 7, 8] {
-                out = 999;
-                assert_eq!(
-                    ws_utc_to_sim(
-                        &WsUtcLabel {
-                            abi_version: v,
-                            ..label()
-                        },
-                        &mut out
-                    ),
-                    VERSION_MISMATCH
-                );
-                assert_eq!(out, 999);
-            }
             out = 999;
+            assert_eq!(
+                ws_utc_to_sim(
+                    &WsUtcLabel {
+                        abi_version: ABI_VERSION - 1,
+                        ..label()
+                    },
+                    &mut out
+                ),
+                VERSION_MISMATCH
+            );
+            assert_eq!(out, 999);
             assert_eq!(ws_utc_to_sim(null(), &mut out), INVALID_ARGUMENT);
             assert_eq!(out, 999);
             assert_eq!(ws_utc_to_sim(&label(), null_mut()), INVALID_ARGUMENT);
@@ -456,150 +370,7 @@ mod tests {
             assert_eq!(ws_utc_to_sim(unaligned.cast(), &mut out), INVALID_ARGUMENT);
             assert_eq!(aligned, [0x5a5a5a5a5a5a5a5a; 6]);
             assert_eq!(out, 999);
-            assert!(ws_last_error(null_mut(), null_mut(), 0) > 1);
-        }
-    }
-    #[test]
-    fn sky_query_is_coherent_pure_pending_commands_stay_pending_and_uninitialized_outputs_work() {
-        // SAFETY: exclusive owned handle and disjoint initialized or request-only output storage.
-        unsafe {
-            let mut start = 0;
-            assert_eq!(ws_utc_to_sim(&label(), &mut start), OK);
-            let h = ws_create(&config(start));
-            assert!(!h.is_null());
-            let batch = ws_sim::commands::encode_batch(&[ws_sim::commands::Command::new(
-                ws_sim::commands::IssuedBy::Test,
-                ws_sim::commands::Action::SetTimeScale(ws_sim::TimeScale::X100),
-            )])
-            .unwrap();
-            assert_eq!(ws_submit(h, batch.as_ptr(), batch.len()), OK);
-            let original = (*h).world.clone();
-            let mut out = std::mem::MaybeUninit::<WsCalendarSky>::uninit();
-            let p = out.as_mut_ptr();
-            std::ptr::addr_of_mut!((*p).abi_version).write(10);
-            std::ptr::addr_of_mut!((*p).struct_size).write(160);
-            assert_eq!(ws_get_calendar_sky(h, p), OK);
-            let sky = out.assume_init();
-            assert_eq!(
-                (
-                    sky.abi_version,
-                    sky.struct_size,
-                    sky.tick,
-                    sky.sim_time_us,
-                    sky.state_hash,
-                    sky.scale_tag
-                ),
-                (10, 160, 0, start, original.state_hash(), 1)
-            );
-            assert_eq!(
-                (sky.utc_year, sky.utc_month, sky.utc_day, sky.utc_hour),
-                (2026, 6, 21, 17)
-            );
-            assert_eq!(
-                (sky.local_hour, sky.utc_offset_seconds, sky.flags),
-                (13, -14400, 1)
-            );
-            assert_eq!(
-                (
-                    sky.solar_version,
-                    sky.ny_policy_version,
-                    sky.leap_table_version
-                ),
-                (1, 1, 1)
-            );
-            assert_eq!(sky.site_dataset_version, ws_sim::SITE_DATASET_VERSION);
-            assert!(
-                [
-                    sky.sun_east,
-                    sky.sun_north,
-                    sky.sun_up,
-                    sky.azimuth_deg,
-                    sky.elevation_deg
-                ]
-                .iter()
-                .all(|v| v.is_finite())
-            );
-            assert_eq!((*h).world, original);
-            assert_eq!(ws_advance(h, 0), OK);
-            assert_eq!(ws_advance(h, 2), OK);
-            let mut sky = sky;
-            assert_eq!(ws_get_calendar_sky(h, &mut sky), OK);
-            let mut buf = [0u8; 24 + 32 * 35];
-            let mut n = 0;
-            assert_eq!(
-                ws_fill_render_snapshot(h, buf.as_mut_ptr(), buf.len(), &mut n),
-                OK
-            );
-            assert_eq!(sky.tick, u64::from_le_bytes(buf[8..16].try_into().unwrap()));
-            assert_eq!(
-                (sky.tick, sky.scale_tag, sky.sim_time_us),
-                (2, 100, start + 200000)
-            );
-            ws_destroy(h);
-        }
-    }
-    #[test]
-    fn calendar_errors_poison_and_unsupported_range_preserve_contract() {
-        // SAFETY: owned exclusive handles, aligned disjoint160-byte buffers and documented null paths.
-        unsafe {
-            let h = ws_create(&config(0));
-            for (v, n, status) in [
-                (1, 160, VERSION_MISMATCH),
-                (2, 160, VERSION_MISMATCH),
-                (3, 160, VERSION_MISMATCH),
-                (4, 160, VERSION_MISMATCH),
-                (8, 160, VERSION_MISMATCH),
-                (10, 159, INVALID_ARGUMENT),
-                (10, 168, INVALID_ARGUMENT),
-            ] {
-                let mut out = SkyBytes::request(v, n);
-                let before = out.0;
-                assert_eq!(ws_get_calendar_sky(h, out.ptr()), status);
-                assert_eq!(out.0, before);
-            }
-            let mut out = SkyBytes::request(10, 160);
-            let original = out.0;
-            assert_eq!(ws_get_calendar_sky(null_mut(), out.ptr()), INVALID_ARGUMENT);
-            assert_eq!(out.0, original);
-            assert_eq!(ws_get_calendar_sky(h, null_mut()), INVALID_ARGUMENT);
-            assert_eq!(
-                ws_get_calendar_sky(h, out.0.as_mut_ptr().add(1).cast()),
-                INVALID_ARGUMENT
-            );
-            assert_eq!(out.0, original);
-            assert_eq!(
-                operate(h, |_| panic!("injected before query publication")),
-                PANIC
-            );
-            assert_eq!(ws_get_calendar_sky(h, out.ptr()), POISONED);
-            assert_eq!(out.0, original);
-            ws_destroy(h);
-            for start in [i64::MIN / 100000 * 100000, i64::MAX / 100000 * 100000] {
-                let h = ws_create(&config(start));
-                assert!(!h.is_null());
-                let mut out = SkyBytes::request(10, 160);
-                assert_eq!(ws_get_calendar_sky(h, out.ptr()), OK);
-                let sky = out.ptr().read();
-                assert_eq!(sky.flags, 0);
-                assert_eq!(
-                    sky.utc_year,
-                    SimTime::from_micros_since_epoch(start).to_utc().year()
-                );
-                assert_eq!(&out.0[60..92], &[0; 32]);
-                assert_eq!(&out.0[120..160], &[0; 40]);
-                assert_eq!(sky.scale_tag, 1);
-                assert_eq!(sky.sim_time_us, start);
-                ws_destroy(h);
-            }
-            for v in [1, 2, 3, 4, 5, 6, 7, 8] {
-                assert!(
-                    ws_create(&WsConfig {
-                        abi_version: v,
-                        ..config(0)
-                    })
-                    .is_null()
-                );
-            }
+            assert!(ws_slice_last_error(null_mut(), null_mut(), 0) > 1);
         }
     }
 }
