@@ -1,8 +1,6 @@
-# Format-4 fixture: real Bay Ridge slice simulation save (ADR 0036).
-# Contains populated block, camera interest, illness episode, and event history.
-# Regenerate only for an intentional format change:
-#   cargo run -p ws-cli -- save --seed 2026 --ticks 100 \
-#     --script tests/saves/slice-v4.script --out tests/saves/slice-v4.wssave
+# Format-4 refusal fixture (ADR 0040): tests check that this older format is
+# refused cleanly. Builds now write only format 6, so it cannot be regenerated;
+# these are the commands it was written with (seed 2026, 100 ticks, ADR 0036).
 step 25
 camera 20000 30000 50000
 afflict first 5 15000000

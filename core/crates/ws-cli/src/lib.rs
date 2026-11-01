@@ -149,17 +149,14 @@ fn run_slice(
     Ok(())
 }
 
-/// `load`: restores a slice save, then optionally continues it for `--ticks` more.
+/// `load`: restores a current-format slice save, then optionally continues it
+/// for `--ticks` more. Older formats are refused by `ws-persist` (ADR 0040).
 fn load_and_continue(opts: &std::collections::BTreeMap<&str, &str>) -> Result<()> {
     let path = std::path::Path::new(opts.get("--file").ok_or("load requires --file")?);
     let more: u64 = opts.get("--ticks").unwrap_or(&"0").parse()?;
     let every: u64 = opts.get("--hash-every").unwrap_or(&"1").parse()?;
     require(every > 0, "hash interval must be positive")?;
 
-    require(
-        ws_persist::read_header(path)?.is_slice(),
-        "only Vertical Slice saves load (ADR 0040)",
-    )?;
     let mut sim = ws_persist::load_slice(path)?;
     println!(
         "loaded tick={} state={:016x} journal={} events={}",

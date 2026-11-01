@@ -12,19 +12,9 @@ use ws_events::{
     Actor, Candidate, Cause, Confidence, Event, EventId, Location, Origin as EventOrigin, Payload,
     Related, Relation, Role, Small, Target,
 };
-use ws_math::{CellId, CoordError, SurfacePos};
-use ws_sim::commands::{
-    Action, Command, Effect, Intervention, InterventionTarget, IssuedBy, Outcome, Rejection, Timing,
-};
-use ws_sim::{Clock, LodError, LodViolation, SimTime, TimeOverflow, TimeScale};
+use ws_math::{CellId, SurfacePos};
+use ws_sim::{Clock, SimTime, TimeScale};
 use ws_time::{Rate, SimDuration};
-use ws_world::{
-    Activity, Background, BaselineAddress, Building, Lod, Origin, Quantity, Resident,
-    ResidentAddress, ScheduleProblem, Tombstone, Walk,
-};
-use ws_world::{Illness, IllnessKind};
-
-use crate::header::BaselineRecord;
 
 /// Why bytes are not a valid record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,367 +128,6 @@ impl<'a> Reader<'a> {
             Err(CodecError("trailing bytes"))
         }
     }
-}
-
-fn lod_from(v: u8) -> Result<Lod> {
-    Ok(match v {
-        0 => Lod::L0,
-        1 => Lod::L1,
-        2 => Lod::L2,
-        3 => Lod::L3,
-        4 => Lod::L4,
-        5 => Lod::L5,
-        6 => Lod::L6,
-        7 => Lod::L7,
-        _ => return Err(CodecError("unknown level")),
-    })
-}
-
-// ---- buildings -----------------------------------------------------------
-
-#[cfg(test)]
-pub(crate) fn put_building(b: &Building, level: Lod) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u32(b.index);
-    w.pos(b.pos);
-    w.f32(b.half_extent_m);
-    w.f32(b.height_m);
-    w.u8(level.as_u8());
-    w.0
-}
-
-pub(crate) fn get_building(bytes: &[u8]) -> Result<(Building, Lod)> {
-    let mut r = Reader::new(bytes);
-    let b = Building {
-        index: r.u32()?,
-        pos: r.pos()?,
-        half_extent_m: r.f32()?,
-        height_m: r.f32()?,
-    };
-    let level = lod_from(r.u8()?)?;
-    r.finish()?;
-    Ok((b, level))
-}
-
-// ---- residents -----------------------------------------------------------
-
-pub(crate) fn put_resident(r: &Resident) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u32(r.address.building_index);
-    w.u32(r.address.slot);
-    w.id(r.home);
-    w.0
-}
-
-pub(crate) fn get_resident(bytes: &[u8]) -> Result<Resident> {
-    let mut r = Reader::new(bytes);
-    let resident = Resident {
-        address: ResidentAddress {
-            building_index: r.u32()?,
-            slot: r.u32()?,
-        },
-        home: r.id()?,
-    };
-    r.finish()?;
-    Ok(resident)
-}
-
-// ---- format 3 baseline, overrides, notables, tombstones, spawned ---------
-
-/// Component tag for `Building` in `structural_overrides` (ADR 0025 §2).
-pub const COMPONENT_BUILDING: u8 = 1;
-/// Component tag for `Resident` in `structural_overrides` (ADR 0025 §2).
-pub const COMPONENT_RESIDENT: u8 = 2;
-
-/// Complete canonical entity record stored in `notables` or `spawned`
-/// (ADR 0025 §2).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum EntityRecord {
-    Building(Building),
-    Resident(Resident),
-}
-
-pub(crate) fn put_building_component(b: &Building) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u32(b.index);
-    w.pos(b.pos);
-    w.f32(b.half_extent_m);
-    w.f32(b.height_m);
-    w.0
-}
-
-pub(crate) fn get_building_component(bytes: &[u8]) -> Result<Building> {
-    let mut r = Reader::new(bytes);
-    let b = Building {
-        index: r.u32()?,
-        pos: r.pos()?,
-        half_extent_m: r.f32()?,
-        height_m: r.f32()?,
-    };
-    r.finish()?;
-    Ok(b)
-}
-
-pub(crate) fn put_node_lod(level: Lod) -> Vec<u8> {
-    vec![level.as_u8()]
-}
-
-pub(crate) fn get_node_lod(bytes: &[u8]) -> Result<Lod> {
-    let mut r = Reader::new(bytes);
-    let level = lod_from(r.u8()?)?;
-    r.finish()?;
-    Ok(level)
-}
-
-pub(crate) fn put_entity_record(rec: &EntityRecord) -> Vec<u8> {
-    let mut w = Writer::new();
-    match rec {
-        EntityRecord::Building(b) => {
-            w.u8(1);
-            w.u32(b.index);
-            w.pos(b.pos);
-            w.f32(b.half_extent_m);
-            w.f32(b.height_m);
-        }
-        EntityRecord::Resident(r) => {
-            w.u8(2);
-            w.u32(r.address.building_index);
-            w.u32(r.address.slot);
-            w.id(r.home);
-        }
-    }
-    w.0
-}
-
-pub(crate) fn get_entity_record(bytes: &[u8]) -> Result<EntityRecord> {
-    let mut r = Reader::new(bytes);
-    let rec = match r.u8()? {
-        1 => EntityRecord::Building(Building {
-            index: r.u32()?,
-            pos: r.pos()?,
-            half_extent_m: r.f32()?,
-            height_m: r.f32()?,
-        }),
-        2 => EntityRecord::Resident(Resident {
-            address: ResidentAddress {
-                building_index: r.u32()?,
-                slot: r.u32()?,
-            },
-            home: r.id()?,
-        }),
-        _ => return Err(CodecError("unknown entity record tag")),
-    };
-    r.finish()?;
-    Ok(rec)
-}
-
-pub(crate) fn put_tombstone(t: &Tombstone) -> Vec<u8> {
-    let mut w = Writer::new();
-    match t.address {
-        BaselineAddress::Building(index) => {
-            w.u8(1);
-            w.u32(index);
-        }
-        BaselineAddress::Resident(addr) => {
-            w.u8(2);
-            w.u32(addr.building_index);
-            w.u32(addr.slot);
-        }
-    }
-    w.u64(t.deleted_tick);
-    w.u64(t.root_event);
-    w.0
-}
-
-pub(crate) fn get_tombstone(bytes: &[u8]) -> Result<Tombstone> {
-    let mut r = Reader::new(bytes);
-    let address = match r.u8()? {
-        1 => BaselineAddress::Building(r.u32()?),
-        2 => BaselineAddress::Resident(ResidentAddress {
-            building_index: r.u32()?,
-            slot: r.u32()?,
-        }),
-        _ => return Err(CodecError("unknown tombstone address tag")),
-    };
-    let deleted_tick = r.u64()?;
-    let root_event = r.u64()?;
-    r.finish()?;
-    Ok(Tombstone {
-        address,
-        deleted_tick,
-        root_event,
-    })
-}
-
-pub(crate) fn put_baseline(b: &BaselineRecord) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u64(b.seed);
-    w.u32(b.dataset_id);
-    w.u64(b.dataset_version);
-    w.0.extend_from_slice(&b.dataset_sha256);
-    w.u32(b.building_generator_version);
-    w.u32(b.resident_generator_version);
-    w.u32(b.rules_version);
-    w.u32(b.identity_policy_version);
-    w.u32(b.population_min);
-    w.u32(b.population_max);
-    w.u64(b.walk_speed_bits);
-    w.u32(b.walk_wait_steps);
-    w.i64(b.start_time_us);
-    w.u32(b.building_count);
-    w.u32(b.resident_count);
-    w.u64(b.structural_digest);
-    w.u64(b.baseline_digest);
-    w.u32(u32::try_from(b.collision_overrides.len()).expect("collision_overrides fits in u32"));
-    w.0.extend_from_slice(&b.collision_overrides);
-    w.0
-}
-
-pub(crate) fn get_baseline(bytes: &[u8]) -> Result<BaselineRecord> {
-    let mut r = Reader::new(bytes);
-    let seed = r.u64()?;
-    let dataset_id = r.u32()?;
-    let dataset_version = r.u64()?;
-    let dataset_sha256 = r.take::<32>()?;
-    let building_generator_version = r.u32()?;
-    let resident_generator_version = r.u32()?;
-    let rules_version = r.u32()?;
-    let identity_policy_version = r.u32()?;
-    let population_min = r.u32()?;
-    let population_max = r.u32()?;
-    let walk_speed_bits = r.u64()?;
-    let walk_wait_steps = r.u32()?;
-    let start_time_us = r.i64()?;
-    let building_count = r.u32()?;
-    let resident_count = r.u32()?;
-    let structural_digest = r.u64()?;
-    let baseline_digest = r.u64()?;
-    let override_len = r.u32()? as usize;
-    if override_len > 65_536 || override_len > r.0.len() {
-        return Err(CodecError("invalid collision override length"));
-    }
-    let collision_overrides = r.0[..override_len].to_vec();
-    r.0 = &r.0[override_len..];
-    r.finish()?;
-    Ok(BaselineRecord {
-        seed,
-        dataset_id,
-        dataset_version,
-        dataset_sha256,
-        building_generator_version,
-        resident_generator_version,
-        rules_version,
-        identity_policy_version,
-        population_min,
-        population_max,
-        walk_speed_bits,
-        walk_wait_steps,
-        start_time_us,
-        building_count,
-        resident_count,
-        structural_digest,
-        baseline_digest,
-        collision_overrides,
-    })
-}
-
-// ---- L1 and L2 state -----------------------------------------------------
-
-pub(crate) fn put_l1(pos: SurfacePos, walk: &Walk) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.pos(pos);
-    for c in walk.velocity {
-        w.f32(c);
-    }
-    w.id(walk.target);
-    w.u8(u8::from(walk.arrived));
-    w.u32(walk.wait_steps);
-    w.u32(walk.targets_drawn);
-    w.0
-}
-
-pub(crate) fn get_l1(bytes: &[u8]) -> Result<(SurfacePos, Walk)> {
-    let mut r = Reader::new(bytes);
-    let pos = r.pos()?;
-    let walk = Walk {
-        velocity: [r.f32()?, r.f32()?, r.f32()?],
-        target: r.id()?,
-        arrived: r.flag()?,
-        wait_steps: r.u32()?,
-        targets_drawn: r.u32()?,
-    };
-    r.finish()?;
-    Ok((pos, walk))
-}
-
-pub(crate) fn put_l2(bg: &Background) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u32(bg.targets_drawn);
-    match bg.activity {
-        Activity::Waiting { at, depart } => {
-            w.u8(0);
-            w.id(at);
-            w.time(depart);
-        }
-        Activity::Walking {
-            origin,
-            origin_time,
-            dest,
-            arrive,
-        } => {
-            w.u8(1);
-            match origin {
-                Origin::Building(b) => {
-                    w.u8(0);
-                    w.id(b);
-                }
-                Origin::Point { cell, offset } => {
-                    w.u8(1);
-                    w.u64(cell.raw());
-                    for c in offset {
-                        w.f32(c);
-                    }
-                }
-            }
-            w.time(origin_time);
-            w.id(dest);
-            w.time(arrive);
-        }
-    }
-    w.0
-}
-
-pub(crate) fn get_l2(bytes: &[u8]) -> Result<Background> {
-    let mut r = Reader::new(bytes);
-    let targets_drawn = r.u32()?;
-    let activity = match r.u8()? {
-        0 => Activity::Waiting {
-            at: r.id()?,
-            depart: r.time()?,
-        },
-        1 => {
-            let origin = match r.u8()? {
-                0 => Origin::Building(r.id()?),
-                1 => Origin::Point {
-                    cell: r.cell()?,
-                    offset: [r.f32()?, r.f32()?, r.f32()?],
-                },
-                _ => return Err(CodecError("unknown origin tag")),
-            };
-            Activity::Walking {
-                origin,
-                origin_time: r.time()?,
-                dest: r.id()?,
-                arrive: r.time()?,
-            }
-        }
-        _ => return Err(CodecError("unknown activity tag")),
-    };
-    r.finish()?;
-    Ok(Background {
-        activity,
-        targets_drawn,
-    })
 }
 
 // ---- clock and counters --------------------------------------------------
@@ -1182,459 +811,6 @@ pub(crate) fn get_event(bytes: &[u8], links: &[Link]) -> Result<Event> {
     })
 }
 
-// ---- journal -------------------------------------------------------------
-
-fn put_coord(w: &mut Writer, e: CoordError) {
-    w.u8(match e {
-        CoordError::NonFinite => 0,
-        CoordError::LatitudeOutOfRange => 1,
-        CoordError::LongitudeOutOfRange => 2,
-        CoordError::NearEarthCentre => 3,
-        CoordError::InvalidCellId => 4,
-        CoordError::InvalidLevel => 5,
-        CoordError::NotSectorCell => 6,
-        CoordError::FrameMismatch => 7,
-        CoordError::BoundaryUnresolved => 8,
-    });
-}
-
-fn get_coord(r: &mut Reader) -> Result<CoordError> {
-    Ok(match r.u8()? {
-        0 => CoordError::NonFinite,
-        1 => CoordError::LatitudeOutOfRange,
-        2 => CoordError::LongitudeOutOfRange,
-        3 => CoordError::NearEarthCentre,
-        4 => CoordError::InvalidCellId,
-        5 => CoordError::InvalidLevel,
-        6 => CoordError::NotSectorCell,
-        7 => CoordError::FrameMismatch,
-        8 => CoordError::BoundaryUnresolved,
-        _ => return Err(CodecError("unknown coordinate error")),
-    })
-}
-
-fn put_problem(w: &mut Writer, p: ScheduleProblem) {
-    w.u8(match p {
-        ScheduleProblem::OffGrid => 0,
-        ScheduleProblem::EventNotInFuture => 1,
-        ScheduleProblem::OriginInFuture => 2,
-        ScheduleProblem::EmptyLeg => 3,
-        ScheduleProblem::WaitTooLong => 4,
-        ScheduleProblem::WalkingWithoutDraw => 5,
-    });
-}
-
-fn get_problem(r: &mut Reader) -> Result<ScheduleProblem> {
-    Ok(match r.u8()? {
-        0 => ScheduleProblem::OffGrid,
-        1 => ScheduleProblem::EventNotInFuture,
-        2 => ScheduleProblem::OriginInFuture,
-        3 => ScheduleProblem::EmptyLeg,
-        4 => ScheduleProblem::WaitTooLong,
-        5 => ScheduleProblem::WalkingWithoutDraw,
-        _ => return Err(CodecError("unknown schedule problem")),
-    })
-}
-
-fn put_violation(w: &mut Writer, v: LodViolation) {
-    use LodViolation as V;
-    match v {
-        V::Duplicated(id) => {
-            w.u8(0);
-            w.id(id);
-        }
-        V::Lost(id) => {
-            w.u8(1);
-            w.id(id);
-        }
-        V::Orphan(id) => {
-            w.u8(2);
-            w.id(id);
-        }
-        V::PartialL1(id) => {
-            w.u8(3);
-            w.id(id);
-        }
-        V::IdentityMismatch(id) => {
-            w.u8(4);
-            w.id(id);
-        }
-        V::IdentityChanged(id) => {
-            w.u8(5);
-            w.id(id);
-        }
-        V::UnknownBuilding { id, building } => {
-            w.u8(6);
-            w.id(id);
-            w.id(building);
-        }
-        V::MissingNodeLod(id) => {
-            w.u8(7);
-            w.id(id);
-        }
-        V::InvalidNodeLod(id) => {
-            w.u8(8);
-            w.id(id);
-        }
-        V::ResidencyMismatch {
-            id,
-            governing,
-            level,
-        } => {
-            w.u8(9);
-            w.id(id);
-            w.id(governing);
-            w.u8(level.as_u8());
-        }
-        V::QueueMismatch(id) => {
-            w.u8(10);
-            w.id(id);
-        }
-        V::UnreconciledMismatch(id) => {
-            w.u8(11);
-            w.id(id);
-        }
-        V::BadSchedule { id, problem } => {
-            w.u8(12);
-            w.id(id);
-            put_problem(w, problem);
-        }
-        V::NotAtCentre(id) => {
-            w.u8(13);
-            w.id(id);
-        }
-        V::NotInOwnCell(id) => {
-            w.u8(14);
-            w.id(id);
-        }
-        V::CountMismatch {
-            quantity,
-            before,
-            after,
-        } => {
-            w.u8(15);
-            match quantity {
-                Quantity::Population => w.u8(0),
-                Quantity::Home(id) => {
-                    w.u8(1);
-                    w.id(id);
-                }
-                Quantity::Governing(id) => {
-                    w.u8(2);
-                    w.id(id);
-                }
-            }
-            w.u64(before);
-            w.u64(after);
-        }
-        V::CounterChanged(id) => {
-            w.u8(16);
-            w.id(id);
-        }
-    }
-}
-
-fn get_violation(r: &mut Reader) -> Result<LodViolation> {
-    use LodViolation as V;
-    Ok(match r.u8()? {
-        0 => V::Duplicated(r.id()?),
-        1 => V::Lost(r.id()?),
-        2 => V::Orphan(r.id()?),
-        3 => V::PartialL1(r.id()?),
-        4 => V::IdentityMismatch(r.id()?),
-        5 => V::IdentityChanged(r.id()?),
-        6 => V::UnknownBuilding {
-            id: r.id()?,
-            building: r.id()?,
-        },
-        7 => V::MissingNodeLod(r.id()?),
-        8 => V::InvalidNodeLod(r.id()?),
-        9 => V::ResidencyMismatch {
-            id: r.id()?,
-            governing: r.id()?,
-            level: lod_from(r.u8()?)?,
-        },
-        10 => V::QueueMismatch(r.id()?),
-        11 => V::UnreconciledMismatch(r.id()?),
-        12 => V::BadSchedule {
-            id: r.id()?,
-            problem: get_problem(r)?,
-        },
-        13 => V::NotAtCentre(r.id()?),
-        14 => V::NotInOwnCell(r.id()?),
-        15 => {
-            let quantity = match r.u8()? {
-                0 => Quantity::Population,
-                1 => Quantity::Home(r.id()?),
-                2 => Quantity::Governing(r.id()?),
-                _ => return Err(CodecError("unknown quantity")),
-            };
-            V::CountMismatch {
-                quantity,
-                before: r.u64()?,
-                after: r.u64()?,
-            }
-        }
-        16 => V::CounterChanged(r.id()?),
-        _ => return Err(CodecError("unknown violation tag")),
-    })
-}
-
-fn put_lod_error(w: &mut Writer, e: LodError) {
-    match e {
-        LodError::UnknownNode(id) => {
-            w.u8(0);
-            w.id(id);
-        }
-        LodError::DuplicateNode(id) => {
-            w.u8(1);
-            w.id(id);
-        }
-        LodError::UnsupportedLevel(l) => {
-            w.u8(2);
-            w.u8(l.as_u8());
-        }
-        LodError::OffGrid(t) => {
-            w.u8(3);
-            w.time(t);
-        }
-        LodError::Coord(c) => {
-            w.u8(4);
-            put_coord(w, c);
-        }
-        LodError::Time(TimeOverflow) => w.u8(5),
-        LodError::CounterExhausted(id) => {
-            w.u8(6);
-            w.id(id);
-        }
-        LodError::Invariant(v) => {
-            w.u8(7);
-            put_violation(w, v);
-        }
-    }
-}
-
-fn get_lod_error(r: &mut Reader) -> Result<LodError> {
-    Ok(match r.u8()? {
-        0 => LodError::UnknownNode(r.id()?),
-        1 => LodError::DuplicateNode(r.id()?),
-        2 => LodError::UnsupportedLevel(lod_from(r.u8()?)?),
-        3 => LodError::OffGrid(r.time()?),
-        4 => LodError::Coord(get_coord(r)?),
-        5 => LodError::Time(TimeOverflow),
-        6 => LodError::CounterExhausted(r.id()?),
-        7 => LodError::Invariant(get_violation(r)?),
-        _ => return Err(CodecError("unknown level error tag")),
-    })
-}
-
-pub(crate) fn put_outcome(o: &Outcome) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u32(o.schema_version);
-    w.u64(o.sequence);
-    w.time(o.time);
-    w.u32(o.effect);
-    w.u32(o.demoted);
-    w.u32(o.promoted);
-    w.u64(o.tick);
-    w.u64(o.boundary);
-    w.u32(o.command.schema_version);
-    w.u32(o.command.issued_by as u32);
-    match &o.command.action {
-        Action::NoOp => w.u8(0),
-        Action::SetTimeScale(s) => {
-            w.u8(1);
-            w.u32(s.multiplier());
-        }
-        Action::SetNodeLod(v) => {
-            w.u8(2);
-            w.u32(v.len() as u32);
-            for (id, level) in v {
-                w.id(*id);
-                w.u8(level.as_u8());
-            }
-        }
-        Action::Intervene(i) => {
-            w.u8(3);
-            put_intervention(&mut w, i);
-        }
-    }
-    match o.result {
-        Ok(()) => w.u8(0),
-        Err(Rejection::Schema) => w.u8(1),
-        Err(Rejection::TooManyNodes) => w.u8(2),
-        Err(Rejection::Lod(e)) => {
-            w.u8(3);
-            put_lod_error(&mut w, e);
-        }
-        Err(Rejection::UnknownTarget(id)) => {
-            w.u8(4);
-            w.id(id);
-        }
-        Err(Rejection::UnsupportedLevel(id)) => {
-            w.u8(5);
-            w.id(id);
-        }
-        Err(Rejection::SeverityOutOfRange(s)) => {
-            w.u8(6);
-            w.u8(s);
-        }
-    }
-    w.0
-}
-
-fn put_intervention(w: &mut Writer, i: &Intervention) {
-    match i.target {
-        InterventionTarget::Entity(id) => {
-            w.u8(0);
-            w.id(id);
-        }
-        InterventionTarget::ResidentsOf(id) => {
-            w.u8(1);
-            w.id(id);
-        }
-    }
-    let Effect::Afflict { illness, severity } = i.effect;
-    w.u8(0);
-    w.u8(illness.tag());
-    w.u8(severity);
-    match i.timing {
-        Timing::Now => w.u8(0),
-        Timing::At(t) => {
-            w.u8(1);
-            w.time(t);
-        }
-    }
-}
-
-fn get_intervention(r: &mut Reader) -> Result<Intervention> {
-    let target = match r.u8()? {
-        0 => InterventionTarget::Entity(r.id()?),
-        1 => InterventionTarget::ResidentsOf(r.id()?),
-        _ => return Err(CodecError("unknown intervention target")),
-    };
-    if r.u8()? != 0 {
-        return Err(CodecError("unknown effect tag"));
-    }
-    let illness = IllnessKind::from_tag(r.u8()?).ok_or(CodecError("unknown illness kind"))?;
-    let severity = r.u8()?;
-    let timing = match r.u8()? {
-        0 => Timing::Now,
-        1 => Timing::At(r.time()?),
-        _ => return Err(CodecError("unknown timing")),
-    };
-    Ok(Intervention {
-        target,
-        effect: Effect::Afflict { illness, severity },
-        timing,
-    })
-}
-
-pub(crate) fn put_illness(i: &Illness) -> Vec<u8> {
-    let mut w = Writer::new();
-    w.u8(i.kind.tag());
-    w.u8(i.severity);
-    w.u64(i.root_event);
-    w.0
-}
-
-pub(crate) fn get_illness(bytes: &[u8]) -> Result<Illness> {
-    let mut r = Reader::new(bytes);
-    let kind = IllnessKind::from_tag(r.u8()?).ok_or(CodecError("unknown illness kind"))?;
-    let severity = r.u8()?;
-    let root_event = r.u64()?;
-    r.finish()?;
-    Ok(Illness {
-        kind,
-        severity,
-        root_event,
-    })
-}
-
-pub(crate) fn put_scheduled(i: &Intervention) -> Vec<u8> {
-    let mut w = Writer::new();
-    put_intervention(&mut w, i);
-    w.0
-}
-
-pub(crate) fn get_scheduled(bytes: &[u8]) -> Result<Intervention> {
-    let mut r = Reader::new(bytes);
-    let i = get_intervention(&mut r)?;
-    r.finish()?;
-    Ok(i)
-}
-
-pub(crate) fn get_outcome(bytes: &[u8]) -> Result<Outcome> {
-    let mut r = Reader::new(bytes);
-    let schema_version = r.u32()?;
-    let sequence = r.u64()?;
-    let time = r.time()?;
-    let effect = r.u32()?;
-    let demoted = r.u32()?;
-    let promoted = r.u32()?;
-    let tick = r.u64()?;
-    let boundary = r.u64()?;
-    let command_schema = r.u32()?;
-    let issued_by = match r.u32()? {
-        0 => IssuedBy::Player,
-        1 => IssuedBy::Script,
-        2 => IssuedBy::Test,
-        _ => return Err(CodecError("unknown issuer")),
-    };
-    let action = match r.u8()? {
-        0 => Action::NoOp,
-        1 => Action::SetTimeScale(match r.u32()? {
-            0 => TimeScale::Paused,
-            1 => TimeScale::X1,
-            10 => TimeScale::X10,
-            100 => TimeScale::X100,
-            _ => return Err(CodecError("unknown time scale")),
-        }),
-        2 => {
-            let n = r.u32()? as usize;
-            // The longest valid request has 1,024 entries; refuse to
-            // allocate for a count a corrupt row could inflate.
-            if n > 1024 {
-                return Err(CodecError("too many nodes in a command"));
-            }
-            let mut v = Vec::with_capacity(n);
-            for _ in 0..n {
-                v.push((r.id()?, lod_from(r.u8()?)?));
-            }
-            Action::SetNodeLod(v)
-        }
-        3 => Action::Intervene(get_intervention(&mut r)?),
-        _ => return Err(CodecError("unknown action tag")),
-    };
-    let result = match r.u8()? {
-        0 => Ok(()),
-        1 => Err(Rejection::Schema),
-        2 => Err(Rejection::TooManyNodes),
-        3 => Err(Rejection::Lod(get_lod_error(&mut r)?)),
-        4 => Err(Rejection::UnknownTarget(r.id()?)),
-        5 => Err(Rejection::UnsupportedLevel(r.id()?)),
-        6 => Err(Rejection::SeverityOutOfRange(r.u8()?)),
-        _ => return Err(CodecError("unknown result tag")),
-    };
-    r.finish()?;
-    Ok(Outcome {
-        schema_version,
-        sequence,
-        time,
-        effect,
-        demoted,
-        promoted,
-        tick,
-        boundary,
-        command: Command {
-            schema_version: command_schema,
-            issued_by,
-            action,
-        },
-        result,
-    })
-}
-
 // ---- slice codecs (ADR 0036) ---------------------------------------------
 
 pub(crate) fn put_slice_config(c: &ws_sim::slice::SliceConfig) -> Vec<u8> {
@@ -1804,12 +980,10 @@ fn put_routine(w: &mut Writer, r: ws_life::behavior::RoutineOverride) {
     }
 }
 
-/// Override kinds 1 (illness) and 2 (visit) in format 4; format 5 adds 3
-/// (gathering, ADR 0038 §6).
-fn get_routine(r: &mut Reader, format: u32) -> Result<ws_life::behavior::RoutineOverride> {
+/// Override kinds 1 (illness), 2 (visit) and 3 (gathering, ADR 0038 §6).
+fn get_routine(r: &mut Reader) -> Result<ws_life::behavior::RoutineOverride> {
     let kind = r.u32()?;
-    let last = if format >= 5 { 3 } else { 2 };
-    if !(1..=last).contains(&kind) {
+    if !(1..=3).contains(&kind) {
         return Err(CodecError("invalid routine kind"));
     }
     let root = r.u64()?;
@@ -1875,7 +1049,7 @@ fn get_opt_time(r: &mut Reader) -> Result<Option<SimTime>> {
     Ok(if r.flag()? { Some(r.time()?) } else { None })
 }
 
-/// The format-5 storm hold block (plan decision D1): every field, with the
+/// The storm hold block (plan decision D1): every field, with the
 /// phase stored explicitly.
 fn put_storm_hold(w: &mut Writer, h: ws_life::behavior::StormHold) {
     w.u64(h.root);
@@ -1911,12 +1085,8 @@ fn get_storm_hold(r: &mut Reader) -> Result<ws_life::behavior::StormHold> {
     })
 }
 
-/// A `slice_behavior` row. Format 5 appends the storm hold block; format 4
-/// has none, and its writer refuses a resident with a hold.
-pub(crate) fn put_slice_resident_state(
-    st: &ws_life::behavior::ResidentStateSnapshot,
-    format: u32,
-) -> Vec<u8> {
+/// A `slice_behavior` row, ending with the optional storm hold block.
+pub(crate) fn put_slice_resident_state(st: &ws_life::behavior::ResidentStateSnapshot) -> Vec<u8> {
     let mut w = Writer::new();
     w.id(st.id);
     w.u8(st.detail as u8);
@@ -1933,21 +1103,18 @@ pub(crate) fn put_slice_resident_state(
         }
         None => w.u8(0),
     }
-    if format >= 5 {
-        match st.storm_hold {
-            Some(h) => {
-                w.u8(1);
-                put_storm_hold(&mut w, h);
-            }
-            None => w.u8(0),
+    match st.storm_hold {
+        Some(h) => {
+            w.u8(1);
+            put_storm_hold(&mut w, h);
         }
+        None => w.u8(0),
     }
     w.0
 }
 
 pub(crate) fn get_slice_resident_state(
     bytes: &[u8],
-    format: u32,
 ) -> Result<ws_life::behavior::ResidentStateSnapshot> {
     let mut r = Reader::new(bytes);
     let id = r.id()?;
@@ -1961,10 +1128,10 @@ pub(crate) fn get_slice_resident_state(
     let decisions = r.u64()?;
     let routine = match r.u8()? {
         0 => None,
-        1 => Some(get_routine(&mut r, format)?),
+        1 => Some(get_routine(&mut r)?),
         _ => return Err(CodecError("invalid routine flag")),
     };
-    let storm_hold = if format >= 5 && r.flag()? {
+    let storm_hold = if r.flag()? {
         Some(get_storm_hold(&mut r)?)
     } else {
         None
@@ -1982,7 +1149,7 @@ pub(crate) fn get_slice_resident_state(
     })
 }
 
-/// The format-5 `slice_storm` row: the storm episode and the `ws-life`
+/// The `slice_storm` row: the storm episode and the `ws-life`
 /// window, each optional (the window outlives the episode until every hold
 /// has rejoined).
 pub(crate) fn put_slice_storm(
@@ -2045,7 +1212,7 @@ pub(crate) fn get_slice_storm(bytes: &[u8]) -> Result<DecodedStorm> {
     Ok((storm, window))
 }
 
-/// The format-5 `slice_gathering` row: the episode, its `joined` count, then
+/// The `slice_gathering` row: the episode, its `joined` count, then
 /// up to seven attendees of resident ID and phase.
 pub(crate) fn put_slice_gathering(g: &ws_sim::slice::Gathering) -> Vec<u8> {
     let mut w = Writer::new();
@@ -2475,158 +1642,14 @@ pub(crate) fn get_operation_record(bytes: &[u8]) -> Result<ws_sim::slice::Operat
 
 #[cfg(test)]
 mod tests {
-    use ws_math::SECTOR_LEVEL;
-    use ws_math::reference::BAY_RIDGE;
-
     use super::*;
 
     fn id(n: u64) -> EntityId {
         EntityId::procedural(n)
     }
 
-    fn outcome(result: core::result::Result<(), Rejection>, action: Action) -> Outcome {
-        Outcome {
-            schema_version: 1,
-            sequence: 9,
-            time: SimTime::from_micros_since_epoch(-123_456),
-            effect: 3,
-            demoted: 4,
-            promoted: 5,
-            tick: 77,
-            boundary: 2,
-            command: Command {
-                schema_version: 1,
-                issued_by: IssuedBy::Script,
-                action,
-            },
-            result,
-        }
-    }
-
     #[test]
-    fn every_rejection_round_trips() {
-        let a = id(1);
-        let violations = [
-            LodViolation::Duplicated(a),
-            LodViolation::Lost(a),
-            LodViolation::Orphan(a),
-            LodViolation::PartialL1(a),
-            LodViolation::IdentityMismatch(a),
-            LodViolation::IdentityChanged(a),
-            LodViolation::UnknownBuilding {
-                id: a,
-                building: id(2),
-            },
-            LodViolation::MissingNodeLod(a),
-            LodViolation::InvalidNodeLod(a),
-            LodViolation::ResidencyMismatch {
-                id: a,
-                governing: id(2),
-                level: Lod::L2,
-            },
-            LodViolation::QueueMismatch(a),
-            LodViolation::UnreconciledMismatch(a),
-            LodViolation::BadSchedule {
-                id: a,
-                problem: ScheduleProblem::EmptyLeg,
-            },
-            LodViolation::NotAtCentre(a),
-            LodViolation::NotInOwnCell(a),
-            LodViolation::CountMismatch {
-                quantity: Quantity::Population,
-                before: 1,
-                after: 2,
-            },
-            LodViolation::CountMismatch {
-                quantity: Quantity::Home(a),
-                before: 3,
-                after: 4,
-            },
-            LodViolation::CountMismatch {
-                quantity: Quantity::Governing(a),
-                before: 5,
-                after: 6,
-            },
-            LodViolation::CounterChanged(a),
-        ];
-        let problems = [
-            ScheduleProblem::OffGrid,
-            ScheduleProblem::EventNotInFuture,
-            ScheduleProblem::OriginInFuture,
-            ScheduleProblem::EmptyLeg,
-            ScheduleProblem::WaitTooLong,
-            ScheduleProblem::WalkingWithoutDraw,
-        ];
-        let coords = [
-            CoordError::NonFinite,
-            CoordError::LatitudeOutOfRange,
-            CoordError::LongitudeOutOfRange,
-            CoordError::NearEarthCentre,
-            CoordError::InvalidCellId,
-            CoordError::InvalidLevel,
-            CoordError::NotSectorCell,
-            CoordError::FrameMismatch,
-            CoordError::BoundaryUnresolved,
-        ];
-        let mut errors = vec![
-            LodError::UnknownNode(a),
-            LodError::DuplicateNode(a),
-            LodError::UnsupportedLevel(Lod::L5),
-            LodError::OffGrid(SimTime::from_micros_since_epoch(7)),
-            LodError::Time(TimeOverflow),
-            LodError::CounterExhausted(a),
-        ];
-        errors.extend(coords.map(LodError::Coord));
-        errors.extend(violations.map(LodError::Invariant));
-        errors.extend(
-            problems
-                .map(|problem| LodError::Invariant(LodViolation::BadSchedule { id: a, problem })),
-        );
-        let mut results = vec![
-            Ok(()),
-            Err(Rejection::Schema),
-            Err(Rejection::TooManyNodes),
-            Err(Rejection::UnknownTarget(a)),
-            Err(Rejection::UnsupportedLevel(a)),
-            Err(Rejection::SeverityOutOfRange(0)),
-            Err(Rejection::SeverityOutOfRange(255)),
-        ];
-        results.extend(errors.into_iter().map(|e| Err(Rejection::Lod(e))));
-        for result in results {
-            let o = outcome(result, Action::NoOp);
-            assert_eq!(get_outcome(&put_outcome(&o)), Ok(o));
-        }
-    }
-
-    fn intervene(target: InterventionTarget, timing: Timing) -> Action {
-        Action::Intervene(Intervention {
-            target,
-            effect: Effect::Afflict {
-                illness: IllnessKind::Fever,
-                severity: 10,
-            },
-            timing,
-        })
-    }
-
-    #[test]
-    fn illness_scheduled_and_event_payloads_round_trip() {
-        let ill = Illness {
-            kind: IllnessKind::Fever,
-            severity: 3,
-            root_event: 77,
-        };
-        assert_eq!(get_illness(&put_illness(&ill)), Ok(ill));
-        let mut bad = put_illness(&ill);
-        bad[0] = 9;
-        assert!(get_illness(&bad).is_err());
-        let Action::Intervene(i) = intervene(
-            InterventionTarget::Entity(id(1)),
-            Timing::At(SimTime::EPOCH),
-        ) else {
-            unreachable!()
-        };
-        assert_eq!(get_scheduled(&put_scheduled(&i)), Ok(i));
+    fn prototype_event_payloads_still_round_trip() {
         for p in [
             Payload::InterventionApplied {
                 sequence: 4,
@@ -2652,160 +1675,26 @@ mod tests {
     }
 
     #[test]
-    fn every_action_round_trips() {
-        for action in [
-            Action::NoOp,
-            Action::SetTimeScale(TimeScale::Paused),
-            Action::SetTimeScale(TimeScale::X1),
-            Action::SetTimeScale(TimeScale::X10),
-            Action::SetTimeScale(TimeScale::X100),
-            Action::SetNodeLod(vec![]),
-            Action::SetNodeLod(vec![(id(1), Lod::L1), (id(2), Lod::L2), (id(3), Lod::L7)]),
-            intervene(InterventionTarget::Entity(id(4)), Timing::Now),
-            intervene(
-                InterventionTarget::ResidentsOf(id(5)),
-                Timing::At(SimTime::from_micros_since_epoch(-9)),
-            ),
-        ] {
-            let o = outcome(Ok(()), action);
-            assert_eq!(get_outcome(&put_outcome(&o)), Ok(o));
-        }
-    }
-
-    #[test]
-    fn trailing_bytes_truncation_and_unknown_tags_are_errors() {
-        let bytes = put_outcome(&outcome(Ok(()), Action::NoOp));
-        let mut longer = bytes.clone();
-        longer.push(0);
-        assert_eq!(get_outcome(&longer), Err(CodecError("trailing bytes")));
-        for cut in 0..bytes.len() {
-            assert!(get_outcome(&bytes[..cut]).is_err(), "cut at {cut}");
-        }
-        let mut bad_tag = bytes;
-        let last = bad_tag.len() - 1;
-        bad_tag[last] = 9; // the result tag
-        assert_eq!(get_outcome(&bad_tag), Err(CodecError("unknown result tag")));
-    }
-
-    #[test]
-    fn an_inflated_node_count_is_refused_before_allocating() {
-        let mut bytes = put_outcome(&outcome(Ok(()), Action::SetNodeLod(vec![])));
-        // The count follows the fixed 56-byte prefix and the action tag.
-        let at = 4 + 8 + 8 + 4 + 4 + 4 + 8 + 8 + 4 + 4 + 1;
-        bytes[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert_eq!(
-            get_outcome(&bytes),
-            Err(CodecError("too many nodes in a command"))
-        );
-    }
-
-    #[test]
-    fn flags_must_be_exactly_zero_or_one() {
-        let walk = Walk {
-            velocity: [0.0; 3],
-            target: id(1),
-            arrived: true,
-            wait_steps: 1,
-            targets_drawn: 2,
-        };
-        let cell = CellId::from_geodetic_at_level(&BAY_RIDGE, SECTOR_LEVEL).unwrap();
-        let pos = SurfacePos::new(cell, [1.0, 2.0, 3.0]).unwrap();
-        let mut bytes = put_l1(pos, &walk);
-        assert_eq!(get_l1(&bytes), Ok((pos, walk)));
-        let flag = 8 + 12 + 12 + 8;
-        bytes[flag] = 2;
-        assert_eq!(get_l1(&bytes), Err(CodecError("flag is not 0 or 1")));
-    }
-
-    #[test]
-    fn format_3_records_round_trip() {
-        let cell = CellId::from_geodetic_at_level(&BAY_RIDGE, SECTOR_LEVEL).unwrap();
-        let pos = SurfacePos::new(cell, [4.0, 5.0, 6.0]).unwrap();
-        let b = Building {
-            index: 2,
-            pos,
-            half_extent_m: 12.0,
-            height_m: 18.0,
-        };
-        assert_eq!(get_building(&put_building(&b, Lod::L2)), Ok((b, Lod::L2)));
-        assert_eq!(get_building_component(&put_building_component(&b)), Ok(b));
-        assert_eq!(get_node_lod(&put_node_lod(Lod::L1)), Ok(Lod::L1));
-        assert_eq!(get_node_lod(&put_node_lod(Lod::L2)), Ok(Lod::L2));
-
-        let r = Resident {
-            address: ResidentAddress {
-                building_index: 2,
-                slot: 4,
-            },
-            home: id(10),
-        };
-        for rec in [EntityRecord::Building(b), EntityRecord::Resident(r)] {
-            assert_eq!(get_entity_record(&put_entity_record(&rec)), Ok(rec));
-        }
-        assert!(get_entity_record(&[9]).is_err());
-
-        for t in [
-            Tombstone {
-                address: BaselineAddress::Building(3),
-                deleted_tick: 40,
-                root_event: 5,
-            },
-            Tombstone {
-                address: BaselineAddress::Resident(ResidentAddress {
-                    building_index: 1,
-                    slot: 7,
-                }),
-                deleted_tick: 80,
-                root_event: 0,
-            },
-        ] {
-            assert_eq!(get_tombstone(&put_tombstone(&t)), Ok(t));
-        }
-        assert!(get_tombstone(&[9]).is_err());
-
-        let mut base = BaselineRecord {
-            seed: 2026,
-            dataset_id: 1,
-            dataset_version: 1,
-            dataset_sha256: [0x5a; 32],
-            building_generator_version: 1,
-            resident_generator_version: 1,
-            rules_version: 1,
-            identity_policy_version: 1,
-            population_min: 4,
-            population_max: 12,
-            walk_speed_bits: 1.4_f64.to_bits(),
-            walk_wait_steps: 50,
-            start_time_us: 0,
-            building_count: 5,
-            resident_count: 42,
-            structural_digest: 0x1234_5678,
-            baseline_digest: 0,
-            collision_overrides: Vec::new(),
-        };
-        base.baseline_digest = base.compute_digest();
-        assert_eq!(get_baseline(&put_baseline(&base)), Ok(base));
-
-        let clock = Clock::from_parts(
-            SimTime::EPOCH,
+    fn the_clock_row_round_trips_and_has_a_fixed_length() {
+        let c = Clock::new(
+            SimTime::from_micros_since_epoch(5_000_000),
             Rate::new(SimDuration::from_micros(100_000)).unwrap(),
-            5,
-            TimeScale::X10,
-            NonZeroU32::new(16).unwrap(),
-            0,
-        )
-        .unwrap();
-        let row = ClockRowV3 {
-            clock,
-            next_sequence: 3,
-            boundary: 2,
-            next_spawned_id: 7,
-            next_event_id: 11,
-        };
-        assert_eq!(
-            get_clock_v3(&put_clock_v3(&row.clock, 3, 2, 7, 11)),
-            Ok(row)
+            NonZeroU32::new(100).unwrap(),
         );
+        let bytes = put_clock_v3(&c, 1, 2, 3, 4);
+        assert_eq!(bytes.len(), 72);
+        let row = get_clock_v3(&bytes).unwrap();
+        assert_eq!(
+            (
+                row.clock,
+                row.next_sequence,
+                row.boundary,
+                row.next_spawned_id,
+                row.next_event_id
+            ),
+            (c, 1, 2, 3, 4)
+        );
+        assert_eq!(get_clock_v3(&bytes[..71]), Err(CodecError("truncated")));
     }
 }
 
@@ -2993,7 +1882,7 @@ mod slice_operation_tests {
 }
 
 #[cfg(test)]
-mod format5_tests {
+mod behavior_row_tests {
     use super::*;
     use ws_life::behavior::{
         Action, Detail, HoldPhase, Journey, Needs, ResidentStateSnapshot, RoutineOverride,
@@ -3035,7 +1924,7 @@ mod format5_tests {
     }
 
     #[test]
-    fn storm_hold_block_is_format5_only_and_round_trips_every_field() {
+    fn storm_hold_block_round_trips_every_field() {
         let walk = Journey {
             from: ws_life::Place::Building(EntityId::procedural(5)),
             to: ws_life::Place::OffMap(EntityId::procedural(6), 2),
@@ -3061,44 +1950,31 @@ mod format5_tests {
             },
         ] {
             let st = state(None, Some(hold));
-            let bytes = put_slice_resident_state(&st, 5);
-            assert_eq!(get_slice_resident_state(&bytes, 5), Ok(st));
+            let bytes = put_slice_resident_state(&st);
+            assert_eq!(get_slice_resident_state(&bytes), Ok(st));
             // The phase is the last byte; an unknown phase is an error.
             let mut bad = bytes.clone();
             *bad.last_mut().unwrap() = 2;
-            assert!(get_slice_resident_state(&bad, 5).is_err());
-            // Format 4 never reads the block, so its bytes are trailing.
-            assert!(get_slice_resident_state(&bytes, 4).is_err());
+            assert!(get_slice_resident_state(&bad).is_err());
         }
-        // Without a hold, format 4 bytes are unchanged and format 5 adds one flag.
+        // Without a hold, the row ends with one zero flag.
         let st = state(Some(routine(1)), None);
-        let v4 = put_slice_resident_state(&st, 4);
-        let v5 = put_slice_resident_state(&st, 5);
-        assert_eq!(&v5[..v4.len()], &v4[..]);
-        assert_eq!(&v5[v4.len()..], &[0]);
-        assert_eq!(get_slice_resident_state(&v4, 4), Ok(st));
-        assert_eq!(get_slice_resident_state(&v5, 5), Ok(st));
+        let bytes = put_slice_resident_state(&st);
+        assert_eq!(bytes.last(), Some(&0));
+        assert_eq!(get_slice_resident_state(&bytes), Ok(st));
+        let mut flag = bytes.clone();
+        *flag.last_mut().unwrap() = 2;
+        assert!(get_slice_resident_state(&flag).is_err());
     }
 
     #[test]
-    fn routine_kind_range_widens_to_three_in_format5() {
-        for (kind, v4_ok, v5_ok) in [
-            (0, false, false),
-            (1, true, true),
-            (2, true, true),
-            (3, false, true),
-            (4, false, false),
-        ] {
+    fn routine_kinds_are_one_to_three() {
+        for (kind, ok) in [(0, false), (1, true), (2, true), (3, true), (4, false)] {
             let st = state(Some(routine(kind)), None);
             assert_eq!(
-                get_slice_resident_state(&put_slice_resident_state(&st, 4), 4).is_ok(),
-                v4_ok,
-                "kind {kind} in format 4"
-            );
-            assert_eq!(
-                get_slice_resident_state(&put_slice_resident_state(&st, 5), 5).is_ok(),
-                v5_ok,
-                "kind {kind} in format 5"
+                get_slice_resident_state(&put_slice_resident_state(&st)).is_ok(),
+                ok,
+                "kind {kind}"
             );
         }
     }

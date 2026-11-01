@@ -109,7 +109,6 @@ pub fn calendar_sky(now: SimTime, render_basis: Option<EnuFrame>) -> CalendarSky
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Dataset, Population, ToyWorld, WalkParams};
     use proptest::prelude::*;
     #[test]
     fn complete_source_envelope_midpoint_and_versions_are_pinned() {
@@ -135,20 +134,18 @@ mod tests {
     }
     proptest! {
         #[test]
-        fn paired_snapshot_basis_rotates_directions_without_translation(seed in any::<u64>(),day in 0i64..36525,second in 0i64..86400) {
+        fn paired_snapshot_basis_rotates_directions_without_translation(day in 0i64..36525,second in 0i64..86400,dlat in -0.01f64..0.01,dlon in -0.01f64..0.01) {
             let t=SimTime::EPOCH.checked_add(ws_time::SimDuration::from_micros((day*86400+second)*1_000_000)).unwrap();
             // Keep final-day input inside the actual UTC window.
             if new_york(t.to_utc()).is_none() {return Ok(());}
-            let w=ToyWorld::generate(seed,&Dataset::toy().unwrap(),Population::TOY,WalkParams::DEFAULT).unwrap();
-            let before=w.state_hash();
-            let basis=w.render_basis().unwrap();
+            let site=site_frame().origin();
+            let basis=EnuFrame::new(Geodetic::from_degrees(site.lat().to_degrees()+dlat,site.lon().to_degrees()+dlon,0.0).unwrap());
             let s=calendar_sky(t,Some(basis)).supported.unwrap();
             prop_assert!((s.toward_sun.length()-1.0).abs()<3e-15);
             let at_site=calendar_sky(t,Some(site_frame())).supported.unwrap();
             let world_vector=basis.vector_to_ecef(s.toward_sun);
             let site_vector=site_frame().vector_to_ecef(at_site.toward_sun);
             prop_assert!((world_vector-site_vector).length()<2e-15);
-            prop_assert_eq!(w.state_hash(),before);
             prop_assert_eq!(s.azimuth_deg,at_site.azimuth_deg);
             prop_assert_eq!(s.elevation_deg,at_site.elevation_deg);
         }
