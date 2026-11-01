@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use ws_life::lod::CameraInterest;
 use ws_persist::{
-    FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, load_slice, read_header, save_slice,
-    save_slice_background,
+    FORMAT_VERSION, LoadError, MODEL_KIND_SLICE, SaveError, load_slice, read_header, save_slice,
+    save_slice_background, save_slice_parts,
 };
 use ws_sim::slice::{GoalKind, Operation, SliceConfig, SliceSimulation, generate_goals};
 use ws_sim::ws_events::EventId;
@@ -279,6 +279,107 @@ fn older_save_formats_are_refused() {
             other => panic!("expected UnsupportedVersion for a format-4 save, got {other:?}"),
         }
     }
+}
+
+/// A newer or unknown format number is refused like an older one.
+#[test]
+fn newer_or_unknown_save_formats_are_refused() {
+    let dir = Scratch::new("version");
+    let path = dir.path("v.wssave");
+    save_slice(&sample_slice(10), &path).unwrap();
+    for found in [FORMAT_VERSION + 1, 99, 0] {
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "user_version", found).unwrap();
+        drop(conn);
+        for result in [
+            read_header(&path).map(|_| ()),
+            load_slice(&path).map(|_| ()),
+        ] {
+            match result {
+                Err(LoadError::UnsupportedVersion {
+                    found: f,
+                    supported,
+                }) => assert_eq!((f, supported), (found, FORMAT_VERSION)),
+                other => panic!("expected UnsupportedVersion for {found}, got {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn files_that_are_not_saves_are_rejected() {
+    let dir = Scratch::new("notsave");
+    let text = dir.path("text");
+    std::fs::write(&text, b"this is not a database at all, just some text").unwrap();
+    assert!(matches!(load_slice(&text), Err(LoadError::NotASave)));
+    assert!(matches!(read_header(&text), Err(LoadError::NotASave)));
+
+    let other = dir.path("other.db");
+    let conn = Connection::open(&other).unwrap();
+    conn.execute_batch("CREATE TABLE t (x); INSERT INTO t VALUES (1);")
+        .unwrap();
+    drop(conn);
+    assert!(matches!(load_slice(&other), Err(LoadError::NotASave)));
+    assert!(matches!(read_header(&other), Err(LoadError::NotASave)));
+
+    let missing = dir.path("missing.wssave");
+    assert!(matches!(load_slice(&missing), Err(LoadError::Io(_))));
+    assert!(matches!(read_header(&missing), Err(LoadError::Io(_))));
+}
+
+#[test]
+fn a_missing_or_inconsistent_header_is_corrupt() {
+    let dir = Scratch::new("header");
+    let path = dir.path("h.wssave");
+    let sim = sample_slice(11);
+    // (SQL, expected reason)
+    for (sql, reason) in [
+        ("DELETE FROM header", "no header row"),
+        (
+            "UPDATE header SET format_version = 5 WHERE id = 1",
+            "header and file format versions differ",
+        ),
+    ] {
+        save_slice(&sim, &path).unwrap();
+        Connection::open(&path).unwrap().execute(sql, []).unwrap();
+        for result in [
+            read_header(&path).map(|_| ()),
+            load_slice(&path).map(|_| ()),
+        ] {
+            match result {
+                Err(LoadError::Corrupt {
+                    table: "header",
+                    reason: r,
+                }) => assert_eq!(r, reason, "{sql}"),
+                other => panic!("{sql}: expected a corrupt header, got {other:?}"),
+            }
+        }
+    }
+}
+
+/// A refused save changes neither the destination nor a staging file there.
+#[test]
+fn an_unsaveable_slice_leaves_the_destination_and_staging_file_alone() {
+    let dir = Scratch::new("unsaveable");
+    let dest = dir.path("keep.wssave");
+    let staged = dir.path("keep.wssave.saving");
+    std::fs::write(&dest, b"destination sentinel").unwrap();
+    std::fs::write(&staged, b"staging sentinel").unwrap();
+    let sim = sample_slice(42);
+    let mut parts = sim.to_parts();
+    parts.god = None;
+    assert!(matches!(
+        save_slice_parts(
+            parts,
+            sim.state_hash(),
+            sim.operation_digest(),
+            sim.events().digest(),
+            &dest,
+        ),
+        Err(SaveError::Unsaveable(_))
+    ));
+    assert_eq!(std::fs::read(&dest).unwrap(), b"destination sentinel");
+    assert_eq!(std::fs::read(&staged).unwrap(), b"staging sentinel");
 }
 
 #[test]

@@ -22,7 +22,7 @@ None.
 |---|---|---|
 | `header` | single row (`id = 1`) | versions, build, seed, time, tick, population, digests, effect vocabulary, model kind |
 | `slice_config` | single row | seed, start and model-week epoch |
-| `clock` | single row (schema 3) | clock fields and the next event ID; the toy-era command counters are written as 0 |
+| `clock` | single row (schema 2) | clock fields and the next event ID; the toy-era command counters are written as 0 |
 | `slice_vitals` | `resident_id` | sex, health and life status |
 | `slice_illness` | `resident_id` | active illness episode |
 | `slice_behavior` | `resident_id` | needs, action, routine and storm hold |
