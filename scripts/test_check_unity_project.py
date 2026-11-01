@@ -208,8 +208,8 @@ class CheckUnityProjectTest(unittest.TestCase):
 
     def test_build_scene_guid_must_match(self):
         p = self.path("ProjectSettings/EditorBuildSettings.asset")
-        p.write_text(p.read_text().replace("af6d213af4f647caab09496b4b728579", "0" * 32))
-        self.assertReports("EditorBuildSettings.asset scene Assets/WorldSim/Scenes/Bootstrap.unity")
+        p.write_text(p.read_text().replace("3cc7f37339c948cdb4667fd9317db97f", "0" * 32))
+        self.assertReports("EditorBuildSettings.asset scene Assets/WorldSim/Scenes/RealBlock.unity")
 
     def test_render_pipeline_must_resolve(self):
         p = self.path("ProjectSettings/GraphicsSettings.asset")

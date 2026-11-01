@@ -1,6 +1,6 @@
 # ADR 0019: TP-008 command journal and World Event contract (D-8)
 
-- Status: Accepted
+- Status: Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md)
 - Date: 2026-10-16
 - Decided by: Noah, explicit approval in Codex on 2026-10-16; proposed by Codex
 - Issue: #43 (design phase of #9)

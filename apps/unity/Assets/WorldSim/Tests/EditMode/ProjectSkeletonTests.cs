@@ -25,7 +25,7 @@ namespace WorldSim.Tests.EditMode
         const string MinimumIosVersion = "26.0";
 
         const string PlaceholderBundleIdentifier = "org.worldsimulator.placeholder";
-        const string BootstrapScenePath = "Assets/WorldSim/Scenes/Bootstrap.unity";
+        const string RealBlockScenePath = "Assets/WorldSim/Scenes/RealBlock.unity";
         const string ProvidersFolder = "Assets/WorldSim/Providers";
 
         // PlayerSettings architecture value for arm64 on iOS (0 = armv7, 1 = arm64, 2 = universal).
@@ -118,39 +118,11 @@ namespace WorldSim.Tests.EditMode
         }
 
         [Test]
-        public void BootstrapIsTheOnlyBuildScene()
+        public void RealBlockIsTheOnlyBuildScene()
         {
             var scenes = EditorBuildSettings.scenes;
-            Assert.That(scenes.Select(s => s.path), Is.EqualTo(new[] { BootstrapScenePath }));
+            Assert.That(scenes.Select(s => s.path), Is.EqualTo(new[] { RealBlockScenePath }));
             Assert.That(scenes[0].enabled, Is.True);
-        }
-
-        [Test]
-        public void BootstrapSceneHoldsCameraLightAndBridgeDemo()
-        {
-            var scene = EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Additive);
-            try
-            {
-                var roots = scene.GetRootGameObjects();
-                Assert.That(roots.Select(r => r.name), Is.EquivalentTo(new[] { "Main Camera", "Directional Light", "Rust Bridge Debug Markers" }));
-
-                var demo = roots.Single(r => r.name == "Rust Bridge Debug Markers");
-                Assert.That(demo.GetComponent<WorldSim.Rendering.BridgeDemo>(), Is.Not.Null);
-                Assert.That(demo.transform.childCount, Is.Zero);
-
-                var camera = roots.Single(r => r.name == "Main Camera");
-                Assert.That(camera.GetComponent<Camera>(), Is.Not.Null);
-                Assert.That(camera.transform.childCount, Is.Zero);
-
-                var light = roots.Single(r => r.name == "Directional Light").GetComponent<Light>();
-                Assert.That(light, Is.Not.Null);
-                Assert.That(light.type, Is.EqualTo(LightType.Directional));
-                Assert.That(light.transform.childCount, Is.Zero);
-            }
-            finally
-            {
-                EditorSceneManager.CloseScene(scene, true);
-            }
         }
     }
 }

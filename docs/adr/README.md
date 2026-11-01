@@ -19,16 +19,16 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0013](0013-technical-prototype-core-path-first.md) | Technical Prototype proves the core path before visual providers | Accepted |
 | [0014](0014-time-representation.md) | Simulation time representation: uniform i64 microseconds from 2000-01-01T12:00 UTC, leap-second table for UTC | Accepted |
 | [0015](0015-coordinate-representation.md) | Coordinate representation (D-4) and default sector level | Accepted |
-| [0016](0016-entity-identity-storage-and-randomness.md) | Entity identity, component storage, and counter-based randomness (D-7, S-1) | Accepted |
-| [0017](0017-simulation-lod-l1-l2-round-trip.md) | Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007) | Accepted |
+| [0016](0016-entity-identity-storage-and-randomness.md) | Entity identity, component storage, and counter-based randomness (D-7, S-1) | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
+| [0017](0017-simulation-lod-l1-l2-round-trip.md) | Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007) | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
 | [0018](0018-rust-unity-bridge.md) | TP-003 Rust–Unity bridge contract (S-3) | Accepted |
-| [0019](0019-command-journal-and-world-events.md) | TP-008 command journal and World Event contract (D-8) | Accepted |
-| [0020](0020-save-format-and-versioning.md) | TP-009 save container, serialization format (S-2) and version header (D-14) | Accepted |
-| [0021](0021-god-intervention-contract.md) | TP-010 first structured god intervention: command, effect vocabulary v1, Illness state, events, format 2 | Accepted |
-| [0022](0022-toy-world-render-snapshot-abi-3.md) | TP-011 toy-world render snapshot and ABI 3 | Accepted |
+| [0019](0019-command-journal-and-world-events.md) | TP-008 command journal and World Event contract (D-8) | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
+| [0020](0020-save-format-and-versioning.md) | TP-009 save container, serialization format (S-2) and version header (D-14) | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
+| [0021](0021-god-intervention-contract.md) | TP-010 first structured god intervention: command, effect vocabulary v1, Illness state, events, format 2 | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
+| [0022](0022-toy-world-render-snapshot-abi-3.md) | TP-011 toy-world render snapshot and ABI 3 | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
 | [0023](0023-vertical-slice-block.md) | Vertical Slice block is Brooklyn tax block 6049 (S-8) | Accepted |
 | [0024](0024-procedural-id-collision-resolution.md) | Frozen-roster procedural ID collision resolution | Accepted |
-| [0025](0025-baseline-plus-deltas-saves.md) | Version-pinned baseline plus canonical deltas in save format 3 | Accepted |
+| [0025](0025-baseline-plus-deltas-saves.md) | Version-pinned baseline plus canonical deltas in save format 3 | Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) |
 | [0026](0026-provider-spike-read-only-frame-query.md) | Provider spike read-only frame query and isolated Unity providers | Accepted |
 | [0027](0027-slice-schedules-and-events.md) | Slice L2 schedule model, factual events and orchestration | Accepted |
 | [0028](0028-slice-l1-needs-and-navigation.md) | Slice L1 needs, sidewalk proxy paths and L2 reconciliation | Accepted |
@@ -43,3 +43,4 @@ One file per decision: `NNNN-short-title.md`, with Status (Proposed / Accepted /
 | [0037](0037-minimum-device-iphone-16-pro.md) | Minimum device is the iPhone 16 Pro | Accepted |
 | [0038](0038-bless-storm-gathering-powers.md) | Bless, storm and gathering as reversible slice powers (GP-002) | Accepted |
 | [0039](0039-faith-and-daily-goals.md) | Resident faith and daily goals (GP-004) | Accepted |
+| [0040](0040-delete-toy-world-and-old-formats.md) | Delete the toy world, old save formats and old ABI versions | Accepted |

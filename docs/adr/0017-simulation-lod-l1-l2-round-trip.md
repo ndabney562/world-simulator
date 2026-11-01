@@ -1,6 +1,6 @@
 # ADR 0017: Simulation LOD: the L1 ↔ L2 round trip (D-10, TP-007)
 
-- Status: Accepted (2026-10-15, by merging PR #26)
+- Status: Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) (accepted 2026-10-15, by merging PR #26)
 - Date: 2026-10-15
 - Decided by: Noah (Product Owner), on Claude's proposal for TP-007; reviewed by ChatGPT
 - Issue: #8 (TP-007)

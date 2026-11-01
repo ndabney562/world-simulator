@@ -26,7 +26,7 @@ Routine implementation choices inside an issue's scope do not need an ADR; they 
 
 ## Superseding
 
-An accepted ADR is never edited to change its decision. A new ADR supersedes it; the old ADR's status becomes `Superseded by NNNN`, and both are linked. Typos and broken links may be fixed in place.
+An accepted ADR is never edited to change its decision. A new ADR supersedes it; the old ADR's status becomes `Superseded by NNNN`, and both are linked. When only part is superseded, the status becomes `Accepted; <part> superseded by NNNN`. Typos and broken links may be fixed in place.
 
 ## Spikes
 

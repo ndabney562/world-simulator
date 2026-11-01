@@ -1,6 +1,6 @@
 # ADR 0016: Entity identity, component storage, and counter-based randomness (D-7, S-1)
 
-- Status: Accepted (2026-10-15, by merging PR #24)
+- Status: Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md) (accepted 2026-10-15, by merging PR #24)
 - Date: 2026-10-15
 - Decided by: Noah (Product Owner), on Claude's proposal for TP-006; reviewed by ChatGPT
 - Issue: #7 (TP-006)

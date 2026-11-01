@@ -85,7 +85,7 @@ VS-006 adds exact camera-threshold and slice-event-tag9 goldens,1000-cycle camer
 
 VS-007 adds new exact solar/query-frame bit goldens (rule1), published-reference comparisons at≤0.1°, integer NY/DST/leap/model-Monday properties, pure/coherent native calendar queries and separate-process speed/calendar boundary replay. ABI4 migrates only obsolete version expectations and the C consumer entrypoint under accepted ADR0030; all v1/2/3 fixtures, old C consumer source and behavioral checks remain. Actual pinned Editor graphics/control/light/100× measurements remain local evidence, distinct from device checks.
 
-VS-008 adds the separate ABI5 real-slice handle, bounded geometry/snapshot transport, layout/error/poison/coherence fixtures and exact topology tests. The C consumer entrypoint advances to v5 while retaining all v1–4 fixtures/consumer sources. Actual pinned Editor tests cover real massing, camera, street residents and GPU-fenced timings locally; these do not establish device acceptance. The Bootstrap-only default build-scene guard remains unchanged, with RealBlock selected by its explicit build entry.
+VS-008 adds the separate ABI5 real-slice handle, bounded geometry/snapshot transport, layout/error/poison/coherence fixtures and exact topology tests. The C consumer entrypoint advances to v5 while retaining all v1–4 fixtures/consumer sources. Actual pinned Editor tests cover real massing, camera, street residents and GPU-fenced timings locally; these do not establish device acceptance. Since #139 RealBlock is the only build scene, and the skeleton test and static checker guard it.
 
 ## Planned additions
 

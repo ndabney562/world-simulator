@@ -8,18 +8,10 @@ using UnityEngine.Rendering;
 
 namespace WorldSim.EditorTools
 {
-    /// <summary>TP-011: one menu item that prepares and builds the iPhone performance-spike Xcode project.</summary>
+    /// <summary>One menu item that prepares and builds the RealBlock iPhone Xcode project.</summary>
     public static class IosBuild
     {
-        const string Scene = "Assets/WorldSim/Scenes/Bootstrap.unity";
         const string Plugin = "Assets/Plugins/iOS/libws_ffi.a";
-        const string OutputFolder = "Builds/iOS";
-
-        [MenuItem("WorldSim/Build iOS performance spike")]
-        public static void Build()
-        {
-            BuildScene(Scene,OutputFolder,"org.worldsimulator.tp011","17.0");
-        }
 
         [MenuItem("WorldSim/Build iOS real block")]
         public static void BuildRealBlock()
@@ -27,7 +19,7 @@ namespace WorldSim.EditorTools
             BuildScene("Assets/WorldSim/Scenes/RealBlock.unity","Builds/iOS-RealBlock","org.worldsimulator.vs008");
         }
 
-        static void BuildScene(string scene,string outputFolder,string buildBundleId,string minimumOverride=null)
+        static void BuildScene(string scene,string outputFolder,string buildBundleId)
         {
             if (!File.Exists(Plugin))
             {
@@ -42,13 +34,11 @@ namespace WorldSim.EditorTools
             // Build-only overrides; the finally block puts the committed project settings back so a build
             // leaves ProjectSettings unchanged (the project skeleton tests pin the bundle id and minimum iOS).
             string bundleId = PlayerSettings.GetApplicationIdentifier(NamedBuildTarget.iOS);
-            string minimumOs = PlayerSettings.iOS.targetOSVersionString;
             Shader added = null, addedLit = null;
             int instancingStripping = SetInstancingStripping(KeepAllInstancingVariants);
             try
             {
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, buildBundleId);
-                if(minimumOverride!=null) PlayerSettings.iOS.targetOSVersionString = minimumOverride;
                 added = AlwaysInclude("Universal Render Pipeline/Unlit");
                 addedLit = AlwaysInclude("Universal Render Pipeline/Lit");
                 var options = new BuildPlayerOptions
@@ -66,7 +56,6 @@ namespace WorldSim.EditorTools
             finally
             {
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, bundleId);
-                PlayerSettings.iOS.targetOSVersionString = minimumOs;
                 if (added != null) RemoveAlwaysIncluded(added);
                 if (addedLit != null) RemoveAlwaysIncluded(addedLit);
                 SetInstancingStripping(instancingStripping);

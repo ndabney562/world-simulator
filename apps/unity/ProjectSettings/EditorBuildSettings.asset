@@ -6,6 +6,6 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/WorldSim/Scenes/Bootstrap.unity
-    guid: af6d213af4f647caab09496b4b728579
+    path: Assets/WorldSim/Scenes/RealBlock.unity
+    guid: 3cc7f37339c948cdb4667fd9317db97f
   m_configObjects: {}

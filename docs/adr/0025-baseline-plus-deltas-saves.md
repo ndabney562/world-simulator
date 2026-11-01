@@ -1,6 +1,6 @@
 # ADR 0025: version-pinned baseline plus canonical deltas in save format 3
 
-- Status: Accepted
+- Status: Accepted; toy-world parts superseded by [0040](0040-delete-toy-world-and-old-formats.md)
 - Date: 2026-10-19
 - Decided by: Noah, direct standing approval on 2026-10-19, recorded on #77 and PR #83; proposed by Codex
 - Issue: #53
